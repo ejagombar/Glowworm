@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glowworm — Finance, made clear</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- Icon sprite -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-transactions" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol>
+    <symbol id="i-categories" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></symbol>
+    <symbol id="i-timeline" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L21 11l-6.8 2.7L12 20l-2.2-6.3L3 11l6.8-2.7L12 2z"/><path d="M19 3l.8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3z"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="12" r="1.6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><line x1="7" y1="7" x2="17" y2="17"/><polyline points="17 7 17 17 7 17"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+    <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 9l9-6 9 6"/><path d="M4 9v9M9 9v9M15 9v9M20 9v9"/><path d="M2 21h20"/><path d="M4 18h16"/></symbol>
+    <symbol id="i-glowworm" viewBox="0 0 40 32">
+      <circle cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
+      <circle cx="13" cy="21" r="5.5" fill="#2cc57a"/>
+      <circle cx="21" cy="18" r="7" fill="#27b268"/>
+      <circle cx="30" cy="17" r="8.5" fill="#1f9b57"/>
+      <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff"/>
+      <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff"/>
+      <circle cx="28" cy="15" r="1.15" fill="#0c3a22"/>
+      <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22"/>
+      <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <circle cx="31" cy="5" r="1.3" fill="#7dffb8"/>
+      <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8"/>
+      <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+    </symbol>
+  </svg>
+
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-logo" aria-hidden="true"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+        <span class="brand-name">Glowworm</span>
+      </div>
+
+      <nav class="nav" aria-label="Primary">
+        <a href="#" class="nav-item active" data-view="dashboard">
+          <svg class="icon"><use href="#i-dashboard"/></svg><span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-view="transactions">
+          <svg class="icon"><use href="#i-transactions"/></svg><span>Transactions</span>
+        </a>
+        <a href="#" class="nav-item" data-view="categories">
+          <svg class="icon"><use href="#i-categories"/></svg><span>Categories</span>
+        </a>
+        <a href="#" class="nav-item" data-view="import">
+          <svg class="icon"><use href="#i-import"/></svg><span>Import</span>
+        </a>
+        <a href="#" class="nav-item" data-view="timeline">
+          <svg class="icon"><use href="#i-timeline"/></svg><span>Timeline</span>
+        </a>
+        <a href="#" class="nav-item" data-view="history">
+          <svg class="icon"><use href="#i-history"/></svg><span>History</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <a href="#" class="nav-item" data-view="settings">
+          <svg class="icon"><use href="#i-settings"/></svg><span>Settings</span>
+        </a>
+        <div class="sidebar-status">
+          <span class="status-dot"></span>
+          <span>AI engine connected</span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="sidebar-scrim" id="sidebarScrim"></div>
+
+    <!-- Main -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Menu">
+          <svg class="icon"><use href="#i-menu"/></svg>
+        </button>
+
+        <span class="topbar-title" id="topbarTitle">Dashboard</span>
+
+        <div class="topbar-actions">
+          <button class="icon-btn chat-toggle" id="chatToggle" aria-label="Open Glowworm assistant">
+            <svg class="gw"><use href="#i-glowworm"/></svg>
+          </button>
+          <button class="icon-btn" aria-label="Notifications">
+            <svg class="icon"><use href="#i-bell"/></svg>
+            <span class="dot"></span>
+          </button>
+          <button class="avatar" aria-label="Account">EJ</button>
+        </div>
+      </header>
+
+      <main class="content" id="content">
+        <!-- ============ DASHBOARD ============ -->
+        <section class="view active" id="view-dashboard">
+          <div class="dash-shell" id="dashShell">
+          <div class="dash-main">
+          <div class="view-head">
+            <div>
+              <h1>Good morning, Emma</h1>
+              <p class="sub">Here's your money at a glance.</p>
+            </div>
+            <button class="btn btn-primary" data-view-link="import">
+              <svg class="icon"><use href="#i-import"/></svg> Import statement
+            </button>
+          </div>
+
+          <!-- Overview -->
+          <div class="overview">
+            <div class="stats-grid col">
+              <article class="stat-card compact">
+                <span class="stat-icon"><svg class="icon"><use href="#i-bank"/></svg></span>
+                <div class="stat-label">Total balance</div>
+                <div class="stat-value">£8,412.66</div>
+                <div class="stat-trend up"><svg class="icon"><use href="#i-up"/></svg> 3.2% this month</div>
+              </article>
+              <article class="stat-card compact">
+                <span class="stat-icon"><svg class="icon"><use href="#i-up"/></svg></span>
+                <div class="stat-label">Income this month</div>
+                <div class="stat-value">£2,450.00</div>
+                <div class="stat-trend up"><svg class="icon"><use href="#i-up"/></svg> Salary · 1 May</div>
+              </article>
+              <article class="stat-card compact">
+                <span class="stat-icon"><svg class="icon"><use href="#i-down"/></svg></span>
+                <div class="stat-label">Spent this month</div>
+                <div class="stat-value">£1,284.50</div>
+                <div class="stat-trend down"><svg class="icon"><use href="#i-down"/></svg> 8% vs last month</div>
+              </article>
+              <article class="stat-card compact">
+                <span class="stat-icon"><svg class="icon"><use href="#i-check"/></svg></span>
+                <div class="stat-label">Savings rate</div>
+                <div class="stat-value">22%</div>
+                <div class="stat-trend up"><svg class="icon"><use href="#i-up"/></svg> On target</div>
+              </article>
+            </div>
+
+            <div class="panel overview-chart">
+              <div class="section-head inside">
+                <div>
+                  <h2>Balance overview</h2>
+                  <p class="muted small">All accounts · last 12 months</p>
+                </div>
+                <span class="badge badge-soft">+3.2% this year</span>
+              </div>
+              <div class="chart-host" id="heroChart"></div>
+            </div>
+          </div>
+
+          <!-- Pinned widgets -->
+          <div class="section-head">
+            <h2>Pinned widgets</h2>
+            <span class="muted">Saved from your questions</span>
+          </div>
+          <div class="widgets-grid" id="pinnedGrid"></div>
+
+          <!-- Recent transactions -->
+          <div class="section-head">
+            <h2>Recent activity</h2>
+            <button class="btn btn-ghost btn-xs" data-view-link="transactions">View all</button>
+          </div>
+          <div class="panel">
+            <div class="tx-list" id="recentTransactions"></div>
+          </div>
+          </div><!-- /.dash-main -->
+          </div><!-- /.dash-shell -->
+        </section>
+
+        <!-- ============ TRANSACTIONS ============ -->
+        <section class="view" id="view-transactions">
+          <div class="view-head">
+            <div>
+              <h1>Transactions</h1>
+              <p class="sub">Every movement in and out of your accounts.</p>
+            </div>
+            <button class="btn btn-primary" data-view-link="import">
+              <svg class="icon"><use href="#i-import"/></svg> Import statement
+            </button>
+          </div>
+
+          <div class="filters panel">
+            <div class="field search">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <input type="text" id="txSearch" placeholder="Search merchant or category…" />
+            </div>
+            <select id="txCategory" class="field select">
+              <option value="">All categories</option>
+            </select>
+            <select id="txType" class="field select">
+              <option value="">All types</option>
+              <option value="expense">Expenses</option>
+              <option value="income">Income</option>
+              <option value="transfer">Transfers</option>
+              <option value="bill">Bills</option>
+            </select>
+          </div>
+
+          <div class="panel table-panel">
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th>Date</th><th>Merchant</th><th>Category</th><th>Account</th><th class="num">Amount</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="transactionsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============ CATEGORIES ============ -->
+        <section class="view" id="view-categories">
+          <div class="view-head">
+            <div>
+              <h1>Categories</h1>
+              <p class="sub">Where your money gets sorted. Glowworm learns these over time.</p>
+            </div>
+            <button class="btn btn-primary" id="addCategoryBtn">
+              <svg class="icon"><use href="#i-plus"/></svg> New category
+            </button>
+          </div>
+
+          <div class="category-grid" id="categoriesGrid"></div>
+        </section>
+
+        <!-- ============ IMPORT ============ -->
+        <section class="view" id="view-import">
+          <div class="view-head">
+            <div>
+              <h1>Import</h1>
+              <p class="sub">Drop in any bank statement. Glowworm figures out the format.</p>
+            </div>
+          </div>
+
+          <div class="dropzone" id="dropzone">
+            <svg class="icon big"><use href="#i-import"/></svg>
+            <p><strong>Drop a statement here</strong> or <button class="link" id="dropzoneBrowse">browse files</button></p>
+            <p class="muted">CSV, PDF, OFX, QIF, camera photos… anything goes.</p>
+            <input type="file" id="fileInput" hidden multiple />
+          </div>
+
+          <div class="two-col">
+            <div>
+              <div class="section-head">
+                <h2>Saved schemas</h2>
+                <span class="muted">Auto-detected formats you've confirmed</span>
+              </div>
+              <div class="schema-list" id="schemasList"></div>
+            </div>
+            <div>
+              <div class="section-head">
+                <h2>How it works</h2>
+              </div>
+              <ol class="steps-list panel">
+                <li><span class="step-num">1</span> Upload a statement</li>
+                <li><span class="step-num">2</span> AI detects the schema</li>
+                <li><span class="step-num">3</span> You confirm with a preview</li>
+                <li><span class="step-num">4</span> Transactions are imported &amp; categorised</li>
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ TIMELINE ============ -->
+        <section class="view" id="view-timeline">
+          <div class="view-head">
+            <div>
+              <h1>Timeline</h1>
+              <p class="sub">Travel back to any date and see your finances as they were.</p>
+            </div>
+          </div>
+
+          <div class="panel timeline-controls">
+            <div class="timeline-date" id="timelineDate">1 June 2024</div>
+            <input type="range" id="timelineSlider" min="0" max="11" value="11" step="1" />
+            <div class="timeline-labels">
+              <span>Jul 23</span><span>Jun 24</span>
+            </div>
+          </div>
+
+          <div class="stats-grid three">
+            <article class="stat-card">
+              <div class="stat-label">Balance at this date</div>
+              <div class="stat-value" id="timelineBalance">£8,412.66</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">Reconciled</div>
+              <div class="stat-value ok">In sync</div>
+              <div class="stat-trend up"><svg class="icon"><use href="#i-check"/></svg> No divergences</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">Transactions in period</div>
+              <div class="stat-value" id="timelineTxCount">142</div>
+            </article>
+          </div>
+
+          <div class="panel">
+            <div class="section-head inside">
+              <h2>Balance over time</h2>
+            </div>
+            <div class="chart-host" id="timelineChart"></div>
+          </div>
+        </section>
+
+        <!-- ============ HISTORY ============ -->
+        <section class="view" id="view-history">
+          <div class="view-head">
+            <div>
+              <h1>History &amp; audit log</h1>
+              <p class="sub">Every change is a reversible diff — by you or the AI.</p>
+            </div>
+          </div>
+
+          <div class="filters panel">
+            <button class="chip active" data-history-filter="all">All</button>
+            <button class="chip" data-history-filter="you">By you</button>
+            <button class="chip" data-history-filter="ai">By AI</button>
+            <button class="chip" data-history-filter="import">Imports</button>
+          </div>
+
+          <div class="history-list" id="historyList"></div>
+        </section>
+
+        <!-- ============ SETTINGS ============ -->
+        <section class="view" id="view-settings">
+          <div class="view-head">
+            <div>
+              <h1>Settings</h1>
+              <p class="sub">Accounts, AI provider and appearance.</p>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <div class="panel setting-block">
+              <h2>AI provider</h2>
+              <p class="muted">Glowworm is AI agnostic. Pick whatever you trust.</p>
+              <div class="field-row">
+                <label>Provider</label>
+                <select class="field select">
+                  <option>OpenAI (GPT)</option>
+                  <option>Anthropic (Claude)</option>
+                  <option>Google (Gemini)</option>
+                  <option>Ollama (local)</option>
+                  <option>Custom endpoint</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>API key</label>
+                <input class="field" type="password" value="sk-••••••••••••••••" />
+              </div>
+              <div class="field-row">
+                <label>Model</label>
+                <select class="field select"><option>Auto</option><option>Latest</option></select>
+              </div>
+            </div>
+
+            <div class="panel setting-block">
+              <h2>Accounts</h2>
+              <p class="muted">Bank accounts you track.</p>
+              <div class="account-row">
+                <span class="account-dot" style="background:#0e6f51"></span>
+                <div><strong>Current account</strong><p class="muted">£3,912.66</p></div>
+                <span class="badge">Primary</span>
+              </div>
+              <div class="account-row">
+                <span class="account-dot" style="background:#4f5bc7"></span>
+                <div><strong>Savings</strong><p class="muted">£4,500.00</p></div>
+                <span class="badge badge-soft">Savings</span>
+              </div>
+            </div>
+
+            <div class="panel setting-block">
+              <h2>Appearance</h2>
+              <div class="field-row">
+                <label>Theme</label>
+                <select class="field select"><option>Light</option><option>Dark</option><option>System</option></select>
+              </div>
+              <div class="field-row">
+                <label>Currency</label>
+                <select class="field select"><option>£ GBP</option><option>$ USD</option><option>€ EUR</option></select>
+              </div>
+            </div>
+
+            <div class="panel setting-block">
+              <h2>Getting started</h2>
+              <p class="muted">Re-run the setup walkthrough and rebuild your categories.</p>
+              <button class="btn btn-primary" data-action="run-setup">Run setup walkthrough</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Chat launcher -->
+  <button class="chat-fab" id="chatFab" hidden aria-label="Open Glowworm assistant">
+    <svg class="gw"><use href="#i-glowworm"/></svg>
+    <span>Ask Glowworm</span>
+  </button>
+
+  <!-- Chat panel -->
+  <aside class="chat-panel floating" id="chatPanel" aria-label="Glowworm assistant">
+    <header class="chat-head">
+      <div class="chat-title">
+        <span class="chat-avatar"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+        <div class="chat-meta">
+          <strong>Glowworm</strong>
+          <span class="chat-status"><span class="status-dot"></span> Online</span>
+        </div>
+      </div>
+      <div class="chat-actions">
+        <button class="icon-btn" id="chatPinBtn" title="Pin next to dashboard" aria-label="Pin next to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
+        <button class="icon-btn" id="chatCloseBtn" title="Close chat" aria-label="Close chat"><svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+    </header>
+
+    <div class="chat-messages" id="chatMessages"></div>
+
+    <footer class="chat-composer">
+      <input type="text" id="chatInput" placeholder="Ask about your money…" autocomplete="off" />
+      <button class="btn btn-primary chat-send" id="chatSendBtn" aria-label="Send">
+        <svg class="icon"><use href="#i-arrow-right"/></svg>
+      </button>
+    </footer>
+  </aside>
+
+  <!-- Setup wizard -->
+  <div class="modal-backdrop" id="setupWizard" hidden>
+    <div class="modal wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+      <button class="icon-btn modal-close" data-action="close-wizard" aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+
+      <div class="wizard-progress" id="wizardProgress"></div>
+
+      <div class="wizard-step" data-step="0">
+        <div class="wizard-hero">
+          <span class="brand-mark lg"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+          <h2 id="wizardTitle">Welcome to Glowworm</h2>
+          <p>Your money, made clear. Let's set things up in under a minute.</p>
+        </div>
+      </div>
+
+      <div class="wizard-step" data-step="1" hidden>
+        <h2>Create your categories</h2>
+        <p class="muted">These are the buckets your money gets sorted into. Edit or remove any.</p>
+        <div class="wizard-categories" id="wizardCategories"></div>
+        <button class="btn btn-ghost btn-xs" id="wizardAddCategory">
+          <svg class="icon"><use href="#i-plus"/></svg> Add category
+        </button>
+      </div>
+
+      <div class="wizard-step" data-step="2" hidden>
+        <h2>Import your first statement</h2>
+        <p class="muted">This powers automatic categorisation. You can skip and do it later.</p>
+        <div class="dropzone small" id="wizardDropzone">
+          <svg class="icon big"><use href="#i-import"/></svg>
+          <p><strong>Drop a statement here</strong></p>
+          <p class="muted">CSV, PDF, OFX, QIF…</p>
+        </div>
+      </div>
+
+      <div class="wizard-step" data-step="3" hidden>
+        <h2>Choose your AI provider</h2>
+        <p class="muted">Glowworm works with many providers, or fully local.</p>
+        <div class="provider-pick" data-provider="openai">
+          <span class="provider-mark openai">O</span><strong>OpenAI</strong><span class="muted">GPT</span>
+        </div>
+        <div class="provider-pick" data-provider="anthropic">
+          <span class="provider-mark anthropic">A</span><strong>Anthropic</strong><span class="muted">Claude</span>
+        </div>
+        <div class="provider-pick selected" data-provider="local">
+          <span class="provider-mark local">L</span><strong>Local (Ollama)</strong><span class="muted">Private</span>
+        </div>
+      </div>
+
+      <div class="wizard-step" data-step="4" hidden>
+        <div class="wizard-hero">
+          <div class="success-mark"><svg class="icon"><use href="#i-check"/></svg></div>
+          <h2>You're all set</h2>
+          <p>Glowworm is ready. Ask it anything about your money.</p>
+        </div>
+      </div>
+
+      <div class="wizard-footer">
+        <button class="btn btn-ghost" id="wizardBack" hidden>
+          <svg class="icon"><use href="#i-arrow-left"/></svg> Back
+        </button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" id="wizardSkip">Skip for now</button>
+        <button class="btn btn-primary" id="wizardNext">Continue <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Widget config drawer -->
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="drawer" id="widgetDrawer" hidden aria-label="Widget settings">
+    <div class="drawer-head">
+      <h3>Widget settings</h3>
+      <button class="icon-btn" data-action="close-drawer" aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div class="field-row">
+        <label>Title</label>
+        <input class="field" id="wTitle" type="text" />
+      </div>
+      <div class="field-row">
+        <label>Chart type</label>
+        <select class="field select" id="wType">
+          <option value="bar">Bar chart</option>
+          <option value="line">Line chart</option>
+          <option value="pie">Pie chart</option>
+          <option value="table">Table</option>
+          <option value="number">Number</option>
+          <option value="text">Text</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label class="switch-label">
+          <span>Pinned to dashboard</span>
+          <input type="checkbox" id="wPinned" />
+          <span class="switch"></span>
+        </label>
+      </div>
+      <p class="muted small">Widgets are JSON-defined and frontend agnostic — these settings map straight to the widget schema.</p>
+      <pre class="json-preview" id="wJsonPreview"></pre>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn btn-ghost" data-action="close-drawer">Cancel</button>
+      <button class="btn btn-primary" id="wApply">Apply changes</button>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/widgets.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
