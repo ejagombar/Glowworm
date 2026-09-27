@@ -69,6 +69,7 @@ function init() {
   renderChat();
   setChatMode("closed");
   wireEvents();
+  wireGlowwormReactions();
   setTimeout(() => openWizard(), 500);
 }
 
@@ -283,37 +284,79 @@ function renderTimeline(idx) {
 }
 
 /* ============================== AI chat ============================== */
+let loaderSeq = 0;
+
 function wormLoaderHTML() {
-  return `<div class="worm-loader" role="status" aria-label="Glowworm is thinking">
-    <svg class="worm-crawl" viewBox="0 0 140 44" aria-hidden="true">
-      <g class="worm-body">
-        <circle class="worm-tail" cx="10" cy="30" r="4.5" fill="#7dffb8"/>
-        <circle cx="24" cy="26" r="7" fill="#2cc57a"/>
-        <circle cx="42" cy="22" r="8.5" fill="#27b268"/>
-        <circle cx="63" cy="20" r="9.5" fill="#22a75e"/>
-        <circle cx="87" cy="21" r="11" fill="#1f9b57"/>
-        <circle cx="83.5" cy="17" r="2.4" fill="#ffffff"/>
-        <circle cx="93" cy="17" r="2.4" fill="#ffffff"/>
-        <circle cx="84" cy="17.4" r="1.2" fill="#0c3a22"/>
-        <circle cx="93.5" cy="17.4" r="1.2" fill="#0c3a22"/>
-        <path d="M83 11 q-2 -5 3 -6" stroke="#1f9b57" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-        <circle cx="86.5" cy="6.5" r="1.4" fill="#7dffb8"/>
-        <path d="M84 25 q3 2.5 6 0" stroke="#0c3a22" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+  const n = ++loaderSeq;
+  const gid = (name) => `${name}-${n}`;
+  const g = (name) => `url(#${gid(name)})`;
+  return `<div class="worm-loader-stage" role="status" aria-label="Glowworm is thinking">
+    <svg class="worm-loader-svg" viewBox="0 0 200 70">
+      <defs>
+        <linearGradient id="${gid("wl-body")}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#4ade80"/>
+          <stop offset="50%" stop-color="#22c55e"/>
+          <stop offset="100%" stop-color="#15803d"/>
+        </linearGradient>
+        <radialGradient id="${gid("wl-tail")}" cx="45%" cy="45%" r="55%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="30%" stop-color="#fef08a"/>
+          <stop offset="70%" stop-color="#4ade80"/>
+          <stop offset="100%" stop-color="#16a34a"/>
+        </radialGradient>
+        <radialGradient id="${gid("wl-glow")}" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#a7f3d0" stop-opacity="0.9"/>
+          <stop offset="45%" stop-color="#4ade80" stop-opacity="0.45"/>
+          <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+
+      <!-- Bioluminescent trail (revealed while spinning) -->
+      <g class="worm-glow-trail">
+        <circle cx="100" cy="35" r="15" fill="none" stroke="${g("wl-tail")}" stroke-width="2.5" stroke-dasharray="32 62" stroke-linecap="round"/>
+      </g>
+
+      <!-- The worm: crawls in, curls into a ball, then this group spins -->
+      <g class="worm-spin-group">
+        <g class="wl-seg4">
+          <circle cx="108.6" cy="47.3" r="4.8" fill="${g("wl-body")}"/>
+          <circle cx="107.8" cy="48.5" r="3.2" fill="#86efac" opacity="0.35"/>
+        </g>
+        <g class="wl-tail">
+          <circle class="tail-bulb" cx="115" cy="35" r="10" fill="${g("wl-glow")}"/>
+          <circle cx="115" cy="35" r="4.3" fill="${g("wl-tail")}"/>
+          <circle cx="114.2" cy="34.2" r="1.6" fill="#ffffff" opacity="0.85"/>
+        </g>
+        <g class="wl-seg3">
+          <circle cx="94.9" cy="49.1" r="5.2" fill="${g("wl-body")}"/>
+          <circle cx="94" cy="50.5" r="3.5" fill="#86efac" opacity="0.35"/>
+        </g>
+        <g class="wl-seg2">
+          <circle cx="85.5" cy="38.9" r="5.6" fill="${g("wl-body")}"/>
+          <circle cx="84.5" cy="40" r="3.8" fill="#86efac" opacity="0.35"/>
+        </g>
+        <g class="wl-seg1">
+          <circle cx="88.5" cy="25.4" r="6" fill="${g("wl-body")}"/>
+          <circle cx="87.5" cy="26.5" r="4" fill="#86efac" opacity="0.35"/>
+        </g>
+        <g class="wl-head">
+          <circle cx="100" cy="20" r="6.8" fill="${g("wl-body")}"/>
+          <circle cx="96.5" cy="21.5" r="1.5" fill="#f472b6" opacity="0.55"/>
+          <circle cx="103.5" cy="21.5" r="1.5" fill="#f472b6" opacity="0.55"/>
+          <circle cx="97.5" cy="18.5" r="1.9" fill="#0f291e"/>
+          <circle cx="97" cy="18" r="0.8" fill="#ffffff"/>
+          <circle cx="102.5" cy="18.5" r="1.9" fill="#0f291e"/>
+          <circle cx="102" cy="18" r="0.8" fill="#ffffff"/>
+          <g class="wl-antenna">
+            <path d="M 98 14 Q 95 9 92 10" stroke="#16a34a" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+            <circle cx="91.5" cy="10" r="1.2" fill="#86efac"/>
+            <path d="M 102 14 Q 105 9 108 10" stroke="#16a34a" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+            <circle cx="108.5" cy="10" r="1.2" fill="#86efac"/>
+          </g>
+          <path d="M 98.8 22.5 Q 100 24 101.2 22.5" stroke="#0f291e" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+        </g>
       </g>
     </svg>
-    <span class="worm-spin-wrap">
-      <svg class="worm-spin" viewBox="0 0 48 48" aria-hidden="true">
-        <circle cx="24" cy="24" r="17" fill="none" stroke="#e7e9ee" stroke-width="3"/>
-        <circle cx="24" cy="24" r="17" fill="none" stroke="#1f9b57" stroke-width="3" stroke-linecap="round" stroke-dasharray="80 107"/>
-        <g class="worm-rotor">
-          <circle cx="24" cy="7" r="5.5" fill="#1f9b57"/>
-          <circle cx="23" cy="6" r="1.3" fill="#ffffff"/>
-          <circle cx="26.4" cy="6" r="1.3" fill="#ffffff"/>
-          <circle cx="23.3" cy="6.2" r="0.7" fill="#0c3a22"/>
-          <circle cx="26.7" cy="6.2" r="0.7" fill="#0c3a22"/>
-        </g>
-      </svg>
-    </span>
   </div>`;
 }
 
@@ -370,6 +413,7 @@ function sendChat(text) {
   state.chat.push({ role: "user", text });
   state.chat.push({ role: "assistant", pending: true });
   renderChat();
+  nodChatAvatar();
 
   const resp = QUERY_RESPONSES.find((r) => r.match.test(text)) || DEFAULT_RESPONSE;
   setTimeout(() => {
@@ -383,7 +427,55 @@ function sendChat(text) {
       };
     }
     renderChat();
-  }, 2600);
+  }, 2850);
+}
+
+/* ============================== Glowworm reactions ============================== */
+function nodChatAvatar() {
+  const avatar = document.querySelector(".chat-head .chat-avatar");
+  if (!avatar) return;
+  avatar.classList.remove("gw-nod");
+  void avatar.offsetWidth; // restart the animation
+  avatar.classList.add("gw-nod");
+}
+
+function wireGlowwormReactions() {
+  // Eyes follow the cursor when it's near a mascot
+  document.querySelectorAll(".brand-logo, .chat-avatar, .chat-toggle").forEach((host) => {
+    host.addEventListener("mousemove", (e) => {
+      const svg = host.querySelector(".gw");
+      if (!svg) return;
+      const r = svg.getBoundingClientRect();
+      const dx = (e.clientX - (r.left + r.width / 2)) / Math.max(r.width, 1);
+      const dy = (e.clientY - (r.top + r.height / 2)) / Math.max(r.height, 1);
+      svg.style.setProperty("--gw-look-x", clamp(dx * 1.6, -0.6, 0.6).toFixed(2) + "px");
+      svg.style.setProperty("--gw-look-y", clamp(dy * 1.6, -0.5, 0.5).toFixed(2) + "px");
+    });
+    host.addEventListener("mouseleave", () => {
+      const svg = host.querySelector(".gw");
+      svg?.style.removeProperty("--gw-look-x");
+      svg?.style.removeProperty("--gw-look-y");
+    });
+  });
+
+  // Any glowworm does a joyful hop when clicked
+  document.addEventListener("click", (e) => {
+    const gw = e.target.closest(".gw");
+    if (!gw) return;
+    gw.classList.remove("gw-hop");
+    void gw.offsetWidth; // restart the animation
+    gw.classList.add("gw-hop");
+  });
+
+  // Chat avatar perks up while the user is typing
+  const input = document.getElementById("chatInput");
+  const avatar = document.querySelector(".chat-head .chat-avatar");
+  input.addEventListener("focus", () => avatar?.classList.add("gw-listening"));
+  input.addEventListener("blur", () => avatar?.classList.remove("gw-listening"));
+}
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
 }
 
 function setChatMode(mode) {

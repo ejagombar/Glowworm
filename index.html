@@ -35,20 +35,78 @@
     <symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
     <symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
     <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 9l9-6 9 6"/><path d="M4 9v9M9 9v9M15 9v9M20 9v9"/><path d="M2 21h20"/><path d="M4 18h16"/></symbol>
-    <symbol id="i-glowworm" viewBox="0 0 40 32">
-      <circle cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
-      <circle cx="13" cy="21" r="5.5" fill="#2cc57a"/>
-      <circle cx="21" cy="18" r="7" fill="#27b268"/>
-      <circle cx="30" cy="17" r="8.5" fill="#1f9b57"/>
-      <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff"/>
-      <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff"/>
-      <circle cx="28" cy="15" r="1.15" fill="#0c3a22"/>
-      <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22"/>
-      <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-      <circle cx="31" cy="5" r="1.3" fill="#7dffb8"/>
-      <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-      <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8"/>
-      <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+    <defs>
+      <linearGradient id="gw-mascot-body" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#4ade80"/>
+        <stop offset="55%" stop-color="#22c55e"/>
+        <stop offset="100%" stop-color="#15803d"/>
+      </linearGradient>
+      <linearGradient id="gw-mascot-head" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#86efac"/>
+        <stop offset="40%" stop-color="#22c55e"/>
+        <stop offset="100%" stop-color="#16a34a"/>
+      </linearGradient>
+      <linearGradient id="gw-mascot-belly" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#bbf7d0"/>
+        <stop offset="100%" stop-color="#86efac"/>
+      </linearGradient>
+      <radialGradient id="gw-mascot-tail" cx="45%" cy="45%" r="55%">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="25%" stop-color="#fef08a"/>
+        <stop offset="65%" stop-color="#4ade80"/>
+        <stop offset="100%" stop-color="#15803d"/>
+      </radialGradient>
+      <radialGradient id="gw-mascot-glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#a7f3d0" stop-opacity="0.95"/>
+        <stop offset="40%" stop-color="#4ade80" stop-opacity="0.5"/>
+        <stop offset="80%" stop-color="#22c55e" stop-opacity="0.15"/>
+        <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <symbol id="i-glowworm" viewBox="0 0 48 36">
+      <!-- Glow halo behind tail -->
+      <circle class="gw-tail-halo" cx="9" cy="23.5" r="9" fill="url(#gw-mascot-glow)"/>
+      <!-- Cute feet -->
+      <ellipse class="gw-foot" cx="16" cy="27.5" rx="2.4" ry="1.6" fill="#15803d"/>
+      <ellipse class="gw-foot" cx="23.5" cy="26" rx="2.5" ry="1.8" fill="#15803d"/>
+      <ellipse class="gw-foot" cx="31" cy="24.8" rx="2.6" ry="1.9" fill="#15803d"/>
+      <!-- Body segments -->
+      <circle class="gw-seg3" cx="16" cy="21" r="5.6" fill="url(#gw-mascot-body)"/>
+      <circle class="gw-seg2" cx="24" cy="19" r="6.6" fill="url(#gw-mascot-body)"/>
+      <circle class="gw-seg1" cx="32" cy="17.8" r="7.4" fill="url(#gw-mascot-body)"/>
+      <!-- Belly highlight curve -->
+      <path class="gw-belly" d="M 12 23 Q 23.5 26.5 35 21.5" stroke="url(#gw-mascot-belly)" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.65"/>
+      <!-- Bioluminescent tail bulb -->
+      <circle class="gw-tail-bulb" cx="9" cy="23.5" r="4.4" fill="url(#gw-mascot-tail)"/>
+      <!-- Core tail gleam -->
+      <circle class="gw-tail-gleam" cx="8.2" cy="22.2" r="1.5" fill="#ffffff" opacity="0.85"/>
+      <!-- Head group -->
+      <g class="gw-head-group">
+        <circle class="gw-head" cx="38.5" cy="17.2" r="8.2" fill="url(#gw-mascot-head)"/>
+        <!-- Soft blush cheeks -->
+        <ellipse class="gw-blush" cx="34.5" cy="20" rx="1.8" ry="1.2" fill="#f472b6" opacity="0.55"/>
+        <ellipse class="gw-blush" cx="43" cy="19.5" rx="1.8" ry="1.2" fill="#f472b6" opacity="0.55"/>
+        <!-- Eyes -->
+        <g class="gw-eye-left">
+          <ellipse cx="35.5" cy="15" rx="2.2" ry="2.6" fill="#0f291e"/>
+          <circle class="gw-pupil-main" cx="34.8" cy="14" r="1.0" fill="#ffffff"/>
+          <circle class="gw-pupil-sub" cx="36.2" cy="16" r="0.45" fill="#ffffff"/>
+        </g>
+        <g class="gw-eye-right">
+          <ellipse cx="41.8" cy="14.5" rx="2.2" ry="2.6" fill="#0f291e"/>
+          <circle class="gw-pupil-main" cx="41.1" cy="13.5" r="1.0" fill="#ffffff"/>
+          <circle class="gw-pupil-sub" cx="42.5" cy="15.5" r="0.45" fill="#ffffff"/>
+        </g>
+        <!-- Cute happy mouth -->
+        <path class="gw-mouth" d="M 37.5 19.5 Q 39.5 21.8 41.5 19.5" stroke="#0f291e" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        <!-- Antennae -->
+        <g class="gw-antennae">
+          <path d="M 36.5 10 Q 33 3.5 29.5 5" stroke="#16a34a" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          <circle class="gw-ant-tip" cx="29" cy="5" r="1.5" fill="#86efac"/>
+          <path d="M 40.5 9.5 Q 43.5 3 46.5 4" stroke="#16a34a" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          <circle class="gw-ant-tip" cx="46.5" cy="4" r="1.5" fill="#86efac"/>
+        </g>
+      </g>
     </symbol>
   </svg>
 
