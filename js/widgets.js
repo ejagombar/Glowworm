@@ -88,7 +88,7 @@ function barChartSVG(data) {
   const ticks = axisTicks(max);
   ticks.forEach((t) => {
     const y = padT + innerH - (t / max) * innerH;
-    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eef1f4" stroke-width="1"/>`);
+    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#e3e7ec" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
   });
 
@@ -99,7 +99,7 @@ function barChartSVG(data) {
       const h = (v / max) * innerH;
       const bx = x - (s.length * barW) / 2 + si * barW + 2;
       const by = padT + innerH - h;
-      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(h, 0)}" rx="3" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"><title>${esc(series.name)}: ${fmtMoney(v)}</title></rect>`);
+      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(h, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"><title>${esc(series.name)}: ${fmtMoney(v)}</title></rect>`);
     });
     parts.push(`<text x="${x}" y="${H - 8}" text-anchor="middle" class="chart-tooltip">${esc(shortLabel(label))}</text>`);
   });
@@ -123,7 +123,7 @@ function lineChartSVG(data, width = 640) {
   let parts = [];
   axisTicks(max, 4).forEach((t) => {
     const y = py(t);
-    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eef1f4" stroke-width="1"/>`);
+    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#e3e7ec" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
   });
 
@@ -240,8 +240,8 @@ function ensureWidgetStyles() {
     .pie-wrap svg { flex: none; width: 168px; height: 168px; }
     .pie-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 7px; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-    .pie-legend-row span:nth-child(2) { flex: 1; color: #3f4652; }
-    .pie-legend-val { color: #6b7480; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .pie-legend-row span:nth-child(2) { flex: 1; color: #39404a; }
+    .pie-legend-val { color: #5c6672; font-weight: 500; font-variant-numeric: tabular-nums; }
     .widget.span-4 .pie-wrap svg { width: 132px; height: 132px; }
   `;
   document.head.appendChild(style);
