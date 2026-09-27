@@ -88,7 +88,7 @@ function barChartSVG(data) {
   const ticks = axisTicks(max);
   ticks.forEach((t) => {
     const y = padT + innerH - (t / max) * innerH;
-    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#e3e7ec" stroke-width="1"/>`);
+    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
   });
 
@@ -123,7 +123,7 @@ function lineChartSVG(data, width = 640) {
   let parts = [];
   axisTicks(max, 4).forEach((t) => {
     const y = py(t);
-    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#e3e7ec" stroke-width="1"/>`);
+    parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
   });
 
@@ -135,7 +135,7 @@ function lineChartSVG(data, width = 640) {
   parts.push(`<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
 
   vals.forEach((v, i) => {
-    parts.push(`<circle cx="${px(i)}" cy="${py(v)}" r="3" fill="#fff" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(v)}</title></circle>`);
+    parts.push(`<circle cx="${px(i)}" cy="${py(v)}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(v)}</title></circle>`);
   });
   if (n > 1) {
     parts.push(`<text x="${padL}" y="${H - 8}" class="chart-tooltip">${esc(shortLabel(labels[0]))}</text>`);
@@ -161,9 +161,9 @@ function pieChartSVG(data) {
     parts.push(`<path d="M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y} L ${cx} ${cy} Z" fill="${colors[i % colors.length]}" opacity="0.92"><title>${esc(labels[i])}: ${((v / total) * 100).toFixed(0)}%</title></path>`);
     angle = end;
   });
-  parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" fill="#fff"/>`);
-  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="23" font-weight="600" fill="#16181d" font-family="Inter, sans-serif">${fmtMoney(total)}</text>`);
-  parts.push(`<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10.5" fill="#6b7480" font-family="Inter, sans-serif">total</text>`);
+  parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
+  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="23" font-weight="600" style="fill:var(--text)" font-family="Inter, sans-serif">${fmtMoney(total)}</text>`);
+  parts.push(`<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10.5" style="fill:var(--muted)" font-family="Inter, sans-serif">total</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
 }
 function polar(cx, cy, r, a) {
@@ -240,8 +240,8 @@ function ensureWidgetStyles() {
     .pie-wrap svg { flex: none; width: 168px; height: 168px; }
     .pie-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 7px; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-    .pie-legend-row span:nth-child(2) { flex: 1; color: #39404a; }
-    .pie-legend-val { color: #5c6672; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
+    .pie-legend-val { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
     .widget.span-4 .pie-wrap svg { width: 132px; height: 132px; }
   `;
   document.head.appendChild(style);

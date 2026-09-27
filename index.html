@@ -8,6 +8,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/styles.css" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("glowworm-theme") || "system";
+        var dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <!-- Icon sprite -->
@@ -20,7 +29,6 @@
     <symbol id="i-history" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></symbol>
     <symbol id="i-settings" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
-    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
     <symbol id="i-menu" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
     <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L21 11l-6.8 2.7L12 20l-2.2-6.3L3 11l6.8-2.7L12 2z"/><path d="M19 3l.8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3z"/></symbol>
@@ -53,64 +61,35 @@
   </svg>
 
   <div class="app">
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <span class="brand-logo" aria-hidden="true"><svg class="gw"><use href="#i-glowworm"/></svg></span>
-        <span class="brand-name">Glowworm</span>
-      </div>
-
-      <nav class="nav" aria-label="Primary">
-        <a href="#" class="nav-item active" data-view="dashboard">
-          <svg class="icon"><use href="#i-dashboard"/></svg><span>Dashboard</span>
-        </a>
-        <a href="#" class="nav-item" data-view="transactions">
-          <svg class="icon"><use href="#i-transactions"/></svg><span>Transactions</span>
-        </a>
-        <a href="#" class="nav-item" data-view="categories">
-          <svg class="icon"><use href="#i-categories"/></svg><span>Categories</span>
-        </a>
-        <a href="#" class="nav-item" data-view="import">
-          <svg class="icon"><use href="#i-import"/></svg><span>Import</span>
-        </a>
-        <a href="#" class="nav-item" data-view="timeline">
-          <svg class="icon"><use href="#i-timeline"/></svg><span>Timeline</span>
-        </a>
-        <a href="#" class="nav-item" data-view="history">
-          <svg class="icon"><use href="#i-history"/></svg><span>History</span>
-        </a>
-      </nav>
-
-      <div class="sidebar-bottom">
-        <a href="#" class="nav-item" data-view="settings">
-          <svg class="icon"><use href="#i-settings"/></svg><span>Settings</span>
-        </a>
-        <div class="sidebar-status">
-          <span class="status-dot"></span>
-          <span>AI engine connected</span>
-        </div>
-      </div>
-    </aside>
-
-    <div class="sidebar-scrim" id="sidebarScrim"></div>
-
     <!-- Main -->
     <div class="main">
-      <header class="topbar">
-        <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Menu">
-          <svg class="icon"><use href="#i-menu"/></svg>
-        </button>
+      <header class="masthead">
+        <a class="brand" href="#" data-view="dashboard">
+          <svg class="gw" aria-hidden="true"><use href="#i-glowworm"/></svg>
+          <span class="brand-name">Glowworm</span>
+        </a>
 
-        <span class="topbar-title" id="topbarTitle">Dashboard</span>
+        <nav class="tabnav" aria-label="Primary">
+          <a href="#" class="tabnav-item active" data-view="dashboard"><span class="tab-index">01</span>Dashboard</a>
+          <a href="#" class="tabnav-item" data-view="transactions"><span class="tab-index">02</span>Transactions</a>
+          <a href="#" class="tabnav-item" data-view="categories"><span class="tab-index">03</span>Categories</a>
+          <a href="#" class="tabnav-item" data-view="import"><span class="tab-index">04</span>Import</a>
+          <a href="#" class="tabnav-item" data-view="timeline"><span class="tab-index">05</span>Timeline</a>
+          <a href="#" class="tabnav-item" data-view="history"><span class="tab-index">06</span>History</a>
+          <a href="#" class="tabnav-item" data-view="settings"><span class="tab-index">07</span>Settings</a>
+        </nav>
 
-        <div class="topbar-actions">
-          <button class="icon-btn chat-toggle" id="chatToggle" aria-label="Open Glowworm assistant">
-            <svg class="gw"><use href="#i-glowworm"/></svg>
-          </button>
-          <button class="icon-btn" aria-label="Notifications">
-            <svg class="icon"><use href="#i-bell"/></svg>
-            <span class="dot"></span>
-          </button>
+        <select class="period-select" id="periodSelect" aria-label="Date range">
+          <option value="all">All time</option>
+          <option value="ytd">Year to date</option>
+          <option value="last-12m" selected>Last 12 months</option>
+          <option value="last-3m">Last 3 months</option>
+          <option value="last-month">Last month</option>
+          <option value="last-day">Last day</option>
+          <option value="custom">Custom…</option>
+        </select>
+
+        <div class="masthead-actions">
           <button class="avatar" aria-label="Account">EJ</button>
         </div>
       </header>
@@ -120,14 +99,16 @@
         <section class="view active" id="view-dashboard">
           <div class="dash-shell" id="dashShell">
           <div class="dash-main">
-          <div class="view-head">
-            <div>
-              <h1>Good morning, Emma</h1>
-              <p class="sub">Here's your money at a glance.</p>
+          <div class="view-head query-head">
+            <div class="query-wrap">
+              <div class="query-bar">
+                <svg class="icon"><use href="#i-sparkle"/></svg>
+                <input type="text" id="dashQuery" placeholder="Ask about your money — e.g. “transport spend this year”" autocomplete="off" />
+                <button class="btn btn-primary query-submit" id="dashQueryBtn" aria-label="Ask">
+                  <svg class="icon"><use href="#i-arrow-right"/></svg>
+                </button>
+              </div>
             </div>
-            <button class="btn btn-primary" data-view-link="import">
-              <svg class="icon"><use href="#i-import"/></svg> Import statement
-            </button>
           </div>
 
           <!-- Overview -->
@@ -163,7 +144,7 @@
               <div class="section-head inside">
                 <div>
                   <h2>Balance overview</h2>
-                  <p class="muted small">All accounts · last 12 months</p>
+                  <p class="muted small" id="heroRange">All accounts · last 12 months</p>
                 </div>
                 <span class="badge badge-soft">+3.2% this year</span>
               </div>
@@ -396,7 +377,11 @@
               <h2>Appearance</h2>
               <div class="field-row">
                 <label>Theme</label>
-                <select class="field select"><option>Light</option><option>Dark</option><option>System</option></select>
+                <select class="field select" id="themeSelect">
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                  <option value="system">System</option>
+                </select>
               </div>
               <div class="field-row">
                 <label>Currency</label>
@@ -415,17 +400,11 @@
     </div>
   </div>
 
-  <!-- Chat launcher -->
-  <button class="chat-fab" id="chatFab" hidden aria-label="Open Glowworm assistant">
-    <svg class="gw"><use href="#i-glowworm"/></svg>
-    <span>Ask Glowworm</span>
-  </button>
-
   <!-- Chat panel -->
   <aside class="chat-panel floating" id="chatPanel" aria-label="Glowworm assistant">
     <header class="chat-head">
       <div class="chat-title">
-        <span class="chat-avatar"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+        <span class="chat-avatar"><svg class="icon"><use href="#i-sparkle"/></svg></span>
         <div class="chat-meta">
           <strong>Glowworm</strong>
           <span class="chat-status"><span class="status-dot"></span> Online</span>

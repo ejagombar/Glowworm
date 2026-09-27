@@ -13,6 +13,17 @@ const state = {
   wizardStep: 0,
   wizardCats: CATEGORIES.filter((c) => c.budget != null).map((c) => ({ ...c })),
   editingId: null,
+  period: "last-12m",
+};
+
+const PERIOD_LABELS = {
+  all: "All time",
+  ytd: "Year to date",
+  "last-12m": "Last 12 months",
+  "last-3m": "Last 3 months",
+  "last-month": "Last month",
+  "last-day": "Last day",
+  custom: "Custom range",
 };
 
 const VIEW_TITLES = {
@@ -55,6 +66,7 @@ const MERCHANT_COLORS = ["#0e6f51", "#4f5bc7", "#c9822e", "#c0483f", "#2f7fb0", 
 document.addEventListener("DOMContentLoaded", init);
 
 function init() {
+  initTheme();
   state.chat = [{ ...WELCOME_MESSAGE, suggestions: [...WELCOME_MESSAGE.suggestions] }];
   renderPinned();
   renderRecent();
@@ -64,6 +76,7 @@ function init() {
   renderHistory();
   renderTimeline(11);
   renderHeroChart();
+  renderPeriod();
   populateCategoryFilter();
   renderWizard();
   renderChat();
@@ -72,18 +85,41 @@ function init() {
   setTimeout(() => openWizard(), 500);
 }
 
+/* ============================== Theme ============================== */
+function applyTheme(t) {
+  const dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const sel = document.getElementById("themeSelect");
+  if (sel && sel.value !== t) sel.value = t;
+}
+
+function initTheme() {
+  let t = "system";
+  try { t = localStorage.getItem("glowworm-theme") || "system"; } catch (e) {}
+  applyTheme(t);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    let cur = "system";
+    try { cur = localStorage.getItem("glowworm-theme") || "system"; } catch (e) {}
+    if (cur === "system") applyTheme("system");
+  });
+}
+
+/* ============================== Period ============================== */
+function renderPeriod() {
+  const label = (PERIOD_LABELS[state.period] || "Last 12 months").toLowerCase();
+  const hero = document.getElementById("heroRange");
+  if (hero) hero.textContent = "All accounts · " + label;
+}
+
 /* ============================== Navigation ============================== */
 function switchView(name) {
   state.view = name;
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   const el = document.getElementById("view-" + name);
   if (el) el.classList.add("active");
-  document.querySelectorAll(".nav-item[data-view]").forEach((n) => {
+  document.querySelectorAll(".tabnav-item[data-view]").forEach((n) => {
     n.classList.toggle("active", n.dataset.view === name);
   });
-  document.getElementById("topbarTitle").textContent = VIEW_TITLES[name] || "Dashboard";
-  document.getElementById("sidebar").classList.remove("open");
-  document.getElementById("sidebarScrim").classList.remove("show");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -303,7 +339,7 @@ function wormLoaderHTML() {
     </svg>
     <span class="worm-spin-wrap">
       <svg class="worm-spin" viewBox="0 0 48 48" aria-hidden="true">
-        <circle cx="24" cy="24" r="17" fill="none" stroke="#e7e9ee" stroke-width="3"/>
+        <circle cx="24" cy="24" r="17" fill="none" style="stroke:var(--line)" stroke-width="3"/>
         <circle cx="24" cy="24" r="17" fill="none" stroke="#1f9b57" stroke-width="3" stroke-linecap="round" stroke-dasharray="80 107"/>
         <g class="worm-rotor">
           <circle cx="24" cy="7" r="5.5" fill="#1f9b57"/>
@@ -340,7 +376,7 @@ function chatMessageEl(m) {
     return el;
   }
 
-  const avatar = `<div class="msg-avatar"><svg class="gw"><use href="#i-glowworm"/></svg></div>`;
+  const avatar = `<div class="msg-avatar"><svg class="icon"><use href="#i-sparkle"/></svg></div>`;
   let content = "";
   if (m.pending) {
     content = `<div class="msg-content">${wormLoaderHTML()}</div>`;
@@ -390,8 +426,6 @@ function setChatMode(mode) {
   state.chatMode = mode;
   const panel = document.getElementById("chatPanel");
   const shell = document.getElementById("dashShell");
-  const fab = document.getElementById("chatFab");
-  const toggle = document.getElementById("chatToggle");
   const pinBtn = document.getElementById("chatPinBtn");
 
   panel.classList.remove("floating", "open", "docked");
@@ -408,19 +442,10 @@ function setChatMode(mode) {
     if (mode === "floating") panel.classList.add("open");
   }
 
-  fab.hidden = mode !== "closed";
-  toggle.classList.toggle("active", mode !== "closed");
   pinBtn.classList.toggle("active", mode === "pinned");
   renderChat();
 }
 
-function openChat() {
-  setChatMode("floating");
-  setTimeout(() => document.getElementById("chatInput").focus(), 260);
-}
-function toggleChat() {
-  setChatMode(state.chatMode === "closed" ? "floating" : "closed");
-}
 function togglePinChat() {
   setChatMode(state.chatMode === "pinned" ? "floating" : "pinned");
 }
@@ -621,8 +646,6 @@ function wireEvents() {
   });
 
   // chat controls
-  document.getElementById("chatToggle").addEventListener("click", toggleChat);
-  document.getElementById("chatFab").addEventListener("click", openChat);
   document.getElementById("chatCloseBtn").addEventListener("click", () => setChatMode("closed"));
   document.getElementById("chatPinBtn").addEventListener("click", togglePinChat);
   document.getElementById("chatSendBtn").addEventListener("click", () => {
@@ -635,6 +658,23 @@ function wireEvents() {
       e.preventDefault();
       sendChat(e.target.value);
       e.target.value = "";
+    }
+  });
+
+  // dashboard query bar
+  const dashQuery = document.getElementById("dashQuery");
+  const submitQuery = () => {
+    const text = dashQuery.value.trim();
+    if (!text) return;
+    setChatMode("floating");
+    sendChat(text);
+    dashQuery.value = "";
+  };
+  document.getElementById("dashQueryBtn").addEventListener("click", submitQuery);
+  dashQuery.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitQuery();
     }
   });
 
@@ -664,6 +704,24 @@ function wireEvents() {
     document.getElementById(id).addEventListener("change", renderTransactions);
   });
 
+  // theme
+  document.getElementById("themeSelect").addEventListener("change", (e) => {
+    try { localStorage.setItem("glowworm-theme", e.target.value); } catch (err) {}
+    applyTheme(e.target.value);
+    toast("Theme updated");
+  });
+
+  // period
+  document.getElementById("periodSelect").addEventListener("change", (e) => {
+    state.period = e.target.value;
+    if (state.period === "custom") {
+      toast("Custom range picker coming soon");
+    } else {
+      toast("Showing: " + (PERIOD_LABELS[state.period] || state.period));
+    }
+    renderPeriod();
+  });
+
   // categories add
   document.getElementById("addCategoryBtn").addEventListener("click", () => {
     const name = window.prompt("New category name");
@@ -686,21 +744,12 @@ function wireEvents() {
   // timeline
   document.getElementById("timelineSlider").addEventListener("input", (e) => renderTimeline(e.target.value));
 
-  // mobile sidebar
-  document.getElementById("menuToggle").addEventListener("click", () => {
-    document.getElementById("sidebar").classList.toggle("open");
-    document.getElementById("sidebarScrim").classList.toggle("show");
-  });
-  document.getElementById("sidebarScrim").addEventListener("click", () => {
-    document.getElementById("sidebar").classList.remove("open");
-    document.getElementById("sidebarScrim").classList.remove("show");
-  });
-
   // keyboard
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
-      openChat();
+      switchView("dashboard");
+      setTimeout(() => document.getElementById("dashQuery").focus(), 60);
     }
     if (e.key === "Escape") {
       closeWizard();
