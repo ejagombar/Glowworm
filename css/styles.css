@@ -663,7 +663,7 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 /* ============================================================
    Glowworm mascot & AI chat
    ============================================================ */
-.gw { width: 28px; height: 21px; display: block; cursor: pointer; }
+.gw { width: 26px; height: 26px; display: block; }
 
 .brand-logo {
   width: 30px; height: 30px; border-radius: 9px;
@@ -671,98 +671,15 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   display: inline-flex; align-items: center; justify-content: center;
   flex: none;
 }
-.brand-logo .gw { width: 24px; height: 18px; }
-.brand-mark.lg .gw { width: 32px; height: 24px; }
+.brand-logo .gw { width: 22px; height: 22px; }
+.brand-mark.lg .gw { width: 28px; height: 28px; }
 
 .topbar-title {
   flex: 1; font-size: 13px; font-weight: 600;
   color: var(--muted); letter-spacing: 0.02em;
   padding-left: 4px;
 }
-.chat-toggle .gw { width: 24px; height: 18px; }
-
-/* ---- Reactive Glowworm mascot ----
-   Every glowworm on the page is alive: its tail lantern
-   breathes, it blinks, its antennae sway — and it reacts
-   to the user (hover, click, focus, cursor). */
-.gw-tail-halo {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: gw-tail-breathe 1.8s ease-in-out infinite alternate;
-}
-@keyframes gw-tail-breathe {
-  0% { opacity: 0.45; transform: scale(0.85); }
-  100% { opacity: 0.95; transform: scale(1.12); }
-}
-
-.gw-eye-left, .gw-eye-right {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: gw-blink 4.6s infinite;
-}
-@keyframes gw-blink {
-  0%, 91.5%, 95.5%, 100% { transform: scaleY(1); }
-  93.5% { transform: scaleY(0.08); }
-}
-
-.gw-antennae {
-  transform-box: fill-box;
-  transform-origin: bottom center;
-  animation: gw-sway 2.6s ease-in-out infinite alternate;
-}
-@keyframes gw-sway {
-  from { transform: rotate(-4deg); }
-  to { transform: rotate(5deg); }
-}
-
-/* Eyes track the cursor via --gw-look-x/y (set from JS) */
-.gw-pupil-main, .gw-pupil-sub {
-  transform: translate(var(--gw-look-x, 0px), var(--gw-look-y, 0px));
-  transition: transform 0.15s ease-out;
-}
-
-/* Hover: perk up. Active: squash. */
-.brand-logo .gw,
-.chat-avatar .gw,
-.chat-toggle .gw,
-.chat-fab .gw {
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.brand-logo:hover .gw { transform: scale(1.14) rotate(-5deg); }
-.chat-avatar:hover .gw { transform: scale(1.16) rotate(5deg); }
-.chat-toggle:hover .gw { transform: scale(1.2) translateY(-1px); }
-.chat-fab:hover .gw { animation: gw-fab-wiggle 0.6s ease; }
-@keyframes gw-fab-wiggle {
-  0%, 100% { transform: rotate(0); }
-  25% { transform: rotate(-9deg) translateY(-1px); }
-  60% { transform: rotate(8deg) translateY(-1px); }
-}
-
-/* Joyful hop when clicked (class added from JS) */
-.gw.gw-hop { animation: gw-hop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1); }
-@keyframes gw-hop {
-  0% { transform: translateY(0) scale(1); }
-  20% { transform: translateY(2px) scale(1.15, 0.85); }
-  45% { transform: translateY(-7px) scale(0.92, 1.12); }
-  70% { transform: translateY(0) scale(1.08, 0.92); }
-  100% { transform: translateY(0) scale(1); }
-}
-
-/* Listening wiggle while the user types (class added from JS) */
-.chat-avatar.gw-listening .gw { animation: gw-listen 0.9s ease-in-out infinite; }
-@keyframes gw-listen {
-  0%, 100% { transform: rotate(0) translateY(0); }
-  30% { transform: rotate(-5deg) translateY(-1px); }
-  70% { transform: rotate(4deg) translateY(0); }
-}
-
-/* Enthusiastic nod when a message is sent (class added from JS) */
-.chat-avatar.gw-nod .gw { animation: gw-nod 0.5s ease; }
-@keyframes gw-nod {
-  0%, 100% { transform: rotate(0); }
-  35% { transform: rotate(9deg) translateY(1px); }
-  70% { transform: rotate(-4deg); }
-}
+.chat-toggle .gw { width: 20px; height: 20px; }
 
 /* Dashboard shell + docked chat */
 .dash-shell.docked { display: flex; gap: 18px; align-items: flex-start; }
@@ -803,7 +720,7 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   background: var(--primary-soft);
   display: inline-flex; align-items: center; justify-content: center; flex: none;
 }
-.chat-avatar .gw { width: 28px; height: 21px; }
+.chat-avatar .gw { width: 24px; height: 24px; }
 .chat-meta { display: flex; flex-direction: column; min-width: 0; }
 .chat-meta strong { font-size: 13.5px; }
 .chat-status { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
@@ -823,7 +740,7 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   background: var(--primary-soft); flex: none;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.msg-avatar .gw { width: 20px; height: 15px; }
+.msg-avatar .gw { width: 18px; height: 18px; }
 .msg-content { max-width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .msg.user .msg-content { align-items: flex-end; max-width: 84%; }
 .msg.assistant .msg-content { flex: 1; }
@@ -886,124 +803,40 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   transition: transform 0.14s, background 0.14s;
 }
 .chat-fab:hover { background: var(--primary-600); transform: translateY(-1px); }
-.chat-fab .gw { width: 24px; height: 18px; }
+.chat-fab .gw { width: 20px; height: 20px; }
 
-/* ============================================================
-   Glowworm loader — crawls in from the left with an inchworm
-   arch, curls into a ball, then spins: every body segment
-   follows the head round the circle.
-   ============================================================ */
-.worm-loader-stage { width: 220px; height: 70px; position: relative; }
-.worm-loader-svg { width: 100%; height: 100%; display: block; }
-
-/* Once curled, the whole worm spins as one unit */
-.worm-spin-group {
-  transform-origin: 100px 35px;
-  animation: worm-spin-cycle 0.85s linear 1.4s infinite;
+/* Glowworm loader: crawl, then curl into a spinner */
+.worm-loader {
+  position: relative; width: 150px; height: 52px;
+  display: flex; align-items: center; justify-content: center;
 }
-@keyframes worm-spin-cycle { to { transform: rotate(360deg); } }
-
-/* Bioluminescent trail revealed as the spin begins */
-.worm-glow-trail {
-  transform-origin: 100px 35px;
+.worm-crawl {
+  position: absolute; left: 6px; top: 2px; width: 128px; height: 48px;
+  animation: worm-crawl 1.15s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+}
+.worm-body { animation: worm-wiggle 0.5s ease-in-out infinite alternate; transform-origin: 50% 50%; }
+.worm-tail { animation: worm-glow 0.9s ease-in-out infinite alternate; }
+.worm-spin-wrap {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
   opacity: 0;
-  animation: worm-trail-in 0.35s ease 1.35s forwards, worm-spin-cycle 0.85s linear 1.4s infinite;
+  animation: worm-in 0.35s ease 1.1s forwards;
 }
-@keyframes worm-trail-in { to { opacity: 0.8; } }
+.worm-spin { width: 46px; height: 46px; }
+.worm-rotor { animation: worm-rotate 1s linear infinite; transform-origin: 24px 24px; }
 
-/* Entry: crawl in (segments arch like an inchworm) then curl
-   onto the circle. Each segment has its own path so the body
-   genuinely follows the head. */
-.wl-head, .wl-seg1, .wl-seg2, .wl-seg3, .wl-seg4, .wl-tail {
-  animation-duration: 1.4s;
-  animation-timing-function: cubic-bezier(0.45, 0.05, 0.35, 1);
-  animation-fill-mode: forwards;
+@keyframes worm-crawl {
+  0% { transform: translateX(0); }
+  62% { transform: translateX(26px); opacity: 1; }
+  100% { transform: translateX(26px) scale(0.4); opacity: 0; }
 }
-.wl-head { animation-name: wl-head-crawl; }
-.wl-seg1 { animation-name: wl-seg1-crawl; }
-.wl-seg2 { animation-name: wl-seg2-crawl; }
-.wl-seg3 { animation-name: wl-seg3-crawl; }
-.wl-seg4 { animation-name: wl-seg4-crawl; }
-.wl-tail { animation-name: wl-tail-crawl; }
-
-@keyframes wl-head-crawl {
-  0% { transform: translate(-110px, 15px); }
-  22% { transform: translate(-75px, 13px); }
-  45% { transform: translate(-50px, 15px); }
-  65% { transform: translate(-20px, 14px); }
-  80% { transform: translate(-5px, 4px); }
-  92% { transform: translate(-1px, 0.5px); }
-  100% { transform: translate(0, 0); }
+@keyframes worm-wiggle {
+  from { transform: translateY(0) rotate(-2deg); }
+  to { transform: translateY(-2px) rotate(2deg); }
 }
-@keyframes wl-seg1-crawl {
-  0% { transform: translate(-108px, 9.6px); }
-  22% { transform: translate(-78px, 2px); }
-  45% { transform: translate(-56px, 9.6px); }
-  65% { transform: translate(-28px, 5px); }
-  80% { transform: translate(-7px, 3px); }
-  92% { transform: translate(-1.5px, 0.5px); }
-  100% { transform: translate(0, 0); }
-}
-@keyframes wl-seg2-crawl {
-  0% { transform: translate(-115px, -3.9px); }
-  22% { transform: translate(-88px, -12px); }
-  45% { transform: translate(-65px, -3.9px); }
-  65% { transform: translate(-38px, -7px); }
-  80% { transform: translate(-11px, 0px); }
-  92% { transform: translate(-2px, 0px); }
-  100% { transform: translate(0, 0); }
-}
-@keyframes wl-seg3-crawl {
-  0% { transform: translate(-134px, -14.1px); }
-  22% { transform: translate(-108px, -21px); }
-  45% { transform: translate(-80px, -14.1px); }
-  65% { transform: translate(-52px, -12px); }
-  80% { transform: translate(-16px, -4px); }
-  92% { transform: translate(-3px, -1px); }
-  100% { transform: translate(0, 0); }
-}
-@keyframes wl-seg4-crawl {
-  0% { transform: translate(-158px, -12.3px); }
-  22% { transform: translate(-132px, -15px); }
-  45% { transform: translate(-98px, -12.3px); }
-  65% { transform: translate(-68px, -10px); }
-  80% { transform: translate(-22px, -4px); }
-  92% { transform: translate(-5px, -1px); }
-  100% { transform: translate(0, 0); }
-}
-@keyframes wl-tail-crawl {
-  0% { transform: translate(-175px, 0px); }
-  22% { transform: translate(-150px, 0px); }
-  45% { transform: translate(-115px, 0px); }
-  65% { transform: translate(-84px, 0px); }
-  80% { transform: translate(-30px, -2px); }
-  92% { transform: translate(-7px, 0px); }
-  100% { transform: translate(0, 0); }
-}
-
-/* Tail lantern pulse + antenna flutter while working */
-.tail-bulb { animation: wl-tail-pulse 0.7s ease-in-out infinite alternate; }
-@keyframes wl-tail-pulse {
-  0% { filter: drop-shadow(0 0 2px #4ade80); opacity: 0.8; }
-  100% { filter: drop-shadow(0 0 9px #a7f3d0) drop-shadow(0 0 16px #4ade80); opacity: 1; }
-}
-.wl-antenna {
-  transform-box: fill-box;
-  transform-origin: bottom center;
-  animation: wl-antenna-flutter 0.25s ease-in-out infinite alternate;
-}
-@keyframes wl-antenna-flutter {
-  from { transform: rotate(-4deg); }
-  to { transform: rotate(5deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wl-head, .wl-seg1, .wl-seg2, .wl-seg3, .wl-seg4, .wl-tail {
-    animation-duration: 0.01s;
-    animation-iteration-count: 1;
-  }
-  .worm-spin-group, .worm-glow-trail, .tail-bulb, .wl-antenna { animation: none; }
-}
+@keyframes worm-glow { from { opacity: 0.45; } to { opacity: 1; } }
+@keyframes worm-in { to { opacity: 1; } }
+@keyframes worm-rotate { to { transform: rotate(360deg); } }
 
 /* Chat responsiveness */
 @media (max-width: 760px) {
