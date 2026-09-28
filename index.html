@@ -81,15 +81,23 @@
           <a href="#" class="tabnav-item" data-view="history"><span class="tab-index">06</span>History</a>
         </nav>
 
-        <select class="period-select" id="periodSelect" aria-label="Date range">
-          <option value="all">All time</option>
-          <option value="ytd">Year to date</option>
-          <option value="last-12m" selected>Last 12 months</option>
-          <option value="last-3m">Last 3 months</option>
-          <option value="last-month">Last month</option>
-          <option value="last-day">Last day</option>
-          <option value="custom">Custom…</option>
-        </select>
+        <div class="period-wrap">
+          <select class="period-select" id="periodSelect" aria-label="Date range">
+            <option value="all">All time</option>
+            <option value="ytd">Year to date</option>
+            <option value="last-12m" selected>Last 12 months</option>
+            <option value="last-3m">Last 3 months</option>
+            <option value="last-month">Last month</option>
+            <option value="last-day">Last day</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <div class="custom-range" id="customRange" hidden>
+            <input type="date" id="customFrom" aria-label="From date" />
+            <span class="custom-range-sep">–</span>
+            <input type="date" id="customTo" aria-label="To date" />
+            <button class="btn btn-primary btn-xs" id="customApply">Apply</button>
+          </div>
+        </div>
 
         <div class="masthead-actions">
           <button class="icon-btn" id="privacyToggle" title="Hide balances" aria-label="Toggle balance visibility">
@@ -294,11 +302,6 @@
               <h1>Import</h1>
               <p class="sub">Drop in any bank statement. Glowworm figures out the format.</p>
             </div>
-          </div>
-
-          <div class="import-account">
-            <label for="importAccount">Account</label>
-            <select class="field select" id="importAccount" aria-label="Account this file relates to"></select>
           </div>
 
           <div class="dropzone" id="dropzone">
@@ -578,6 +581,7 @@
           <option value="line">Line chart</option>
           <option value="pie">Pie chart</option>
           <option value="table">Table</option>
+          <option value="transactions">Transactions</option>
           <option value="number">Number</option>
           <option value="text">Text</option>
         </select>

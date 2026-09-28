@@ -35,6 +35,7 @@ function convertWidgetData(from, to, data) {
 
   if (to === "number") return { value: data.value ?? "—", caption: data.caption ?? "", trend: data.trend ?? "", trendText: data.trendText ?? "" };
   if (to === "text") return { body: data.body ?? "No text available." };
+  if (to === "transactions") return { transactions: data.transactions || [] };
 
   // Anything chart-like -> table
   if (to === "table") {
@@ -233,6 +234,18 @@ function widgetBody(widget) {
     return `<div class="table-widget"><table>
       <thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((r) => `<tr>${r.map((cell, i) => `<td class="${i === r.length - 1 ? "num" : ""}">${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+  if (t === "transactions") {
+    const rows = (data.transactions || []).map((tx) => `<tr>
+      <td class="cell-sub">${esc(String(tx.date).slice(8))} ${esc(monthName(String(tx.date).slice(5, 7)))}</td>
+      <td><div class="cell-merchant">${esc(tx.merchant)}</div></td>
+      <td>${esc(tx.category)}</td>
+      <td class="num tx-amount ${tx.amount >= 0 ? "pos" : "neg"}">${tx.amount >= 0 ? "+" : "−"}${fmtMoney(tx.amount)}</td>
+    </tr>`).join("");
+    return `<div class="table-widget tx-widget"><table class="tx-table">
+      <thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows}</tbody>
     </table></div>`;
   }
   if (t === "pie") {

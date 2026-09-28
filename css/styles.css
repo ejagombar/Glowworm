@@ -202,11 +202,23 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .brand-mark.lg .icon { width: 20px; height: 20px; }
 .status-dot { width: 7px; height: 7px; border-radius: 1px; background: var(--accent); flex: none; }
 
+.period-wrap { flex: none; margin-left: 12px; position: relative; }
+.custom-range {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 3px; padding: 8px; box-shadow: var(--shadow-2);
+}
+.custom-range input[type="date"] {
+  border: 1px solid var(--line-2); border-radius: 3px;
+  background: var(--surface); color: var(--text);
+  font-family: var(--mono); font-size: 12px; padding: 5px 7px; outline: none;
+}
+.custom-range-sep { color: var(--muted); }
 .period-select {
   flex: none;
   height: 32px;
   max-width: 150px;
-  margin-left: 12px;
   border: 1px solid var(--line-2);
   border-radius: 3px;
   background: var(--surface);
@@ -777,9 +789,6 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .account-balance.neg { color: var(--expense); }
 .account-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
 .account-tx-panel { margin-top: 0; }
-.import-account { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.import-account label { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
-.import-account .field.select { min-width: 220px; }
 .account-form {
   margin-top: 12px;
   padding-top: 12px;

@@ -219,6 +219,20 @@ const QUERY_RESPONSES = [
       },
     },
   },
+  {
+    match: /transactions|recent|list|payments|activity/i,
+    answer: "Here are your most recent transactions.",
+    steps: [
+      "Detected a request to list transactions",
+      "Assuming all accounts, most recent first",
+      "Generated query: SELECT * FROM tx ORDER BY date DESC LIMIT 8",
+    ],
+    widget: {
+      type: "transactions",
+      title: "Recent transactions",
+      data: { transactions: TRANSACTIONS.slice(0, 8) },
+    },
+  },
 ];
 
 const DEFAULT_RESPONSE = {

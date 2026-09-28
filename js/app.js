@@ -22,6 +22,8 @@ const state = {
   timelineAccount: null,
   timelineIdx: 11,
   privacy: false,
+  customFrom: null,
+  customTo: null,
 };
 
 const PERIOD_LABELS = {
@@ -49,6 +51,7 @@ const SUGGESTED_PROMPTS = [
   { label: "Transport spend", text: "How much have I spent on Transport over the past year?" },
   { label: "Where did my money go?", text: "Where did my money go this month?" },
   { label: "Balance over time", text: "How has my balance changed this year?" },
+  { label: "List transactions", text: "List my recent transactions" },
 ];
 
 const TIMELINE_MONTHS = [
@@ -72,7 +75,20 @@ document.addEventListener("DOMContentLoaded", init);
 
 function init() {
   initTheme();
-  state.chat = [];
+  state.chat = [
+    { role: "user", text: "List my recent transactions", ts: Date.now() - 1000 },
+    {
+      role: "assistant",
+      text: "Here are your most recent transactions.",
+      steps: [
+        "Detected a request to list transactions",
+        "Assuming all accounts, most recent first",
+        "Generated query: SELECT * FROM tx ORDER BY date DESC LIMIT 8",
+      ],
+      widget: { id: widgetId(), type: "transactions", title: "Recent transactions", data: { transactions: TRANSACTIONS.slice(0, 8) } },
+      ts: Date.now(),
+    },
+  ];
   renderPinned();
   renderRecent();
   renderTransactions();
@@ -80,7 +96,6 @@ function init() {
   renderAccounts();
   renderDashboardTotals();
   populateAccountFilter();
-  populateImportAccounts();
   renderSettingsAccounts();
   renderSchemas();
   renderHistory();
@@ -118,6 +133,46 @@ function initTheme() {
 /* ============================== Period ============================== */
 function renderPeriod() {
   renderHeroChart();
+}
+function formatShortDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+function periodLabel() {
+  if (state.period === "custom") {
+    if (state.customFrom && state.customTo) return formatShortDate(state.customFrom) + " – " + formatShortDate(state.customTo);
+    return "Custom range";
+  }
+  return PERIOD_LABELS[state.period] || "Last 12 months";
+}
+function openCustomRange() {
+  const pop = document.getElementById("customRange");
+  pop.hidden = false;
+  const from = document.getElementById("customFrom");
+  const to = document.getElementById("customTo");
+  if (!from.value) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    from.value = d.toISOString().slice(0, 10);
+  }
+  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
+  from.focus();
+}
+function applyCustomRange() {
+  const from = document.getElementById("customFrom").value;
+  const to = document.getElementById("customTo").value;
+  if (!from || !to) { toast("Choose a start and end date"); return; }
+  state.customFrom = from;
+  state.customTo = to;
+  state.period = "custom";
+  const sel = document.getElementById("periodSelect");
+  const opt = sel.querySelector('option[value="custom"]');
+  if (opt) opt.textContent = periodLabel();
+  document.getElementById("customRange").hidden = true;
+  renderPeriod();
+  toast("Showing: " + periodLabel());
 }
 
 /* ============================== Accounts ============================== */
@@ -190,16 +245,6 @@ function populateAccountFilter() {
   });
   sel.value = state.selectedAccount || "";
 }
-function populateImportAccounts() {
-  const sel = document.getElementById("importAccount");
-  sel.innerHTML = "";
-  state.accounts.forEach((a) => {
-    const opt = document.createElement("option");
-    opt.value = a.id;
-    opt.textContent = a.name + " — " + fmtBalance(a.balance);
-    sel.appendChild(opt);
-  });
-}
 function renderSettingsAccounts() {
   const wrap = document.getElementById("settingsAccounts");
   wrap.innerHTML = "";
@@ -256,7 +301,6 @@ function saveAccount() {
   renderAccounts();
   renderSettingsAccounts();
   renderDashboardTotals();
-  populateImportAccounts();
   populateAccountFilter();
   toast(isEdit ? "Account updated" : "Account added");
 }
@@ -269,7 +313,6 @@ function deleteAccount(id) {
   renderAccounts();
   renderSettingsAccounts();
   renderDashboardTotals();
-  populateImportAccounts();
   populateAccountFilter();
   renderTransactions();
   toast("Account deleted");
@@ -304,6 +347,7 @@ function switchView(name) {
 /* ============================== Widgets ============================== */
 function spanCol(type) {
   if (type === "number" || type === "text" || type === "pie") return 4;
+  if (type === "transactions") return 12;
   return 8; // bar, line, table
 }
 function spanRows(type) {
@@ -381,8 +425,7 @@ function renderHeroChart() {
   document.getElementById("heroChart").innerHTML = lineChartSVG(balanceSeriesFor(state.balanceView), 900);
   const range = document.getElementById("heroRange");
   if (range) {
-    const label = (PERIOD_LABELS[state.period] || "Last 12 months").toLowerCase();
-    range.textContent = balanceScopeLabel() + " · " + label;
+    range.textContent = balanceScopeLabel() + " · " + periodLabel().toLowerCase();
   }
 }
 
@@ -1198,14 +1241,16 @@ function wireEvents() {
 
   // period
   document.getElementById("periodSelect").addEventListener("change", (e) => {
-    state.period = e.target.value;
-    if (state.period === "custom") {
-      toast("Custom range picker coming soon");
+    if (e.target.value === "custom") {
+      openCustomRange();
     } else {
-      toast("Showing: " + (PERIOD_LABELS[state.period] || state.period));
+      state.period = e.target.value;
+      document.getElementById("customRange").hidden = true;
+      toast("Showing: " + periodLabel());
+      renderPeriod();
     }
-    renderPeriod();
   });
+  document.getElementById("customApply").addEventListener("click", applyCustomRange);
 
   // categories form
   document.getElementById("addCategoryBtn").addEventListener("click", openCategoryForm);
@@ -1226,16 +1271,11 @@ function wireEvents() {
 
   // import dropzone
   const dz = document.getElementById("dropzone");
-  const importAccountName = () => {
-    const sel = document.getElementById("importAccount");
-    const acc = state.accounts.find((a) => a.id === sel.value);
-    return acc ? acc.name : "selected account";
-  };
   document.getElementById("dropzoneBrowse").addEventListener("click", () => document.getElementById("fileInput").click());
-  document.getElementById("fileInput").addEventListener("change", () => toast("Importer coming soon — files selected for " + importAccountName()));
+  document.getElementById("fileInput").addEventListener("change", () => toast("Importer coming soon — files selected"));
   ["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
   ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
-  dz.addEventListener("drop", () => toast("Importer coming soon — importing into " + importAccountName()));
+  dz.addEventListener("drop", () => toast("Importer coming soon — the AI will detect the account"));
 
   // timeline
   document.getElementById("timelineSlider").addEventListener("input", (e) => renderTimeline(e.target.value));
