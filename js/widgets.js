@@ -278,7 +278,7 @@ function ensureWidgetStyles() {
   style.textContent = `
     .pie-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
     .pie-wrap svg { flex: none; width: 168px; height: 168px; }
-    .pie-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 7px; }
+    .pie-legend { flex: 1; min-width: 120px; max-width: 100%; display: flex; flex-direction: column; gap: 7px; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
     .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
     .pie-legend-val { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }

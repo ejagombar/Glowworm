@@ -385,7 +385,7 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .queries-day-count { font-family: var(--mono); font-size: 10.5px; color: var(--muted-2); }
 
 .queries-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
-.queries-sidebar-expand { position: absolute; top: 8px; left: 8px; z-index: 5; }
+.queries-sidebar-expand { position: absolute; top: 8px; left: 8px; z-index: 5; height: 32px; }
 .queries-messages {
   flex: 1; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 14px;
@@ -549,9 +549,9 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .widget .chart-host svg { width: 100%; height: 100%; }
 .widget .table-widget { flex: 1; min-height: 0; overflow: auto; }
 .widget .num-widget, .widget .text-widget { flex: none; }
-.widgets-grid .pie-wrap { flex: 1; min-height: 0; }
-.widgets-grid .pie-chart { flex: 1 1 120px; min-width: 100px; min-height: 0; align-self: stretch; }
-.widgets-grid .pie-chart svg { width: 100%; height: 100%; }
+.widgets-grid .pie-wrap { flex: 1; min-height: 0; align-content: center; }
+.widgets-grid .pie-chart { flex: 1 1 120px; min-width: 90px; min-height: 0; height: 100%; max-width: 100%; }
+.widgets-grid .pie-chart svg { display: block; width: 100%; height: 100%; }
 .widget-actions { display: flex; align-items: center; gap: 5px; opacity: 0; transition: opacity 0.14s; }
 
 .widgets-grid.editing .widget { outline: 1px dashed var(--line-2); outline-offset: -1px; cursor: grab; touch-action: none; }
@@ -732,6 +732,42 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .category-card .cat-budget { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .progress { height: 5px; background: var(--surface-3); border-radius: 2px; margin-top: 11px; overflow: hidden; }
 .progress > span { display: block; height: 100%; border-radius: 2px; }
+
+/* ---------- Accounts ---------- */
+.stat-card.clickable { cursor: pointer; }
+.stat-card.clickable:hover { background: var(--surface-2); }
+.stat-card.clickable.selected { outline: 1px solid var(--primary); outline-offset: -1px; }
+.accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.account-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.account-card:hover { border-color: var(--muted-2); }
+.account-card.selected { border-color: var(--primary); outline: 1px solid var(--primary); outline-offset: -1px; }
+.account-card-top { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.account-name { font-weight: 500; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-balance { font-size: 19px; font-weight: 600; font-family: var(--mono); letter-spacing: -0.02em; }
+.account-balance.neg { color: var(--expense); }
+.account-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.account-tx-panel { margin-top: 0; }
+.import-account { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.import-account label { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+.import-account .field.select { min-width: 220px; }
+.account-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.account-form-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 
 /* ---------- Import ---------- */
 .dropzone {

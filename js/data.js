@@ -33,6 +33,12 @@ const TRANSACTIONS = [
   { date: "2024-06-15", merchant: "Zara", category: "Shopping", account: "Current", amount: -83.81, type: "expense" },
 ];
 
+const ACCOUNTS = [
+  { id: "a-current", name: "Current account", type: "debit", typeLabel: "Debit", txKey: "Current", balance: 3912.66, opening: 3500.00, color: "#0e6f51", last4: "··· 4211" },
+  { id: "a-savings", name: "Savings", type: "savings", typeLabel: "Savings", txKey: "Savings", balance: 4500.00, opening: 4000.00, color: "#4f5bc7", last4: "··· 8823" },
+  { id: "a-credit", name: "Credit card", type: "credit", typeLabel: "Credit", txKey: "Credit card", balance: -120.40, opening: 0, color: "#c0483f", last4: "··· 1047" },
+];
+
 const SCHEMAS = [
   { name: "Monzo CSV", bank: "Monzo", initials: "MO", color: "#c03b44", cols: ["Date", "Description", "Amount"], confidence: 98, source: "monzo-may-2024.csv" },
   { name: "NatWest PDF", bank: "NatWest", initials: "NW", color: "#4f5bc7", cols: ["Date", "Details", "Paid out", "Paid in"], confidence: 94, source: "natwest-apr-2024.pdf" },
@@ -88,6 +94,11 @@ const HISTORY = [
 const BALANCE_SERIES = {
   labels: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"],
   values: [3050, 3680, 3540, 4110, 4650, 5020, 4740, 5480, 6120, 6890, 7560, 8412],
+};
+
+const SAVINGS_BALANCE_SERIES = {
+  labels: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+  values: [600, 980, 1180, 1420, 1750, 2060, 2240, 2510, 2890, 3340, 3860, 4500],
 };
 
 const CATEGORY_SPEND_SERIES = {

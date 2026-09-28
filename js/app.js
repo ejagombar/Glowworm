@@ -15,6 +15,9 @@ const state = {
   period: "last-12m",
   editMode: false,
   dragId: null,
+  accounts: ACCOUNTS.map((a) => ({ ...a })),
+  selectedAccount: null,
+  balanceView: "all",
 };
 
 const PERIOD_LABELS = {
@@ -70,11 +73,16 @@ function init() {
   renderRecent();
   renderTransactions();
   renderCategories();
+  renderAccounts();
+  renderDashboardTotals();
+  populateAccountFilter();
+  populateImportAccounts();
+  renderSettingsAccounts();
   renderSchemas();
   renderHistory();
   renderTimeline(11);
   renderHeroChart();
-  renderPeriod();
+  syncBalanceCards();
   populateCategoryFilter();
   renderWizard();
   renderChat();
@@ -104,9 +112,162 @@ function initTheme() {
 
 /* ============================== Period ============================== */
 function renderPeriod() {
-  const label = (PERIOD_LABELS[state.period] || "Last 12 months").toLowerCase();
-  const hero = document.getElementById("heroRange");
-  if (hero) hero.textContent = "All accounts · " + label;
+  renderHeroChart();
+}
+
+/* ============================== Accounts ============================== */
+function fmtBalance(v) {
+  return (v < 0 ? "−£" : "£") + Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function accountTypeLabel(a) {
+  return a.typeLabel || (a.type === "savings" ? "Savings" : a.type === "credit" ? "Credit" : "Debit");
+}
+function accountTypeBadge(a) {
+  return a.type === "savings" ? "badge-soft" : a.type === "credit" ? "badge-expense" : "badge-income";
+}
+function accountTotals() {
+  const spending = state.accounts.filter((a) => a.type !== "savings").reduce((s, a) => s + a.balance, 0);
+  const savings = state.accounts.filter((a) => a.type === "savings").reduce((s, a) => s + a.balance, 0);
+  return { spending, savings };
+}
+function renderDashboardTotals() {
+  const t = accountTotals();
+  const av = document.getElementById("statAvailable");
+  if (av) av.textContent = fmtBalance(t.spending);
+  const sv = document.getElementById("statSavings");
+  if (sv) sv.textContent = fmtBalance(t.savings);
+}
+function renderAccounts() {
+  const grid = document.getElementById("accountsGrid");
+  grid.innerHTML = "";
+  state.accounts.forEach((a) => {
+    const card = document.createElement("div");
+    card.className = "account-card";
+    card.dataset.accountId = a.id;
+    const txCount = TRANSACTIONS.filter((t) => t.account === (a.txKey || a.name)).length;
+    card.innerHTML = `
+      <div class="account-card-top">
+        <span class="account-dot" style="background:${a.color}"></span>
+        <span class="account-name">${esc(a.name)}</span>
+        <span class="badge ${accountTypeBadge(a)}">${esc(accountTypeLabel(a))}</span>
+      </div>
+      <div class="account-balance ${a.balance < 0 ? "neg" : ""}">${fmtBalance(a.balance)}</div>
+      <div class="account-sub">${esc(a.last4)} · ${txCount} transactions</div>`;
+    card.addEventListener("click", () => {
+      state.selectedAccount = state.selectedAccount === a.id ? null : a.id;
+      const sel = document.getElementById("txAccount");
+      if (sel) sel.value = state.selectedAccount || "";
+      syncAccountSelection();
+      renderTransactions();
+    });
+    grid.appendChild(card);
+  });
+  syncAccountSelection();
+}
+function syncAccountSelection() {
+  document.querySelectorAll(".account-card").forEach((c) => {
+    c.classList.toggle("selected", c.dataset.accountId === state.selectedAccount);
+  });
+  const sub = document.getElementById("accountsTxSub");
+  if (sub) {
+    const acc = state.accounts.find((a) => a.id === state.selectedAccount);
+    sub.textContent = acc ? acc.name : "All accounts";
+  }
+}
+function populateAccountFilter() {
+  const sel = document.getElementById("txAccount");
+  sel.innerHTML = '<option value="">All accounts</option>';
+  state.accounts.forEach((a) => {
+    const opt = document.createElement("option");
+    opt.value = a.id;
+    opt.textContent = a.name;
+    sel.appendChild(opt);
+  });
+  sel.value = state.selectedAccount || "";
+}
+function populateImportAccounts() {
+  const sel = document.getElementById("importAccount");
+  sel.innerHTML = "";
+  state.accounts.forEach((a) => {
+    const opt = document.createElement("option");
+    opt.value = a.id;
+    opt.textContent = a.name + " — " + fmtBalance(a.balance);
+    sel.appendChild(opt);
+  });
+}
+function renderSettingsAccounts() {
+  const wrap = document.getElementById("settingsAccounts");
+  wrap.innerHTML = "";
+  state.accounts.forEach((a) => {
+    const row = document.createElement("div");
+    row.className = "account-row";
+    row.innerHTML = `
+      <span class="account-dot" style="background:${a.color}"></span>
+      <div><strong>${esc(a.name)}</strong><p class="muted">${esc(accountTypeLabel(a))} · ${fmtBalance(a.balance)}</p></div>
+      <button class="widget-btn" data-action="edit-account" data-account-id="${a.id}" title="Edit account"><svg class="icon"><use href="#i-settings"/></svg></button>
+      <button class="widget-btn" data-action="delete-account" data-account-id="${a.id}" title="Delete account"><svg class="icon"><use href="#i-close"/></svg></button>`;
+    wrap.appendChild(row);
+  });
+}
+let editingAccountId = null;
+function openAccountForm(id) {
+  editingAccountId = id || null;
+  const form = document.getElementById("accountForm");
+  form.hidden = false;
+  const acc = id ? state.accounts.find((a) => a.id === id) : null;
+  document.getElementById("accName").value = acc ? acc.name : "";
+  document.getElementById("accType").value = acc ? acc.type : "debit";
+  document.getElementById("accOpening").value = acc ? (acc.opening != null ? acc.opening : acc.balance) : "";
+  document.getElementById("accSaveBtn").textContent = acc ? "Save changes" : "Add account";
+}
+function closeAccountForm() {
+  document.getElementById("accountForm").hidden = true;
+  editingAccountId = null;
+}
+function saveAccount() {
+  const name = document.getElementById("accName").value.trim();
+  if (!name) { toast("Account name is required"); return; }
+  const type = document.getElementById("accType").value;
+  const opening = parseFloat(document.getElementById("accOpening").value) || 0;
+  const labels = { debit: "Debit", credit: "Credit", savings: "Savings" };
+  const isEdit = !!editingAccountId;
+  if (isEdit) {
+    const a = state.accounts.find((x) => x.id === editingAccountId);
+    if (a) { a.name = name; a.type = type; a.typeLabel = labels[type]; a.opening = opening; }
+  } else {
+    state.accounts.push({
+      id: "a" + Date.now(),
+      name,
+      type,
+      typeLabel: labels[type],
+      txKey: name,
+      balance: opening,
+      opening,
+      color: MERCHANT_COLORS[state.accounts.length % MERCHANT_COLORS.length],
+      last4: "··· new",
+    });
+  }
+  closeAccountForm();
+  renderAccounts();
+  renderSettingsAccounts();
+  renderDashboardTotals();
+  populateImportAccounts();
+  populateAccountFilter();
+  toast(isEdit ? "Account updated" : "Account added");
+}
+function deleteAccount(id) {
+  const a = state.accounts.find((x) => x.id === id);
+  if (!a) return;
+  if (!window.confirm("Delete account “" + a.name + "”?")) return;
+  state.accounts = state.accounts.filter((x) => x.id !== id);
+  if (state.selectedAccount === id) state.selectedAccount = null;
+  renderAccounts();
+  renderSettingsAccounts();
+  renderDashboardTotals();
+  populateImportAccounts();
+  populateAccountFilter();
+  renderTransactions();
+  toast("Account deleted");
 }
 
 /* ============================== Navigation ============================== */
@@ -177,11 +338,33 @@ function swapWidgets(idA, idB) {
   b.col = aCol; b.rows = aRows;
 }
 
+function balanceScopeLabel() {
+  if (state.balanceView === "savings") return "Savings";
+  if (state.balanceView === "available") return "Available balance";
+  return "All accounts";
+}
+function balanceSeriesFor(view) {
+  if (view === "savings") {
+    return { labels: BALANCE_SERIES.labels, series: [{ name: "Savings", color: "#4f5bc7", values: SAVINGS_BALANCE_SERIES.values }] };
+  }
+  if (view === "available") {
+    const values = BALANCE_SERIES.values.map((v, i) => v - (SAVINGS_BALANCE_SERIES.values[i] || 0));
+    return { labels: BALANCE_SERIES.labels, series: [{ name: "Available", color: "#0e6f51", values }] };
+  }
+  return { labels: BALANCE_SERIES.labels, series: [{ name: "Balance", color: "#0e6f51", values: BALANCE_SERIES.values }] };
+}
+function syncBalanceCards() {
+  document.querySelectorAll("[data-balance-view]").forEach((c) => {
+    c.classList.toggle("selected", c.dataset.balanceView === state.balanceView);
+  });
+}
 function renderHeroChart() {
-  document.getElementById("heroChart").innerHTML = lineChartSVG({
-    labels: BALANCE_SERIES.labels,
-    series: [{ name: "Balance", color: "#0e6f51", values: BALANCE_SERIES.values }],
-  }, 900);
+  document.getElementById("heroChart").innerHTML = lineChartSVG(balanceSeriesFor(state.balanceView), 900);
+  const range = document.getElementById("heroRange");
+  if (range) {
+    const label = (PERIOD_LABELS[state.period] || "Last 12 months").toLowerCase();
+    range.textContent = balanceScopeLabel() + " · " + label;
+  }
 }
 
 /* ============================== Recent activity ============================== */
@@ -235,10 +418,12 @@ function renderTransactions() {
   const q = (document.getElementById("txSearch").value || "").toLowerCase();
   const cat = document.getElementById("txCategory").value;
   const type = document.getElementById("txType").value;
+  const acc = state.accounts.find((a) => a.id === state.selectedAccount);
   const rows = TRANSACTIONS.filter((t) => {
     if (q && !(t.merchant.toLowerCase().includes(q) || t.category.toLowerCase().includes(q))) return false;
     if (cat && t.category !== cat) return false;
     if (type && t.type !== type) return false;
+    if (acc && t.account !== (acc.txKey || acc.name)) return false;
     return true;
   });
   const body = document.getElementById("transactionsBody");
@@ -666,6 +851,13 @@ function wireEvents() {
     if (nav) switchView(nav.dataset.view);
     const link = e.target.closest("[data-view-link]");
     if (link) switchView(link.dataset.viewLink);
+    const bal = e.target.closest("[data-balance-view]");
+    if (bal) {
+      const view = bal.dataset.balanceView;
+      state.balanceView = state.balanceView === view ? "all" : view;
+      syncBalanceCards();
+      renderHeroChart();
+    }
     const action = e.target.closest("[data-action]");
     if (action) handleAction(action.dataset.action);
     const suggest = e.target.closest("[data-chat-suggest]");
@@ -887,6 +1079,11 @@ function wireEvents() {
     document.getElementById(id).addEventListener("input", renderTransactions);
     document.getElementById(id).addEventListener("change", renderTransactions);
   });
+  document.getElementById("txAccount").addEventListener("change", (e) => {
+    state.selectedAccount = e.target.value || null;
+    syncAccountSelection();
+    renderTransactions();
+  });
 
   // theme
   document.getElementById("themeSelect").addEventListener("change", (e) => {
@@ -917,13 +1114,29 @@ function wireEvents() {
     }
   });
 
+  // account settings form
+  document.getElementById("settingsAddAccountBtn").addEventListener("click", () => openAccountForm(null));
+  document.getElementById("accSaveBtn").addEventListener("click", saveAccount);
+  document.getElementById("accCancelBtn").addEventListener("click", closeAccountForm);
+  document.addEventListener("click", (e) => {
+    const edit = e.target.closest("[data-action='edit-account']");
+    if (edit) { openAccountForm(edit.dataset.accountId); return; }
+    const del = e.target.closest("[data-action='delete-account']");
+    if (del) deleteAccount(del.dataset.accountId);
+  });
+
   // import dropzone
   const dz = document.getElementById("dropzone");
+  const importAccountName = () => {
+    const sel = document.getElementById("importAccount");
+    const acc = state.accounts.find((a) => a.id === sel.value);
+    return acc ? acc.name : "selected account";
+  };
   document.getElementById("dropzoneBrowse").addEventListener("click", () => document.getElementById("fileInput").click());
-  document.getElementById("fileInput").addEventListener("change", () => toast("Importer coming soon — files selected"));
+  document.getElementById("fileInput").addEventListener("change", () => toast("Importer coming soon — files selected for " + importAccountName()));
   ["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
   ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
-  dz.addEventListener("drop", () => toast("Importer coming soon — this is a UI skeleton"));
+  dz.addEventListener("drop", () => toast("Importer coming soon — importing into " + importAccountName()));
 
   // timeline
   document.getElementById("timelineSlider").addEventListener("input", (e) => renderTimeline(e.target.value));
