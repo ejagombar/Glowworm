@@ -43,6 +43,7 @@
     <symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
     <symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
     <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 9l9-6 9 6"/><path d="M4 9v9M9 9v9M15 9v9M20 9v9"/><path d="M2 21h20"/><path d="M4 18h16"/></symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
     <symbol id="i-glowworm" viewBox="0 0 40 32">
       <circle cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
       <circle cx="13" cy="21" r="5.5" fill="#2cc57a"/>
@@ -71,12 +72,12 @@
 
         <nav class="tabnav" aria-label="Primary">
           <a href="#" class="tabnav-item active" data-view="dashboard"><span class="tab-index">01</span>Dashboard</a>
-          <a href="#" class="tabnav-item" data-view="transactions"><span class="tab-index">02</span>Transactions</a>
-          <a href="#" class="tabnav-item" data-view="categories"><span class="tab-index">03</span>Categories</a>
-          <a href="#" class="tabnav-item" data-view="import"><span class="tab-index">04</span>Import</a>
-          <a href="#" class="tabnav-item" data-view="timeline"><span class="tab-index">05</span>Timeline</a>
-          <a href="#" class="tabnav-item" data-view="history"><span class="tab-index">06</span>History</a>
-          <a href="#" class="tabnav-item" data-view="settings"><span class="tab-index">07</span>Settings</a>
+          <a href="#" class="tabnav-item" data-view="queries"><span class="tab-index">02</span>Queries</a>
+          <a href="#" class="tabnav-item" data-view="transactions"><span class="tab-index">03</span>Transactions</a>
+          <a href="#" class="tabnav-item" data-view="categories"><span class="tab-index">04</span>Categories</a>
+          <a href="#" class="tabnav-item" data-view="import"><span class="tab-index">05</span>Import</a>
+          <a href="#" class="tabnav-item" data-view="timeline"><span class="tab-index">06</span>Timeline</a>
+          <a href="#" class="tabnav-item" data-view="history"><span class="tab-index">07</span>History</a>
         </nav>
 
         <select class="period-select" id="periodSelect" aria-label="Date range">
@@ -90,7 +91,9 @@
         </select>
 
         <div class="masthead-actions">
-          <button class="avatar" aria-label="Account">EJ</button>
+          <a class="tabnav-item tabnav-icon" data-view="settings" title="Settings" aria-label="Settings">
+            <svg class="icon"><use href="#i-cog"/></svg>
+          </a>
         </div>
       </header>
 
@@ -99,15 +102,10 @@
         <section class="view active" id="view-dashboard">
           <div class="dash-shell" id="dashShell">
           <div class="dash-main">
-          <div class="view-head query-head">
-            <div class="query-wrap">
-              <div class="query-bar">
-                <svg class="icon"><use href="#i-sparkle"/></svg>
-                <input type="text" id="dashQuery" placeholder="Ask about your money — e.g. “transport spend this year”" autocomplete="off" />
-                <button class="btn btn-primary query-submit" id="dashQueryBtn" aria-label="Ask">
-                  <svg class="icon"><use href="#i-arrow-right"/></svg>
-                </button>
-              </div>
+          <div class="view-head">
+            <div>
+              <h1>Good morning, Emma</h1>
+              <p class="sub">Here's your money at a glance.</p>
             </div>
           </div>
 
@@ -155,7 +153,12 @@
           <!-- Pinned widgets -->
           <div class="section-head">
             <h2>Pinned widgets</h2>
-            <span class="muted">Saved from your questions</span>
+            <div class="section-head-actions">
+              <span class="muted" id="pinnedHint">Saved from your questions</span>
+              <button class="btn btn-ghost btn-xs" id="pinnedEditBtn" aria-label="Edit pinned widgets">
+                <svg class="icon"><use href="#i-settings"/></svg> Edit
+              </button>
+            </div>
           </div>
           <div class="widgets-grid" id="pinnedGrid"></div>
 
@@ -169,6 +172,34 @@
           </div>
           </div><!-- /.dash-main -->
           </div><!-- /.dash-shell -->
+        </section>
+
+        <!-- ============ QUERIES ============ -->
+        <section class="view" id="view-queries">
+          <div class="queries-page">
+            <aside class="queries-sidebar collapsed" id="queriesSidebar">
+              <div class="queries-sidebar-head">
+                <span class="queries-sidebar-title">History</span>
+                <button class="icon-btn queries-sidebar-toggle" id="queriesSidebarToggle" aria-label="Collapse history">
+                  <svg class="icon"><use href="#i-chevron"/></svg>
+                </button>
+              </div>
+              <div class="queries-days" id="queriesDays"></div>
+            </aside>
+            <div class="queries-main">
+              <button class="btn btn-ghost btn-xs queries-sidebar-expand" id="queriesSidebarExpand" aria-label="Show history">
+                <svg class="icon"><use href="#i-chevron"/></svg> History
+              </button>
+              <div class="queries-messages" id="queryMessages"></div>
+              <div class="queries-composer">
+                <textarea id="queryInput" rows="1" placeholder="Ask about your money — e.g. “transport spend this year”" autocomplete="off"></textarea>
+                <button class="btn btn-primary query-submit" id="queryBtn" aria-label="Send">
+                  <svg class="icon"><use href="#i-arrow-right"/></svg>
+                </button>
+              </div>
+              <div class="queries-suggestions" id="querySuggestions"></div>
+            </div>
+          </div>
         </section>
 
         <!-- ============ TRANSACTIONS ============ -->
@@ -400,32 +431,6 @@
     </div>
   </div>
 
-  <!-- Chat panel -->
-  <aside class="chat-panel floating" id="chatPanel" aria-label="Glowworm assistant">
-    <header class="chat-head">
-      <div class="chat-title">
-        <span class="chat-avatar"><svg class="icon"><use href="#i-sparkle"/></svg></span>
-        <div class="chat-meta">
-          <strong>Glowworm</strong>
-          <span class="chat-status"><span class="status-dot"></span> Online</span>
-        </div>
-      </div>
-      <div class="chat-actions">
-        <button class="icon-btn" id="chatPinBtn" title="Pin next to dashboard" aria-label="Pin next to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
-        <button class="icon-btn" id="chatCloseBtn" title="Close chat" aria-label="Close chat"><svg class="icon"><use href="#i-close"/></svg></button>
-      </div>
-    </header>
-
-    <div class="chat-messages" id="chatMessages"></div>
-
-    <footer class="chat-composer">
-      <input type="text" id="chatInput" placeholder="Ask about your money…" autocomplete="off" />
-      <button class="btn btn-primary chat-send" id="chatSendBtn" aria-label="Send">
-        <svg class="icon"><use href="#i-arrow-right"/></svg>
-      </button>
-    </footer>
-  </aside>
-
   <!-- Setup wizard -->
   <div class="modal-backdrop" id="setupWizard" hidden>
     <div class="modal wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
@@ -527,8 +532,6 @@
           <span class="switch"></span>
         </label>
       </div>
-      <p class="muted small">Widgets are JSON-defined and frontend agnostic — these settings map straight to the widget schema.</p>
-      <pre class="json-preview" id="wJsonPreview"></pre>
     </div>
     <div class="drawer-foot">
       <button class="btn btn-ghost" data-action="close-drawer">Cancel</button>

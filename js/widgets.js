@@ -74,12 +74,12 @@ function niceStep(raw) {
   return f * pow;
 }
 
-function barChartSVG(data) {
+function barChartSVG(data, width = 640, height = 260) {
   const s = data.series || [];
   const labels = data.labels || [];
   const all = s.flatMap((x) => x.values || []);
   const max = Math.max(0, ...all);
-  const W = 640, H = 260, padL = 46, padB = 30, padT = 14, padR = 10;
+  const W = width, H = height, padL = 46, padB = 30, padT = 14, padR = 10;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const groupW = innerW / Math.max(labels.length, 1);
   const barW = Math.min(34, (groupW * 0.6) / Math.max(s.length, 1));
@@ -107,13 +107,13 @@ function barChartSVG(data) {
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="bar chart">${parts.join("")}</svg>`;
 }
 
-function lineChartSVG(data, width = 640) {
+function lineChartSVG(data, width = 640, height = 260) {
   const s = (data.series && data.series[0]) ? data.series[0] : { name: "Value", color: WIDGET_COLORS[0], values: [] };
   const labels = data.labels || [];
   const vals = s.values || [];
   const max = Math.max(0, ...vals);
   const min = Math.min(0, ...vals);
-  const W = width, H = 260, padL = 46, padB = 30, padT = 14, padR = 14;
+  const W = width, H = height, padL = 46, padB = 30, padT = 14, padR = 14;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const span = (max - min) || 1;
   const n = labels.length;
@@ -164,7 +164,7 @@ function pieChartSVG(data) {
   parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
   parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="23" font-weight="600" style="fill:var(--text)" font-family="Inter, sans-serif">${fmtMoney(total)}</text>`);
   parts.push(`<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10.5" style="fill:var(--muted)" font-family="Inter, sans-serif">total</text>`);
-  return { svg: `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
+  return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
 }
 function polar(cx, cy, r, a) {
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
@@ -180,6 +180,37 @@ function legendHTML(labels, values, colors, total) {
 function shortLabel(l) {
   const s = String(l);
   return s.length > 8 ? s.slice(0, 7) + "…" : s;
+}
+
+/* ---- responsive chart redraw (fills container without distortion) ---- */
+let chartObserver = null;
+
+function redrawChartHost(host) {
+  const type = host.dataset.chartType;
+  if (!type) return;
+  const w = host.clientWidth;
+  const h = host.clientHeight;
+  if (!w || !h || w < 80 || h < 80) return;
+  let data;
+  try { data = JSON.parse(host.dataset.chartData || "{}"); } catch (e) { return; }
+  host.innerHTML = type === "line" ? lineChartSVG(data, w, h) : barChartSVG(data, w, h);
+}
+
+function drawChartHosts(scope) {
+  if (!window.ResizeObserver) {
+    scope.querySelectorAll(".chart-host[data-chart-type]").forEach(redrawChartHost);
+    return;
+  }
+  if (!chartObserver) {
+    chartObserver = new ResizeObserver((entries) => {
+      requestAnimationFrame(() => entries.forEach((entry) => redrawChartHost(entry.target)));
+    });
+  }
+  chartObserver.disconnect();
+  scope.querySelectorAll(".chart-host[data-chart-type]").forEach((host) => {
+    redrawChartHost(host);
+    chartObserver.observe(host);
+  });
 }
 
 /* ---- widget DOM ---- */
@@ -206,11 +237,11 @@ function widgetBody(widget) {
   }
   if (t === "pie") {
     const rendered = pieChartSVG(data);
-    return `<div class="pie-wrap">${rendered.svg}${rendered.legend}</div>`;
+    return `<div class="pie-wrap"><div class="pie-chart">${rendered.svg}</div>${rendered.legend}</div>`;
   }
-  if (t === "line") return `<div class="chart-host">${lineChartSVG(data)}</div>`;
+  if (t === "line") return `<div class="chart-host" data-chart-type="line" data-chart-data="${esc(JSON.stringify(data))}">${lineChartSVG(data)}</div>`;
   // default bar
-  return `<div class="chart-host">${barChartSVG(data)}</div>`;
+  return `<div class="chart-host" data-chart-type="bar" data-chart-data="${esc(JSON.stringify(data))}">${barChartSVG(data)}</div>`;
 }
 
 function widgetEl(widget, opts = {}) {
@@ -218,15 +249,24 @@ function widgetEl(widget, opts = {}) {
   el.className = "widget";
   if (opts.span) el.classList.add(opts.span);
   el.dataset.widgetId = widget.id;
+  if (opts.col) el.style.gridColumn = "span " + opts.col;
+  if (opts.rows) el.style.gridRow = "span " + opts.rows;
+
+  const resizeHandles = opts.editMode ? `
+    <span class="resize-handle rh-w" draggable="false" data-resize-dir="w"></span>
+    <span class="resize-handle rh-e" draggable="false" data-resize-dir="e"></span>
+    <span class="resize-handle rh-s" draggable="false" data-resize-dir="s"></span>` : "";
+
   el.innerHTML = `
     <div class="widget-head">
       <div class="widget-title">${esc(widget.title || "Widget")}</div>
       <div class="widget-actions">
-        ${opts.pinnable ? `<button class="widget-btn" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>` : ""}
-        <button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
+        ${opts.pinnable ? `<button class="widget-btn" draggable="false" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>` : ""}
+        <button class="widget-btn" draggable="false" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
       </div>
     </div>
-    <div class="widget-body">${widgetBody(widget)}</div>`;
+    <div class="widget-body">${widgetBody(widget)}</div>
+    ${resizeHandles}`;
   return el;
 }
 
@@ -236,13 +276,12 @@ function ensureWidgetStyles() {
   const style = document.createElement("style");
   style.id = "widget-extra-css";
   style.textContent = `
-    .pie-wrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+    .pie-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
     .pie-wrap svg { flex: none; width: 168px; height: 168px; }
     .pie-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 7px; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
     .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
     .pie-legend-val { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
-    .widget.span-4 .pie-wrap svg { width: 132px; height: 132px; }
   `;
   document.head.appendChild(style);
 }

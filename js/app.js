@@ -8,12 +8,13 @@ const state = {
   view: "dashboard",
   pinned: DEFAULT_PINNED_WIDGETS.map((w) => ({ ...w })),
   chat: [],
-  chatMode: "closed", // "closed" | "floating" | "pinned"
   historyFilter: "all",
   wizardStep: 0,
   wizardCats: CATEGORIES.filter((c) => c.budget != null).map((c) => ({ ...c })),
   editingId: null,
   period: "last-12m",
+  editMode: false,
+  dragId: null,
 };
 
 const PERIOD_LABELS = {
@@ -28,6 +29,7 @@ const PERIOD_LABELS = {
 
 const VIEW_TITLES = {
   dashboard: "Dashboard",
+  queries: "Queries",
   transactions: "Transactions",
   categories: "Categories",
   import: "Import",
@@ -36,15 +38,11 @@ const VIEW_TITLES = {
   settings: "Settings",
 };
 
-const WELCOME_MESSAGE = {
-  role: "assistant",
-  text: "Hey, I'm Glowworm — your money, made clear. Ask me anything about your finances.",
-  suggestions: [
-    { label: "Transport spend", text: "How much have I spent on Transport over the past year?" },
-    { label: "Where did my money go?", text: "Where did my money go this month?" },
-    { label: "Balance over time", text: "How has my balance changed this year?" },
-  ],
-};
+const SUGGESTED_PROMPTS = [
+  { label: "Transport spend", text: "How much have I spent on Transport over the past year?" },
+  { label: "Where did my money go?", text: "Where did my money go this month?" },
+  { label: "Balance over time", text: "How has my balance changed this year?" },
+];
 
 const TIMELINE_MONTHS = [
   { short: "Jul 23", date: "1 July 2023" },
@@ -67,7 +65,7 @@ document.addEventListener("DOMContentLoaded", init);
 
 function init() {
   initTheme();
-  state.chat = [{ ...WELCOME_MESSAGE, suggestions: [...WELCOME_MESSAGE.suggestions] }];
+  state.chat = [];
   renderPinned();
   renderRecent();
   renderTransactions();
@@ -80,7 +78,7 @@ function init() {
   populateCategoryFilter();
   renderWizard();
   renderChat();
-  setChatMode("closed");
+  renderSuggestions();
   wireEvents();
   setTimeout(() => openWizard(), 500);
 }
@@ -124,17 +122,59 @@ function switchView(name) {
 }
 
 /* ============================== Widgets ============================== */
-function spanFor(type) {
-  if (type === "number" || type === "text" || type === "pie") return "span-4";
-  return "span-8"; // bar, line, table
+function spanCol(type) {
+  if (type === "number" || type === "text" || type === "pie") return 4;
+  return 8; // bar, line, table
 }
+function spanRows(type) {
+  if (type === "number" || type === "text") return 2;
+  if (type === "pie") return 3;
+  return 4; // bar, line, table
+}
+function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+// Must match the .widgets-grid CSS values
+const GRID_GAP = 12;
+const GRID_ROW = 72;
 
 function renderPinned() {
   const grid = document.getElementById("pinnedGrid");
   grid.innerHTML = "";
+  grid.classList.toggle("editing", state.editMode);
   state.pinned.forEach((w) => {
-    grid.appendChild(widgetEl(w, { span: spanFor(w.type) }));
+    grid.appendChild(widgetEl(w, {
+      col: w.col || spanCol(w.type),
+      rows: w.rows || spanRows(w.type),
+      editMode: state.editMode,
+    }));
   });
+  drawChartHosts(grid);
+}
+
+function setEditMode(on) {
+  state.editMode = on;
+  const btn = document.getElementById("pinnedEditBtn");
+  const hint = document.getElementById("pinnedHint");
+  if (btn) {
+    btn.innerHTML = on
+      ? '<svg class="icon"><use href="#i-check"/></svg> Done'
+      : '<svg class="icon"><use href="#i-settings"/></svg> Edit';
+  }
+  if (hint) hint.textContent = on ? "Drag onto another widget to swap · drag the edges to resize" : "Saved from your questions";
+  renderPinned();
+}
+
+function swapWidgets(idA, idB) {
+  const ia = state.pinned.findIndex((w) => w.id === idA);
+  const ib = state.pinned.findIndex((w) => w.id === idB);
+  if (ia < 0 || ib < 0 || ia === ib) return;
+  const a = state.pinned[ia], b = state.pinned[ib];
+  const aCol = a.col || spanCol(a.type), aRows = a.rows || spanRows(a.type);
+  const bCol = b.col || spanCol(b.type), bRows = b.rows || spanRows(b.type);
+  state.pinned[ia] = b;
+  state.pinned[ib] = a;
+  a.col = bCol; a.rows = bRows;
+  b.col = aCol; b.rows = aRows;
 }
 
 function renderHeroChart() {
@@ -376,7 +416,6 @@ function chatMessageEl(m) {
     return el;
   }
 
-  const avatar = `<div class="msg-avatar"><svg class="icon"><use href="#i-sparkle"/></svg></div>`;
   let content = "";
   if (m.pending) {
     content = `<div class="msg-content">${wormLoaderHTML()}</div>`;
@@ -384,27 +423,82 @@ function chatMessageEl(m) {
     const text = m.text ? `<div class="msg-text">${esc(m.text)}</div>` : "";
     const reason = m.steps && m.steps.length ? msgReasonHTML(m.steps) : "";
     const widget = m.widget ? chatWidgetHTML(m.widget) : "";
-    const suggestions = m.suggestions && m.suggestions.length
-      ? `<div class="msg-suggestions">${m.suggestions.map((s) => `<button class="chip" data-chat-suggest="${esc(s.text)}">${esc(s.label)}</button>`).join("")}</div>`
-      : "";
-    content = `<div class="msg-content">${text}${reason}${widget}${suggestions}</div>`;
+    content = `<div class="msg-content">${text}${reason}${widget}</div>`;
   }
-  el.innerHTML = avatar + content;
+  el.innerHTML = content;
   return el;
 }
 
+function dayKey(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function dayLabel(ts) {
+  const d = new Date(ts);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const that = new Date(d); that.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - that) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+function chatDays() {
+  const days = [];
+  const index = new Map();
+  state.chat.forEach((m) => {
+    const key = dayKey(m.ts || Date.now());
+    if (!index.has(key)) {
+      const entry = { key, label: dayLabel(m.ts || Date.now()), count: 0 };
+      index.set(key, entry);
+      days.push(entry);
+    }
+    index.get(key).count++;
+  });
+  return days;
+}
+function renderDays() {
+  const list = document.getElementById("queriesDays");
+  list.innerHTML = "";
+  chatDays().forEach((d) => {
+    const btn = document.createElement("button");
+    btn.className = "queries-day";
+    btn.dataset.day = d.key;
+    btn.innerHTML = `<span>${esc(d.label)}</span><span class="queries-day-count">${d.count}</span>`;
+    list.appendChild(btn);
+  });
+}
+function renderSuggestions() {
+  const wrap = document.getElementById("querySuggestions");
+  wrap.innerHTML = SUGGESTED_PROMPTS
+    .map((s) => `<button class="chip" data-chat-suggest="${esc(s.text)}">${esc(s.label)}</button>`)
+    .join("");
+}
+
 function renderChat() {
-  const box = document.getElementById("chatMessages");
+  const box = document.getElementById("queryMessages");
   box.innerHTML = "";
-  state.chat.forEach((m) => box.appendChild(chatMessageEl(m)));
+  let lastKey = null;
+  state.chat.forEach((m) => {
+    const key = dayKey(m.ts || Date.now());
+    if (key !== lastKey) {
+      const sep = document.createElement("div");
+      sep.className = "msg-day";
+      sep.dataset.day = key;
+      sep.textContent = dayLabel(m.ts || Date.now());
+      box.appendChild(sep);
+      lastKey = key;
+    }
+    box.appendChild(chatMessageEl(m));
+  });
   box.scrollTop = box.scrollHeight;
+  renderDays();
 }
 
 function sendChat(text) {
   text = (text || "").trim();
   if (!text) return;
-  state.chat.push({ role: "user", text });
-  state.chat.push({ role: "assistant", pending: true });
+  state.chat.push({ role: "user", text, ts: Date.now() });
+  state.chat.push({ role: "assistant", pending: true, ts: Date.now() });
   renderChat();
 
   const resp = QUERY_RESPONSES.find((r) => r.match.test(text)) || DEFAULT_RESPONSE;
@@ -416,38 +510,11 @@ function sendChat(text) {
         text: resp.answer,
         steps: resp.steps,
         widget: { id: widgetId(), ...JSON.parse(JSON.stringify(resp.widget)) },
+        ts: Date.now(),
       };
     }
     renderChat();
   }, 2600);
-}
-
-function setChatMode(mode) {
-  state.chatMode = mode;
-  const panel = document.getElementById("chatPanel");
-  const shell = document.getElementById("dashShell");
-  const pinBtn = document.getElementById("chatPinBtn");
-
-  panel.classList.remove("floating", "open", "docked");
-
-  if (mode === "pinned") {
-    shell.classList.add("docked");
-    shell.appendChild(panel);
-    panel.classList.add("docked");
-    switchView("dashboard");
-  } else {
-    shell.classList.remove("docked");
-    if (panel.parentElement !== document.body) document.body.appendChild(panel);
-    panel.classList.add("floating");
-    if (mode === "floating") panel.classList.add("open");
-  }
-
-  pinBtn.classList.toggle("active", mode === "pinned");
-  renderChat();
-}
-
-function togglePinChat() {
-  setChatMode(state.chatMode === "pinned" ? "floating" : "pinned");
 }
 
 /* ============================== Widget config drawer ============================== */
@@ -467,7 +534,6 @@ function openDrawer(id) {
   document.getElementById("wTitle").value = found.widget.title;
   document.getElementById("wType").value = found.widget.type;
   document.getElementById("wPinned").checked = state.pinned.some((w) => w.id === id);
-  updateJsonPreview();
   document.getElementById("widgetDrawer").hidden = false;
   document.getElementById("drawerBackdrop").hidden = false;
   requestAnimationFrame(() => {
@@ -484,13 +550,6 @@ function closeDrawer() {
     document.getElementById("drawerBackdrop").hidden = true;
   }, 220);
   state.editingId = null;
-}
-
-function updateJsonPreview() {
-  const found = findWidget(state.editingId);
-  if (!found) return;
-  const preview = { type: document.getElementById("wType").value, title: document.getElementById("wTitle").value, data: found.widget.data };
-  document.getElementById("wJsonPreview").textContent = JSON.stringify(preview, null, 2);
 }
 
 function applyWidget() {
@@ -645,37 +704,164 @@ function wireEvents() {
     }
   });
 
-  // chat controls
-  document.getElementById("chatCloseBtn").addEventListener("click", () => setChatMode("closed"));
-  document.getElementById("chatPinBtn").addEventListener("click", togglePinChat);
-  document.getElementById("chatSendBtn").addEventListener("click", () => {
-    const input = document.getElementById("chatInput");
-    sendChat(input.value);
-    input.value = "";
+  // pinned widgets: edit mode (drag to swap + resize)
+  document.getElementById("pinnedEditBtn").addEventListener("click", () => setEditMode(!state.editMode));
+
+  let move = null;
+
+  document.addEventListener("pointerdown", (e) => {
+    if (!state.editMode) return;
+    if (e.target.closest(".resize-handle") || e.target.closest(".widget-btn")) return;
+    const card = e.target.closest("[data-widget-id]");
+    if (!card || !document.getElementById("pinnedGrid").contains(card)) return;
+
+    e.preventDefault();
+    const rect = card.getBoundingClientRect();
+    const ghost = card.cloneNode(true);
+    ghost.classList.add("drag-ghost");
+    ghost.classList.remove("dragging", "drop-target");
+    ghost.style.width = rect.width + "px";
+    ghost.style.height = rect.height + "px";
+    ghost.style.left = rect.left + "px";
+    ghost.style.top = rect.top + "px";
+    document.body.appendChild(ghost);
+
+    move = {
+      id: card.dataset.widgetId,
+      startX: e.clientX,
+      startY: e.clientY,
+      card,
+      ghost,
+      target: null,
+      moved: false,
+    };
+    card.classList.add("dragging");
+    document.body.classList.add("dragging-widget");
   });
-  document.getElementById("chatInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      sendChat(e.target.value);
-      e.target.value = "";
+
+  window.addEventListener("pointermove", (e) => {
+    if (!move) return;
+    if (!move.moved) {
+      if (Math.hypot(e.clientX - move.startX, e.clientY - move.startY) < 5) return;
+      move.moved = true;
+    }
+    e.preventDefault();
+    move.ghost.style.transform = "translate(" + (e.clientX - move.startX) + "px, " + (e.clientY - move.startY) + "px)";
+    move.ghost.style.pointerEvents = "none";
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    move.ghost.style.pointerEvents = "";
+    const target = under ? under.closest("[data-widget-id]") : null;
+
+    if (move.target && move.target !== target) {
+      move.target.classList.remove("drop-target");
+      move.target = null;
+    }
+    if (target && target.dataset.widgetId !== move.id && document.getElementById("pinnedGrid").contains(target)) {
+      target.classList.add("drop-target");
+      move.target = target;
     }
   });
 
-  // dashboard query bar
-  const dashQuery = document.getElementById("dashQuery");
+  window.addEventListener("pointerup", () => {
+    if (!move) return;
+    if (move.moved && move.target) swapWidgets(move.id, move.target.dataset.widgetId);
+    if (move.card) move.card.classList.remove("dragging");
+    if (move.target) move.target.classList.remove("drop-target");
+    if (move.ghost) move.ghost.remove();
+    document.body.classList.remove("dragging-widget");
+    move = null;
+    renderPinned();
+  });
+
+  // resize widgets by dragging their edges
+  let resize = null;
+
+  document.addEventListener("pointerdown", (e) => {
+    const handle = e.target.closest(".resize-handle");
+    if (!handle || !state.editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const card = handle.closest("[data-widget-id]");
+    const w = state.pinned.find((x) => x.id === card.dataset.widgetId);
+    if (!w) return;
+    const grid = document.getElementById("pinnedGrid");
+    const colWidth = (grid.clientWidth - 11 * GRID_GAP) / 12;
+    const rowStep = GRID_ROW + GRID_GAP;
+    const col = w.col || spanCol(w.type);
+    const rows = w.rows || spanRows(w.type);
+    resize = {
+      id: w.id, dir: handle.dataset.resizeDir,
+      startX: e.clientX, startY: e.clientY,
+      col, rows, colWidth, rowStep, card,
+    };
+    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+    document.body.classList.add("resizing");
+  });
+
+  window.addEventListener("pointermove", (e) => {
+    if (!resize) return;
+    e.preventDefault();
+    const dx = e.clientX - resize.startX;
+    const dy = e.clientY - resize.startY;
+    const w = state.pinned.find((x) => x.id === resize.id);
+    if (!w) return;
+    if (resize.dir === "e") {
+      w.col = clamp(resize.col + Math.round(dx / resize.colWidth), 2, 12);
+      resize.card.style.gridColumn = "span " + w.col;
+    } else if (resize.dir === "w") {
+      w.col = clamp(resize.col - Math.round(dx / resize.colWidth), 2, 12);
+      resize.card.style.gridColumn = "span " + w.col;
+    } else if (resize.dir === "s") {
+      w.rows = clamp(resize.rows + Math.round(dy / resize.rowStep), 1, 8);
+      resize.card.style.gridRow = "span " + w.rows;
+    }
+  });
+
+  window.addEventListener("pointerup", () => {
+    if (!resize) return;
+    resize = null;
+    document.body.classList.remove("resizing");
+    renderPinned();
+  });
+
+  // queries page composer
+  const queryInput = document.getElementById("queryInput");
   const submitQuery = () => {
-    const text = dashQuery.value.trim();
+    const text = queryInput.value.trim();
     if (!text) return;
-    setChatMode("floating");
     sendChat(text);
-    dashQuery.value = "";
+    queryInput.value = "";
+    queryInput.style.height = "auto";
   };
-  document.getElementById("dashQueryBtn").addEventListener("click", submitQuery);
-  dashQuery.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
+  const autosizeQuery = () => {
+    queryInput.style.height = "auto";
+    queryInput.style.height = Math.min(queryInput.scrollHeight, 140) + "px";
+  };
+  document.getElementById("queryBtn").addEventListener("click", submitQuery);
+  queryInput.addEventListener("input", autosizeQuery);
+  queryInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitQuery();
     }
+  });
+
+  // queries history sidebar
+  const queriesSidebar = document.getElementById("queriesSidebar");
+  const queriesSidebarExpand = document.getElementById("queriesSidebarExpand");
+  document.getElementById("queriesSidebarToggle").addEventListener("click", () => {
+    queriesSidebar.classList.add("collapsed");
+    queriesSidebarExpand.hidden = false;
+  });
+  queriesSidebarExpand.addEventListener("click", () => {
+    queriesSidebar.classList.remove("collapsed");
+    queriesSidebarExpand.hidden = true;
+  });
+  document.getElementById("queriesDays").addEventListener("click", (e) => {
+    const btn = e.target.closest(".queries-day");
+    if (!btn) return;
+    const sep = document.querySelector(`#queryMessages .msg-day[data-day="${btn.dataset.day}"]`);
+    if (sep) sep.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   // wizard footer
@@ -695,8 +881,6 @@ function wireEvents() {
 
   // drawer
   document.getElementById("wApply").addEventListener("click", applyWidget);
-  document.getElementById("wTitle").addEventListener("input", updateJsonPreview);
-  document.getElementById("wType").addEventListener("change", updateJsonPreview);
 
   // transactions filters
   ["txSearch", "txCategory", "txType"].forEach((id) => {
@@ -748,8 +932,8 @@ function wireEvents() {
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
-      switchView("dashboard");
-      setTimeout(() => document.getElementById("dashQuery").focus(), 60);
+      switchView("queries");
+      setTimeout(() => document.getElementById("queryInput").focus(), 60);
     }
     if (e.key === "Escape") {
       closeWizard();
