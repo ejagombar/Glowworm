@@ -89,7 +89,7 @@ function barChartSVG(data, width = 640, height = 260) {
   ticks.forEach((t) => {
     const y = padT + innerH - (t / max) * innerH;
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
   });
 
   labels.forEach((label, i) => {
@@ -101,7 +101,7 @@ function barChartSVG(data, width = 640, height = 260) {
       const by = padT + innerH - h;
       parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(h, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"><title>${esc(series.name)}: ${fmtMoney(v)}</title></rect>`);
     });
-    parts.push(`<text x="${x}" y="${H - 8}" text-anchor="middle" class="chart-tooltip">${esc(shortLabel(label))}</text>`);
+    parts.push(`<text x="${x}" y="${H - 8}" text-anchor="middle" class="chart-tooltip">${esc(label)}</text>`);
   });
 
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="bar chart">${parts.join("")}</svg>`;
@@ -124,7 +124,7 @@ function lineChartSVG(data, width = 640, height = 260) {
   axisTicks(max, 4).forEach((t) => {
     const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
   });
 
   const points = vals.map((v, i) => `${px(i)},${py(v)}`).join(" ");
@@ -162,7 +162,7 @@ function pieChartSVG(data) {
     angle = end;
   });
   parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
-  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="23" font-weight="600" style="fill:var(--text)" font-family="Inter, sans-serif">${fmtMoney(total)}</text>`);
+  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="23" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${fmtMoney(total)}</text>`);
   parts.push(`<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10.5" style="fill:var(--muted)" font-family="Inter, sans-serif">total</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
 }

@@ -223,6 +223,20 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .period-select:focus { border-color: var(--primary); }
 
 .masthead-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: 12px; align-self: stretch; }
+.masthead-actions .icon-btn.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
+/* Privacy — blur monetary text, not chart shapes or individual transactions */
+body.privacy .stat-value,
+body.privacy .account-balance,
+body.privacy .cat-amount,
+body.privacy .num-value,
+body.privacy .num-caption,
+body.privacy .num-trend,
+body.privacy .stat-trend,
+body.privacy .account-row p,
+body.privacy .table-widget td.num { filter: blur(5px); }
+body.privacy .chart-y-label,
+body.privacy .pie-total { filter: blur(4px); }
 
 .icon-btn {
   position: relative; width: 32px; height: 32px;
@@ -289,6 +303,8 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .btn-primary:hover { background: var(--primary-600); }
 .btn-ghost { background: var(--surface); color: var(--text-2); border-color: var(--line-2); }
 .btn-ghost:hover { background: var(--surface-2); border-color: var(--muted-2); color: var(--text); }
+.btn-danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
 .btn-xs { padding: 4px 9px; font-size: 12px; border-radius: 2px; }
 .btn .icon { width: 14px; height: 14px; }
 .link { border: none; background: none; color: var(--primary); font-weight: 500; padding: 0; }
@@ -724,6 +740,8 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
   border-top: 1px solid var(--line);
   border-left: 1px solid var(--line);
 }
+.category-form { margin-bottom: 16px; }
+.category-form-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .category-card { background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 13px 15px; }
 .category-card .cat-top { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
 .category-card .cat-name { font-weight: 500; flex: 1; }
@@ -810,6 +828,13 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .timeline-date { font-weight: 600; font-size: 15px; margin-bottom: 11px; }
 .timeline-controls input[type="range"] { width: 100%; accent-color: var(--primary); }
 .timeline-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+.timeline-accounts { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 16px; }
+.timeline-account { background: var(--surface); padding: 10px 14px; display: flex; align-items: center; gap: 11px; cursor: pointer; }
+.timeline-account:hover { background: var(--surface-2); }
+.timeline-account.selected { outline: 1px solid var(--primary); outline-offset: -1px; }
+.timeline-account .account-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.timeline-account .account-balance { font-family: var(--mono); font-weight: 600; font-size: 13.5px; }
+.timeline-account .account-balance.neg { color: var(--expense); }
 
 /* ---------- History ---------- */
 .history-list {
@@ -842,6 +867,9 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .diff-add { color: var(--income); }
 .diff-del { color: var(--expense); text-decoration: line-through; }
 .history-time { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.history-restore { flex: none; align-self: center; margin-left: 2px; }
+.history-mode { margin-bottom: 12px; }
+.history-mode .chip { font-size: 13.5px; padding: 8px 18px; }
 
 /* ---------- Settings ---------- */
 .settings-grid {

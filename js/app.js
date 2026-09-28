@@ -18,6 +18,10 @@ const state = {
   accounts: ACCOUNTS.map((a) => ({ ...a })),
   selectedAccount: null,
   balanceView: "all",
+  historyMode: "transactions",
+  timelineAccount: null,
+  timelineIdx: 11,
+  privacy: false,
 };
 
 const PERIOD_LABELS = {
@@ -81,6 +85,7 @@ function init() {
   renderSchemas();
   renderHistory();
   renderTimeline(11);
+  setHistoryMode("transactions");
   renderHeroChart();
   syncBalanceCards();
   populateCategoryFilter();
@@ -204,8 +209,7 @@ function renderSettingsAccounts() {
     row.innerHTML = `
       <span class="account-dot" style="background:${a.color}"></span>
       <div><strong>${esc(a.name)}</strong><p class="muted">${esc(accountTypeLabel(a))} · ${fmtBalance(a.balance)}</p></div>
-      <button class="widget-btn" data-action="edit-account" data-account-id="${a.id}" title="Edit account"><svg class="icon"><use href="#i-settings"/></svg></button>
-      <button class="widget-btn" data-action="delete-account" data-account-id="${a.id}" title="Delete account"><svg class="icon"><use href="#i-close"/></svg></button>`;
+      <button class="widget-btn" data-action="edit-account" data-account-id="${a.id}" title="Edit account"><svg class="icon"><use href="#i-settings"/></svg></button>`;
     wrap.appendChild(row);
   });
 }
@@ -219,6 +223,7 @@ function openAccountForm(id) {
   document.getElementById("accType").value = acc ? acc.type : "debit";
   document.getElementById("accOpening").value = acc ? (acc.opening != null ? acc.opening : acc.balance) : "";
   document.getElementById("accSaveBtn").textContent = acc ? "Save changes" : "Add account";
+  document.getElementById("accDeleteBtn").hidden = !acc;
 }
 function closeAccountForm() {
   document.getElementById("accountForm").hidden = true;
@@ -268,6 +273,20 @@ function deleteAccount(id) {
   populateAccountFilter();
   renderTransactions();
   toast("Account deleted");
+}
+
+/* ============================== Privacy ============================== */
+function togglePrivacy() {
+  state.privacy = !state.privacy;
+  document.body.classList.toggle("privacy", state.privacy);
+  const btn = document.getElementById("privacyToggle");
+  if (btn) {
+    btn.classList.toggle("active", state.privacy);
+    btn.title = state.privacy ? "Show balances" : "Hide balances";
+    btn.innerHTML = state.privacy
+      ? '<svg class="icon"><use href="#i-eye-off"/></svg>'
+      : '<svg class="icon"><use href="#i-eye"/></svg>';
+  }
 }
 
 /* ============================== Navigation ============================== */
@@ -454,7 +473,7 @@ function monthName(mm) {
 function populateCategoryFilter() {
   const sel = document.getElementById("txCategory");
   sel.innerHTML = '<option value="">All categories</option>';
-  CATEGORIES.filter((c) => c.budget != null).forEach((c) => {
+  CATEGORIES.filter((c) => c.id !== "income" && c.id !== "savings").forEach((c) => {
     const opt = document.createElement("option");
     opt.value = c.name;
     opt.textContent = c.name;
@@ -469,18 +488,50 @@ function renderCategories() {
   CATEGORIES.forEach((c) => {
     const card = document.createElement("div");
     card.className = "category-card";
+    const isSystem = c.id === "income" || c.id === "savings";
     const pct = c.budget ? Math.min(100, Math.round((c.spent / c.budget) * 100)) : 0;
+    const badge = c.budget ? "Budgeted" : isSystem ? "System" : "Unbudgeted";
+    const sub = c.budget
+      ? "of " + fmtMoney(c.budget) + " budget"
+      : c.id === "income" ? "Incoming" : c.id === "savings" ? "Internal transfer" : "No budget set";
     card.innerHTML = `
       <div class="cat-top">
         <span class="category-dot" style="background:${c.color}"></span>
         <span class="cat-name">${esc(c.name)}</span>
-        <span class="cat-badge">${c.budget ? "Budgeted" : "System"}</span>
+        <span class="cat-badge">${badge}</span>
       </div>
       <div class="cat-amount">${c.spent != null ? fmtMoney(c.spent) : "—"}</div>
-      <div class="cat-budget">${c.budget ? "of " + fmtMoney(c.budget) + " budget" : c.id === "income" ? "Incoming" : "Internal transfer"}</div>
+      <div class="cat-budget">${sub}</div>
       ${c.budget ? `<div class="progress"><span style="width:${pct}%;background:${c.color}"></span></div>` : ""}`;
     grid.appendChild(card);
   });
+}
+
+function openCategoryForm() {
+  const form = document.getElementById("categoryForm");
+  form.hidden = false;
+  document.getElementById("catName").value = "";
+  document.getElementById("catBudget").value = "";
+  document.getElementById("catName").focus();
+}
+function closeCategoryForm() {
+  document.getElementById("categoryForm").hidden = true;
+}
+function saveCategory() {
+  const name = document.getElementById("catName").value.trim();
+  if (!name) { toast("Category name is required"); return; }
+  const budget = parseFloat(document.getElementById("catBudget").value) || 0;
+  CATEGORIES.push({
+    id: "c" + Date.now(),
+    name,
+    color: MERCHANT_COLORS[CATEGORIES.length % MERCHANT_COLORS.length],
+    budget: budget > 0 ? budget : null,
+    spent: 0,
+  });
+  closeCategoryForm();
+  renderCategories();
+  populateCategoryFilter();
+  toast("Category added");
 }
 
 /* ============================== Schemas ============================== */
@@ -521,14 +572,26 @@ function renderHistory() {
         <div class="history-sub">${esc(h.sub)}</div>
         ${diff}
       </div>
-      <div class="history-time">${esc(h.time)}</div>`;
+      <div class="history-time">${esc(h.time)}</div>
+      <button class="btn btn-ghost btn-xs history-restore" data-restore-history="${h.id}" title="Restore state to this point">Restore</button>`;
     list.appendChild(el);
   });
+}
+
+/* ============================== History page ============================== */
+function setHistoryMode(mode) {
+  state.historyMode = mode;
+  document.querySelectorAll("[data-history-mode]").forEach((c) => {
+    c.classList.toggle("active", c.dataset.historyMode === mode);
+  });
+  document.getElementById("historyTimelinePane").hidden = mode !== "transactions";
+  document.getElementById("historyAuditPane").hidden = mode !== "audit";
 }
 
 /* ============================== Timeline ============================== */
 function renderTimeline(idx) {
   idx = Math.max(0, Math.min(TIMELINE_MONTHS.length - 1, Number(idx)));
+  state.timelineIdx = idx;
   const m = TIMELINE_MONTHS[idx];
   document.getElementById("timelineDate").textContent = m.date;
   document.getElementById("timelineBalance").textContent = fmtMoney(BALANCE_SERIES.values[idx]);
@@ -536,11 +599,45 @@ function renderTimeline(idx) {
   document.querySelectorAll(".timeline-labels span")[0].textContent = TIMELINE_MONTHS[0].short;
   document.querySelectorAll(".timeline-labels span")[1].textContent = TIMELINE_MONTHS[TIMELINE_MONTHS.length - 1].short;
 
-  const sliced = {
-    labels: BALANCE_SERIES.labels.slice(0, idx + 1),
-    series: [{ name: "Balance", color: "#0e6f51", values: BALANCE_SERIES.values.slice(0, idx + 1) }],
-  };
-  document.getElementById("timelineChart").innerHTML = lineChartSVG(sliced, 900);
+  const labels = BALANCE_SERIES.labels.slice(0, idx + 1);
+  const selected = state.accounts.find((a) => a.id === state.timelineAccount);
+  let chartData;
+  if (selected) {
+    const total = BALANCE_SERIES.values[BALANCE_SERIES.values.length - 1] || 1;
+    const share = selected.balance / total;
+    chartData = {
+      labels,
+      series: [{ name: selected.name, color: selected.color, values: BALANCE_SERIES.values.slice(0, idx + 1).map((v) => v * share) }],
+    };
+  } else {
+    chartData = {
+      labels,
+      series: [{ name: "Balance", color: "#0e6f51", values: BALANCE_SERIES.values.slice(0, idx + 1) }],
+    };
+  }
+  document.getElementById("timelineChart").innerHTML = lineChartSVG(chartData, 900);
+  renderTimelineAccounts(idx);
+}
+function renderTimelineAccounts(idx) {
+  const wrap = document.getElementById("timelineAccounts");
+  const latest = BALANCE_SERIES.values[BALANCE_SERIES.values.length - 1] || 1;
+  const ratio = BALANCE_SERIES.values[idx] / latest;
+  wrap.innerHTML = "";
+  state.accounts.forEach((a) => {
+    const bal = a.balance * ratio;
+    const el = document.createElement("div");
+    el.className = "timeline-account";
+    el.classList.toggle("selected", state.timelineAccount === a.id);
+    el.innerHTML = `
+      <span class="account-dot" style="background:${a.color}"></span>
+      <span class="account-name">${esc(a.name)}</span>
+      <span class="account-balance ${bal < 0 ? "neg" : ""}">${fmtBalance(bal)}</span>`;
+    el.addEventListener("click", () => {
+      state.timelineAccount = state.timelineAccount === a.id ? null : a.id;
+      renderTimeline(state.timelineIdx);
+    });
+    wrap.appendChild(el);
+  });
 }
 
 /* ============================== AI chat ============================== */
@@ -879,6 +976,10 @@ function wireEvents() {
       state.historyFilter = hf.dataset.historyFilter;
       renderHistory();
     }
+    const hm = e.target.closest("[data-history-mode]");
+    if (hm) setHistoryMode(hm.dataset.historyMode);
+    const rest = e.target.closest("[data-restore-history]");
+    if (rest) toast("State restored to this point");
   });
 
   // widget actions (delegated)
@@ -1085,6 +1186,9 @@ function wireEvents() {
     renderTransactions();
   });
 
+  // privacy toggle
+  document.getElementById("privacyToggle").addEventListener("click", togglePrivacy);
+
   // theme
   document.getElementById("themeSelect").addEventListener("change", (e) => {
     try { localStorage.setItem("glowworm-theme", e.target.value); } catch (err) {}
@@ -1103,26 +1207,21 @@ function wireEvents() {
     renderPeriod();
   });
 
-  // categories add
-  document.getElementById("addCategoryBtn").addEventListener("click", () => {
-    const name = window.prompt("New category name");
-    if (name && name.trim()) {
-      CATEGORIES.push({ id: "c" + Date.now(), name: name.trim(), color: MERCHANT_COLORS[CATEGORIES.length % MERCHANT_COLORS.length], budget: 100, spent: 0 });
-      renderCategories();
-      populateCategoryFilter();
-      toast("Category added");
-    }
-  });
+  // categories form
+  document.getElementById("addCategoryBtn").addEventListener("click", openCategoryForm);
+  document.getElementById("catSaveBtn").addEventListener("click", saveCategory);
+  document.getElementById("catCancelBtn").addEventListener("click", closeCategoryForm);
 
   // account settings form
   document.getElementById("settingsAddAccountBtn").addEventListener("click", () => openAccountForm(null));
   document.getElementById("accSaveBtn").addEventListener("click", saveAccount);
   document.getElementById("accCancelBtn").addEventListener("click", closeAccountForm);
+  document.getElementById("accDeleteBtn").addEventListener("click", () => {
+    if (editingAccountId) deleteAccount(editingAccountId);
+  });
   document.addEventListener("click", (e) => {
     const edit = e.target.closest("[data-action='edit-account']");
-    if (edit) { openAccountForm(edit.dataset.accountId); return; }
-    const del = e.target.closest("[data-action='delete-account']");
-    if (del) deleteAccount(del.dataset.accountId);
+    if (edit) openAccountForm(edit.dataset.accountId);
   });
 
   // import dropzone
