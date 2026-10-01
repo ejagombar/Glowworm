@@ -14,7 +14,7 @@ const CATEGORIES = [
   { id: "savings", name: "Internal transfer", color: "#2e9d8f", budget: null, spent: null },
 ];
 
-const TRANSACTIONS = [
+const RECENT_TX = [
   { date: "2024-06-01", merchant: "Acme Ltd — Salary", category: "Income", account: "Current", amount: 2450.00, type: "income" },
   { date: "2024-06-01", merchant: "Transfer to Savings", category: "Internal transfer", account: "Savings", amount: -500.00, type: "transfer" },
   { date: "2024-06-02", merchant: "Tesco Express", category: "Food & Dining", account: "Current", amount: -42.35, type: "expense" },
@@ -32,6 +32,116 @@ const TRANSACTIONS = [
   { date: "2024-06-14", merchant: "Transport for London", category: "Transport", account: "Current", amount: -9.60, type: "expense" },
   { date: "2024-06-15", merchant: "Zara", category: "Shopping", account: "Current", amount: -83.81, type: "expense" },
 ];
+
+/* ============================================================
+   Simulated history — 30 months (Jan 2022 → Jun 2024).
+   Generated deterministically (seeded) so the demo data is
+   stable across reloads, and ends on today's balances.
+   ============================================================ */
+
+function seededRng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+const HISTORY_MONTHS = (() => {
+  const long = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const sh = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const months = [];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(2022, i, 1);
+    const y = d.getFullYear();
+    const mo = d.getMonth();
+    months.push({
+      key: y + "-" + String(mo + 1).padStart(2, "0"),
+      short: sh[mo] + " " + String(y).slice(2),
+      date: "1 " + long[mo] + " " + y,
+    });
+  }
+  return months;
+})();
+
+/* Total balance across accounts, ending on today's £8,412.66 */
+const BALANCE_SERIES = (() => {
+  const rng = seededRng(31);
+  const raw = [1850];
+  for (let i = 1; i < HISTORY_MONTHS.length; i++) {
+    let delta = 230 + (rng() - 0.6) * 420;          /* salary less spending */
+    if (i % 12 === 11) delta -= 170;               /* December splurge */
+    if (i % 12 === 2 || i % 12 === 5) delta -= 80; /* spring dips */
+    raw.push(raw[i - 1] + Math.max(delta, -260));
+  }
+  const n = raw.length;
+  const drift = 8412.66 - raw[n - 1];
+  return {
+    labels: HISTORY_MONTHS.map((m) => m.short),
+    values: raw.map((v, i) => Math.round((v + drift * (i / (n - 1))) * 100) / 100),
+  };
+})();
+
+/* Savings balance, ending on today's £4,500 */
+const SAVINGS_BALANCE_SERIES = (() => {
+  const rng = seededRng(29);
+  const raw = [280];
+  for (let i = 1; i < HISTORY_MONTHS.length; i++) {
+    let delta = rng() < 0.12 ? 0 : 110 + (rng() - 0.4) * 70;
+    if (i % 12 === 11) delta *= 0.4;
+    raw.push(raw[i - 1] + delta);
+  }
+  const n = raw.length;
+  const drift = 4500 - raw[n - 1];
+  return {
+    labels: HISTORY_MONTHS.map((m) => m.short),
+    values: raw.map((v, i) => Math.round((v + drift * (i / (n - 1))) * 100) / 100),
+  };
+})();
+
+/* Historic transactions — salary, occasional savings transfer and a
+   few everyday purchases per month, on top of the recent hand-written set */
+const TX_POOL = [
+  { merchant: "Tesco Express", category: "Food & Dining", account: "Current", amount: -42.35, type: "expense" },
+  { merchant: "Octopus Energy", category: "Bills & Utilities", account: "Current", amount: -86.2, type: "bill" },
+  { merchant: "Transport for London", category: "Transport", account: "Current", amount: -12.5, type: "expense" },
+  { merchant: "Netflix", category: "Entertainment", account: "Current", amount: -10.99, type: "bill" },
+  { merchant: "Pret a Manger", category: "Food & Dining", account: "Current", amount: -8.75, type: "expense" },
+  { merchant: "Amazon", category: "Shopping", account: "Current", amount: -34.99, type: "expense" },
+  { merchant: "Boots Pharmacy", category: "Health", account: "Current", amount: -21.5, type: "expense" },
+  { merchant: "Spotify", category: "Entertainment", account: "Current", amount: -11.99, type: "bill" },
+  { merchant: "Uber", category: "Transport", account: "Current", amount: -18.4, type: "expense" },
+  { merchant: "Waterstones", category: "Shopping", account: "Current", amount: -24.0, type: "expense" },
+  { merchant: "Vodafone", category: "Bills & Utilities", account: "Current", amount: -45.0, type: "bill" },
+  { merchant: "Wagamama", category: "Food & Dining", account: "Current", amount: -32.8, type: "expense" },
+  { merchant: "Zara", category: "Shopping", account: "Current", amount: -83.81, type: "expense" },
+];
+
+const TRANSACTIONS = (() => {
+  const rng = seededRng(3);
+  const rows = [];
+  HISTORY_MONTHS.slice(0, -1).forEach((m) => {
+    rows.push({ date: m.key + "-01", merchant: "Acme Ltd — Salary", category: "Income", account: "Current", amount: 2400 + Math.round(rng() * 100), type: "income" });
+    if (rng() < 0.55) {
+      rows.push({ date: m.key + "-02", merchant: "Transfer to Savings", category: "Internal transfer", account: "Savings", amount: -(400 + Math.round(rng() * 200)), type: "transfer" });
+    }
+    TX_POOL
+      .filter(() => rng() < 0.45)
+      .slice(0, 3 + Math.floor(rng() * 3))
+      .forEach((p) => {
+        const day = 3 + Math.floor(rng() * 25);
+        rows.push({
+          date: m.key + "-" + String(day).padStart(2, "0"),
+          merchant: p.merchant,
+          category: p.category,
+          account: p.account,
+          amount: Math.round(p.amount * (0.85 + rng() * 0.3) * 100) / 100,
+          type: p.type,
+        });
+      });
+  });
+  return rows.concat(RECENT_TX).sort((a, b) => b.date.localeCompare(a.date));
+})();
 
 const ACCOUNTS = [
   { id: "a-current", name: "Current account", type: "debit", typeLabel: "Debit", txKey: "Current", balance: 3912.66, opening: 3500.00, color: "#0e6f51", last4: "··· 4211" },
@@ -90,16 +200,6 @@ const HISTORY = [
     sub: "Monthly payment · labelled automatically",
   },
 ];
-
-const BALANCE_SERIES = {
-  labels: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-  values: [3050, 3680, 3540, 4110, 4650, 5020, 4740, 5480, 6120, 6890, 7560, 8412],
-};
-
-const SAVINGS_BALANCE_SERIES = {
-  labels: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-  values: [600, 980, 1180, 1420, 1750, 2060, 2240, 2510, 2890, 3340, 3860, 4500],
-};
 
 const CATEGORY_SPEND_SERIES = {
   labels: ["Bills", "Food", "Shopping", "Transport", "Entertainment", "Health"],
@@ -199,7 +299,7 @@ const QUERY_RESPONSES = [
     widget: {
       type: "line",
       title: "Balance over the last year",
-      data: { labels: BALANCE_SERIES.labels, series: [{ name: "Balance", color: "#0e6f51", values: BALANCE_SERIES.values }] },
+      data: { labels: BALANCE_SERIES.labels.slice(-12), series: [{ name: "Balance", color: "#0e6f51", values: BALANCE_SERIES.values.slice(-12) }] },
     },
   },
   {

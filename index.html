@@ -84,9 +84,9 @@
 
         <div class="period-wrap">
           <select class="period-select" id="periodSelect" aria-label="Date range">
-            <option value="all">All time</option>
+            <option value="all" selected>All time</option>
             <option value="ytd">Year to date</option>
-            <option value="last-12m" selected>Last 12 months</option>
+            <option value="last-12m">Last 12 months</option>
             <option value="last-3m">Last 3 months</option>
             <option value="last-month">Last month</option>
             <option value="last-day">Last day</option>
@@ -155,7 +155,7 @@
               <div class="section-head inside">
                 <div>
                   <h2>Balance overview</h2>
-                  <p class="muted small" id="heroRange">All accounts · last 12 months</p>
+                  <p class="muted small" id="heroRange">All accounts · all time</p>
                 </div>
                 <span class="badge badge-soft">+3.2% this year</span>
               </div>
@@ -353,18 +353,29 @@
             </div>
           </div>
 
-          <div class="filters panel history-mode">
-            <button class="chip active" data-history-mode="transactions">Transactions</button>
-            <button class="chip" data-history-mode="audit">Audit log</button>
+          <div class="segmented history-mode" role="tablist" aria-label="History view">
+            <button class="segmented-item active" data-history-mode="transactions" role="tab" aria-selected="true">
+              <svg class="icon"><use href="#i-transactions"/></svg> Transactions
+            </button>
+            <button class="segmented-item" data-history-mode="audit" role="tab" aria-selected="false">
+              <svg class="icon"><use href="#i-history"/></svg> Audit log
+            </button>
           </div>
 
           <!-- Transactions timeline -->
           <div class="history-pane" id="historyTimelinePane">
             <div class="panel timeline-controls">
-              <div class="timeline-date" id="timelineDate">1 June 2024</div>
-              <input type="range" id="timelineSlider" min="0" max="11" value="11" step="1" />
-              <div class="timeline-labels">
-                <span>Jul 23</span><span>Jun 24</span>
+              <div class="timeline-head">
+                <svg class="icon timeline-ico"><use href="#i-timeline"/></svg>
+                <div class="timeline-date-main">
+                  <div class="timeline-date-label">Viewing state on</div>
+                  <div class="timeline-date" id="timelineDate">1 June 2024</div>
+                </div>
+                <span class="timeline-chip" id="timelineChip">Latest</span>
+              </div>
+              <div class="timeline-slider-wrap">
+                <input type="range" id="timelineSlider" min="0" max="29" value="29" step="1" aria-label="Timeline date" />
+                <div class="timeline-ticks" id="timelineTicks"></div>
               </div>
             </div>
 

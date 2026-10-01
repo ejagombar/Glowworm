@@ -20,7 +20,7 @@ const state = {
   balanceView: "all",
   historyMode: "transactions",
   timelineAccount: null,
-  timelineIdx: 11,
+  timelineIdx: HISTORY_MONTHS.length - 1,
   privacy: false,
   customFrom: null,
   customTo: null,
@@ -54,20 +54,7 @@ const SUGGESTED_PROMPTS = [
   { label: "List transactions", text: "List my recent transactions" },
 ];
 
-const TIMELINE_MONTHS = [
-  { short: "Jul 23", date: "1 July 2023" },
-  { short: "Aug 23", date: "1 August 2023" },
-  { short: "Sep 23", date: "1 September 2023" },
-  { short: "Oct 23", date: "1 October 2023" },
-  { short: "Nov 23", date: "1 November 2023" },
-  { short: "Dec 23", date: "1 December 2023" },
-  { short: "Jan 24", date: "1 January 2024" },
-  { short: "Feb 24", date: "1 February 2024" },
-  { short: "Mar 24", date: "1 March 2024" },
-  { short: "Apr 24", date: "1 April 2024" },
-  { short: "May 24", date: "1 May 2024" },
-  { short: "Jun 24", date: "1 June 2024" },
-];
+const TIMELINE_MONTHS = HISTORY_MONTHS;
 
 const MERCHANT_COLORS = ["#0e6f51", "#4f5bc7", "#c9822e", "#c0483f", "#2f7fb0", "#7a58b8", "#2e9d8f", "#6b7280"];
 
@@ -100,7 +87,7 @@ function init() {
   renderSettingsAccounts();
   renderSchemas();
   renderHistory();
-  renderTimeline(11);
+  renderTimeline(TIMELINE_MONTHS.length - 1);
   setHistoryMode("transactions");
   renderHeroChart();
   syncBalanceCards();
@@ -711,7 +698,9 @@ function renderHistory() {
 function setHistoryMode(mode) {
   state.historyMode = mode;
   document.querySelectorAll("[data-history-mode]").forEach((c) => {
-    c.classList.toggle("active", c.dataset.historyMode === mode);
+    const on = c.dataset.historyMode === mode;
+    c.classList.toggle("active", on);
+    c.setAttribute("aria-selected", on);
   });
   document.getElementById("historyTimelinePane").hidden = mode !== "transactions";
   document.getElementById("historyAuditPane").hidden = mode !== "audit";
@@ -723,10 +712,28 @@ function renderTimeline(idx) {
   state.timelineIdx = idx;
   const m = TIMELINE_MONTHS[idx];
   document.getElementById("timelineDate").textContent = m.date;
+  const n = TIMELINE_MONTHS.length;
+  const chip = document.getElementById("timelineChip");
+  const monthsBack = n - 1 - idx;
+  chip.textContent = monthsBack === 0 ? "Latest" : monthsBack === 1 ? "1 month back" : monthsBack + " months back";
+  const slider = document.getElementById("timelineSlider");
+  slider.min = 0;
+  slider.max = n - 1;
+  slider.value = idx;
+  slider.style.setProperty("--fill", (n > 1 ? (idx / (n - 1)) * 100 : 0) + "%");
+  /* Tick labels: at most 7, evenly spread — stays readable with years of data */
+  const count = Math.min(n, 7);
+  const denom = count > 1 ? count - 1 : 1;
+  let ticks = "";
+  for (let i = 0; i < count; i++) {
+    const tIdx = Math.round((i * (n - 1)) / denom);
+    const pos = n > 1 ? (tIdx / (n - 1)) * 100 : 0;
+    const cls = i === 0 ? " first" : i === count - 1 ? " last" : "";
+    ticks += `<div class="timeline-tick${cls}" style="left:${pos}%"><span>${TIMELINE_MONTHS[tIdx].short}</span></div>`;
+  }
+  document.getElementById("timelineTicks").innerHTML = ticks;
   document.getElementById("timelineBalance").textContent = fmtMoney(BALANCE_SERIES.values[idx]);
-  document.getElementById("timelineTxCount").textContent = 30 + idx * 12;
-  document.querySelectorAll(".timeline-labels span")[0].textContent = TIMELINE_MONTHS[0].short;
-  document.querySelectorAll(".timeline-labels span")[1].textContent = TIMELINE_MONTHS[TIMELINE_MONTHS.length - 1].short;
+  document.getElementById("timelineTxCount").textContent = TRANSACTIONS.filter((t) => t.date.slice(0, 7) <= m.key).length;
 
   const labels = BALANCE_SERIES.labels.slice(0, idx + 1);
   const selected = state.accounts.find((a) => a.id === state.timelineAccount);
