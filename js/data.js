@@ -11,12 +11,12 @@ const CATEGORIES = [
   { id: "shopping", name: "Shopping", color: "#2f7fb0", budget: 200, spent: 142.8 },
   { id: "health", name: "Health", color: "#0e7a4d", budget: 80, spent: 21.5 },
   { id: "income", name: "Income", color: "#0e7a4d", budget: null, spent: null },
-  { id: "savings", name: "Savings", color: "#2e9d8f", budget: null, spent: null },
+  { id: "savings", name: "Internal transfer", color: "#2e9d8f", budget: null, spent: null },
 ];
 
 const TRANSACTIONS = [
   { date: "2024-06-01", merchant: "Acme Ltd — Salary", category: "Income", account: "Current", amount: 2450.00, type: "income" },
-  { date: "2024-06-01", merchant: "Transfer to Savings", category: "Savings", account: "Savings", amount: -500.00, type: "transfer" },
+  { date: "2024-06-01", merchant: "Transfer to Savings", category: "Internal transfer", account: "Savings", amount: -500.00, type: "transfer" },
   { date: "2024-06-02", merchant: "Tesco Express", category: "Food & Dining", account: "Current", amount: -42.35, type: "expense" },
   { date: "2024-06-03", merchant: "Octopus Energy", category: "Bills & Utilities", account: "Current", amount: -86.20, type: "bill" },
   { date: "2024-06-04", merchant: "Transport for London", category: "Transport", account: "Current", amount: -12.50, type: "expense" },

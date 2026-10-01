@@ -46,6 +46,7 @@
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
     <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></symbol>
     <symbol id="i-cog" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></symbol>
     <symbol id="i-glowworm" viewBox="0 0 40 32">
       <circle cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
       <circle cx="13" cy="21" r="5.5" fill="#2cc57a"/>
@@ -75,7 +76,7 @@
         <nav class="tabnav" aria-label="Primary">
           <a href="#" class="tabnav-item active" data-view="dashboard"><span class="tab-index">01</span>Dashboard</a>
           <a href="#" class="tabnav-item" data-view="queries"><span class="tab-index">02</span>Queries</a>
-          <a href="#" class="tabnav-item" data-view="accounts"><span class="tab-index">03</span>Accounts</a>
+          <a href="#" class="tabnav-item" data-view="transactions"><span class="tab-index">03</span>Transactions</a>
           <a href="#" class="tabnav-item" data-view="categories"><span class="tab-index">04</span>Categories</a>
           <a href="#" class="tabnav-item" data-view="import"><span class="tab-index">05</span>Import</a>
           <a href="#" class="tabnav-item" data-view="history"><span class="tab-index">06</span>History</a>
@@ -177,7 +178,7 @@
           <!-- Recent transactions -->
           <div class="section-head">
             <h2>Recent activity</h2>
-            <button class="btn btn-ghost btn-xs" data-view-link="accounts">View all</button>
+            <button class="btn btn-ghost btn-xs" data-view-link="transactions">View all</button>
           </div>
           <div class="panel">
             <div class="tx-list" id="recentTransactions"></div>
@@ -186,12 +187,12 @@
           </div><!-- /.dash-shell -->
         </section>
 
-        <!-- ============ ACCOUNTS ============ -->
-        <section class="view" id="view-accounts">
+        <!-- ============ TRANSACTIONS ============ -->
+        <section class="view" id="view-transactions">
           <div class="view-head">
             <div>
-              <h1>Accounts</h1>
-              <p class="sub">Your bank accounts, cards and savings.</p>
+              <h1>Transactions</h1>
+              <p class="sub">Your accounts, balances and every transaction.</p>
             </div>
             <button class="btn btn-primary" data-view-link="settings">
               <svg class="icon"><use href="#i-plus"/></svg> New account
@@ -201,7 +202,7 @@
           <div class="accounts-grid" id="accountsGrid"></div>
 
           <div class="section-head">
-            <h2>Transactions</h2>
+            <h2>All transactions</h2>
             <span class="muted" id="accountsTxSub">All accounts</span>
           </div>
 
@@ -278,15 +279,25 @@
           </div>
 
           <div class="category-form panel" id="categoryForm" hidden>
+            <h3 class="category-form-title" id="catFormTitle">New category</h3>
+            <p class="category-form-note" id="catFormNote" hidden>
+              System category — its name is fixed and it doesn't use a budget.
+            </p>
             <div class="field-row">
               <label>Name</label>
               <input class="field" id="catName" type="text" placeholder="e.g. Groceries" />
             </div>
-            <div class="field-row">
+            <div class="field-row" id="catBudgetRow">
               <label>Monthly budget</label>
               <input class="field" id="catBudget" type="number" step="0.01" placeholder="0.00" />
             </div>
+            <div class="field-row">
+              <label>Colour</label>
+              <div class="cat-colors" id="catColors"></div>
+            </div>
             <div class="category-form-actions">
+              <button class="btn btn-danger" id="catDeleteBtn" hidden>Delete category</button>
+              <span class="spacer"></span>
               <button class="btn btn-primary" id="catSaveBtn">Add category</button>
               <button class="btn btn-ghost" id="catCancelBtn">Cancel</button>
             </div>

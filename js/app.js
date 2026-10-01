@@ -76,10 +76,11 @@ document.addEventListener("DOMContentLoaded", init);
 function init() {
   initTheme();
   state.chat = [
-    { role: "user", text: "List my recent transactions", ts: Date.now() - 1000 },
+    { role: "user", text: "List my recent transactions", key: msgKey(), ts: Date.now() - 1000 },
     {
       role: "assistant",
       text: "Here are your most recent transactions.",
+      key: msgKey(),
       steps: [
         "Detected a request to list transactions",
         "Assuming all accounts, most recent first",
@@ -525,6 +526,9 @@ function populateCategoryFilter() {
 }
 
 /* ============================== Categories ============================== */
+let editingCategoryId = null;
+let selectedCatColor = null;
+
 function renderCategories() {
   const grid = document.getElementById("categoriesGrid");
   grid.innerHTML = "";
@@ -532,16 +536,20 @@ function renderCategories() {
     const card = document.createElement("div");
     card.className = "category-card";
     const isSystem = c.id === "income" || c.id === "savings";
+    const isFixed = c.id === "savings"; /* internal transfer: fully system-managed */
     const pct = c.budget ? Math.min(100, Math.round((c.spent / c.budget) * 100)) : 0;
     const badge = c.budget ? "Budgeted" : isSystem ? "System" : "Unbudgeted";
     const sub = c.budget
       ? "of " + fmtMoney(c.budget) + " budget"
-      : c.id === "income" ? "Incoming" : c.id === "savings" ? "Internal transfer" : "No budget set";
+      : c.id === "income" ? "Incoming" : c.id === "savings" ? "Between your own accounts" : "No budget set";
     card.innerHTML = `
       <div class="cat-top">
         <span class="category-dot" style="background:${c.color}"></span>
         <span class="cat-name">${esc(c.name)}</span>
         <span class="cat-badge">${badge}</span>
+        ${isFixed ? "" : `<button class="icon-btn cat-edit" data-edit-cat="${c.id}" aria-label="Edit ${esc(c.name)}" title="Edit category">
+          <svg class="icon"><use href="#i-edit"/></svg>
+        </button>`}
       </div>
       <div class="cat-amount">${c.spent != null ? fmtMoney(c.spent) : "—"}</div>
       <div class="cat-budget">${sub}</div>
@@ -550,31 +558,109 @@ function renderCategories() {
   });
 }
 
+function renderCatColors() {
+  const wrap = document.getElementById("catColors");
+  wrap.innerHTML = MERCHANT_COLORS
+    .map((col) => `<button type="button" class="cat-color${col === selectedCatColor ? " selected" : ""}" style="background:${col}" data-cat-color="${col}" aria-label="Colour ${col}"></button>`)
+    .join("");
+}
+
+function isSystemCategory(cat) {
+  return !!cat && (cat.id === "income" || cat.id === "savings");
+}
+
 function openCategoryForm() {
+  editingCategoryId = null;
   const form = document.getElementById("categoryForm");
   form.hidden = false;
-  document.getElementById("catName").value = "";
+  document.getElementById("catFormTitle").textContent = "New category";
+  document.getElementById("catFormNote").hidden = true;
+  const nameEl = document.getElementById("catName");
+  nameEl.disabled = false;
+  nameEl.value = "";
+  document.getElementById("catBudgetRow").hidden = false;
   document.getElementById("catBudget").value = "";
-  document.getElementById("catName").focus();
+  selectedCatColor = MERCHANT_COLORS[CATEGORIES.length % MERCHANT_COLORS.length];
+  renderCatColors();
+  document.getElementById("catDeleteBtn").hidden = true;
+  document.getElementById("catSaveBtn").textContent = "Add category";
+  nameEl.focus();
+}
+function openCategoryEdit(id) {
+  const cat = CATEGORIES.find((c) => c.id === id);
+  if (!cat) return;
+  editingCategoryId = id;
+  const isSystem = isSystemCategory(cat);
+  const form = document.getElementById("categoryForm");
+  form.hidden = false;
+  document.getElementById("catFormTitle").textContent = isSystem ? "Edit system category" : "Edit category";
+  document.getElementById("catFormNote").hidden = !isSystem;
+  const nameEl = document.getElementById("catName");
+  nameEl.disabled = isSystem;   /* system categories can't be renamed */
+  nameEl.value = cat.name;
+  document.getElementById("catBudgetRow").hidden = isSystem;  /* no budget for income/savings */
+  document.getElementById("catBudget").value = cat.budget != null ? cat.budget : "";
+  selectedCatColor = cat.color;
+  renderCatColors();
+  document.getElementById("catDeleteBtn").hidden = isSystem;
+  document.getElementById("catSaveBtn").textContent = "Save changes";
+  if (isSystem) document.getElementById("catSaveBtn").focus();
+  else nameEl.focus();
 }
 function closeCategoryForm() {
   document.getElementById("categoryForm").hidden = true;
+  editingCategoryId = null;
+}
+function refreshAfterCategoryChange() {
+  renderCategories();
+  populateCategoryFilter();
+  renderTransactions();
+  renderRecent();
 }
 function saveCategory() {
   const name = document.getElementById("catName").value.trim();
   if (!name) { toast("Category name is required"); return; }
   const budget = parseFloat(document.getElementById("catBudget").value) || 0;
-  CATEGORIES.push({
-    id: "c" + Date.now(),
-    name,
-    color: MERCHANT_COLORS[CATEGORIES.length % MERCHANT_COLORS.length],
-    budget: budget > 0 ? budget : null,
-    spent: 0,
-  });
+  const isEdit = !!editingCategoryId;
+  const clash = CATEGORIES.find((c) => c.name.toLowerCase() === name.toLowerCase() && c.id !== editingCategoryId);
+  if (clash) { toast("A category with that name already exists"); return; }
+  if (isEdit) {
+    const cat = CATEGORIES.find((c) => c.id === editingCategoryId);
+    if (cat) {
+      if (!isSystemCategory(cat)) {
+        if (cat.name !== name) {
+          TRANSACTIONS.forEach((t) => { if (t.category === cat.name) t.category = name; });
+        }
+        cat.name = name;
+        cat.budget = budget > 0 ? budget : null;
+      }
+      cat.color = selectedCatColor || cat.color;
+    }
+    toast(isSystemCategory(cat) ? "Colour updated" : "Category updated");
+  } else {
+    CATEGORIES.push({
+      id: "c" + Date.now(),
+      name,
+      color: selectedCatColor || MERCHANT_COLORS[CATEGORIES.length % MERCHANT_COLORS.length],
+      budget: budget > 0 ? budget : null,
+      spent: 0,
+    });
+    toast("Category added");
+  }
   closeCategoryForm();
-  renderCategories();
-  populateCategoryFilter();
-  toast("Category added");
+  refreshAfterCategoryChange();
+}
+function deleteCategory() {
+  const idx = CATEGORIES.findIndex((c) => c.id === editingCategoryId);
+  if (idx < 0) return;
+  const cat = CATEGORIES[idx];
+  if (cat.id === "income" || cat.id === "savings") { toast("System categories can't be deleted"); return; }
+  if (!window.confirm(`Delete "${cat.name}"? Its transactions will be marked as Uncategorised.`)) return;
+  TRANSACTIONS.forEach((t) => { if (t.category === cat.name) t.category = "Uncategorised"; });
+  CATEGORIES.splice(idx, 1);
+  closeCategoryForm();
+  refreshAfterCategoryChange();
+  toast("Category deleted");
 }
 
 /* ============================== Schemas ============================== */
@@ -687,50 +773,27 @@ function renderTimelineAccounts(idx) {
 function wormLoaderHTML() {
   return `<div class="glowworm-loader" role="status" aria-label="Glowworm is thinking">
     <span class="sr-only">Glowworm is thinking…</span>
-    <svg class="glowworm" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <circle class="glow-halo" cx="50" cy="50" r="33" fill="#2fbf7f"/>
-      <circle class="glow-core" cx="50" cy="50" r="16" fill="#2fbf7f"/>
-      <circle class="glow-track" cx="50" cy="50" r="22" fill="none" style="stroke:var(--line)" stroke-width="2.5"/>
-      <g class="glow-spiral">
-        <g class="glow-worm">
-          <g class="seg-wrap seg-wrap-tail">
-            <circle class="seg seg-tail" cx="8" cy="50" r="4.5" fill="#7dffb8"/>
-          </g>
-          <g class="seg-wrap seg-wrap-5">
-            <circle class="seg seg-5" cx="21" cy="50" r="6" fill="#2cc57a"/>
-          </g>
-          <g class="seg-wrap seg-wrap-4">
-            <circle class="seg seg-4" cx="35" cy="50" r="7.5" fill="#27b268"/>
-          </g>
-          <g class="seg-wrap seg-wrap-3">
-            <circle class="seg seg-3" cx="50" cy="50" r="9" fill="#22a75e"/>
-          </g>
-          <g class="seg-wrap seg-wrap-2">
-            <circle class="seg seg-2" cx="64" cy="50" r="10.5" fill="#1f9b57"/>
-          </g>
-          <g class="seg-wrap seg-wrap-1">
-            <circle class="seg seg-1" cx="76" cy="50" r="11.5" fill="#1f9b57"/>
-          </g>
-          <g class="seg-wrap seg-wrap-head">
-            <g class="glow-head">
-              <circle cx="86" cy="50" r="12" fill="#1f9b57"/>
-              <path d="M80.9 39.7 q-2.6 -5.8 1.2 -7.8" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-              <circle cx="82.4" cy="31.4" r="1.4" fill="#7dffb8"/>
-              <path d="M90.3 38.9 q2.6 -5.8 5.9 -6.5" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-              <circle cx="96.4" cy="32.7" r="1.4" fill="#7dffb8"/>
-              <circle cx="80.9" cy="47" r="2.1" fill="#ffffff"/>
-              <circle cx="90.7" cy="47" r="2.1" fill="#ffffff"/>
-              <circle cx="81.3" cy="47.4" r="1.05" fill="#0c3a22"/>
-              <circle cx="91.1" cy="47.4" r="1.05" fill="#0c3a22"/>
-              <path d="M81.7 52.6 q4.3 3 8.6 0" stroke="#0c3a22" stroke-width="1.2" fill="none" stroke-linecap="round"/>
-            </g>
+    <svg class="glowworm" viewBox="48 14 94 44" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <g class="glow-worm">
+        <g class="glow-body">
+          <circle class="seg seg-tail" cx="58" cy="44.2" r="6" fill="#7dffb8"/>
+          <circle class="seg seg-5" cx="67" cy="42.6" r="8" fill="#2cc57a"/>
+          <circle class="seg seg-4" cx="78.5" cy="41.6" r="10" fill="#27b268"/>
+          <circle class="seg seg-3" cx="92" cy="40.9" r="11.5" fill="#22a75e"/>
+          <circle class="seg seg-2" cx="106.5" cy="40.3" r="13" fill="#1f9b57"/>
+          <g class="glow-head">
+            <circle cx="122" cy="40" r="14" fill="#1f9b57"/>
+            <path d="M119.5 27.7 q-3 -6.6 4.1 -8.6" stroke="#1f9b57" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <circle cx="123.7" cy="20.2" r="2.1" fill="#7dffb8"/>
+            <path d="M126.9 27.7 q2.6 -5.9 9.2 -6.6" stroke="#1f9b57" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <circle cx="135.8" cy="22.9" r="2.1" fill="#7dffb8"/>
+            <circle cx="118.1" cy="36.1" r="3.45" fill="#ffffff"/>
+            <circle cx="127.6" cy="36.1" r="3.45" fill="#ffffff"/>
+            <circle cx="118.7" cy="36.7" r="1.9" fill="#0c3a22"/>
+            <circle cx="128.3" cy="36.7" r="1.9" fill="#0c3a22"/>
+            <path d="M120.4 46.6 q4.9 3.3 9.9 0" stroke="#0c3a22" stroke-width="2.1" fill="none" stroke-linecap="round"/>
           </g>
         </g>
-      </g>
-      <g class="glow-sparkles">
-        <path class="sparkle s1" d="M70 16 l1.3 2.8 2.8 1.3 -2.8 1.3 -1.3 2.8 -1.3 -2.8 -2.8 -1.3 2.8 -1.3 z" fill="#7dffb8"/>
-        <path class="sparkle s2" d="M26 72 l1.1 2.3 2.3 1.1 -2.3 1.1 -1.1 2.3 -1.1 -2.3 -2.3 -1.1 2.3 -1.1 z" fill="#7dffb8"/>
-        <path class="sparkle s3" d="M78 60 l1 2 2 1 -2 1 -1 2 -1 -2 -2 -1 2 -1 z" fill="#2cc57a"/>
       </g>
     </svg>
   </div>`;
@@ -750,9 +813,16 @@ function chatWidgetHTML(widget) {
   return el.outerHTML;
 }
 
+/* Chat render tracking: stable keys so re-renders don't replay entrance animations */
+let renderedChatKeys = new Set();
+let revealChatKey = null;
+let msgSeq = 0;
+function msgKey() { return "m" + (++msgSeq) + "-" + Math.random().toString(36).slice(2, 7); }
+
 function chatMessageEl(m) {
   const el = document.createElement("div");
   el.className = "msg " + (m.role === "user" ? "user" : "assistant");
+  if (m.key && (m.key === revealChatKey || !renderedChatKeys.has(m.key))) el.classList.add("msg-in");
 
   if (m.role === "user") {
     el.innerHTML = `<div class="msg-content"><div class="msg-bubble">${esc(m.text)}</div></div>`;
@@ -833,6 +903,8 @@ function renderChat() {
     }
     box.appendChild(chatMessageEl(m));
   });
+  state.chat.forEach((m) => { if (m.key) renderedChatKeys.add(m.key); });
+  revealChatKey = null;
   box.scrollTop = box.scrollHeight;
   renderDays();
 }
@@ -840,23 +912,34 @@ function renderChat() {
 function sendChat(text) {
   text = (text || "").trim();
   if (!text) return;
-  state.chat.push({ role: "user", text, ts: Date.now() });
-  state.chat.push({ role: "assistant", pending: true, ts: Date.now() });
+  state.chat.push({ role: "user", text, key: msgKey(), ts: Date.now() });
+  state.chat.push({ role: "assistant", pending: true, key: msgKey(), ts: Date.now() });
   renderChat();
 
   const resp = QUERY_RESPONSES.find((r) => r.match.test(text)) || DEFAULT_RESPONSE;
   setTimeout(() => {
-    const idx = state.chat.findIndex((m) => m.pending);
-    if (idx > -1) {
+    const finish = () => {
+      const idx = state.chat.findIndex((m) => m.pending);
+      if (idx < 0) return;
       state.chat[idx] = {
         role: "assistant",
         text: resp.answer,
         steps: resp.steps,
         widget: { id: widgetId(), ...JSON.parse(JSON.stringify(resp.widget)) },
+        key: state.chat[idx].key,
         ts: Date.now(),
       };
+      revealChatKey = state.chat[idx].key;
+      renderChat();
+    };
+    /* Let the worm wriggle out first instead of vanishing, then reveal the answer */
+    const loader = document.querySelector("#queryMessages .glowworm-loader");
+    if (loader && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      loader.classList.add("worm-out");
+      setTimeout(finish, 320);
+    } else {
+      finish();
     }
-    renderChat();
   }, 2600);
 }
 
@@ -1274,6 +1357,19 @@ function wireEvents() {
   document.getElementById("addCategoryBtn").addEventListener("click", openCategoryForm);
   document.getElementById("catSaveBtn").addEventListener("click", saveCategory);
   document.getElementById("catCancelBtn").addEventListener("click", closeCategoryForm);
+  document.getElementById("catDeleteBtn").addEventListener("click", deleteCategory);
+  document.getElementById("categoriesGrid").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-edit-cat]");
+    if (btn) openCategoryEdit(btn.dataset.editCat);
+  });
+  document.getElementById("catColors").addEventListener("click", (e) => {
+    const sw = e.target.closest("[data-cat-color]");
+    if (!sw) return;
+    selectedCatColor = sw.dataset.catColor;
+    document.querySelectorAll("#catColors .cat-color").forEach((el) => {
+      el.classList.toggle("selected", el.dataset.catColor === selectedCatColor);
+    });
+  });
 
   // account settings form
   document.getElementById("settingsAddAccountBtn").addEventListener("click", () => openAccountForm(null));
