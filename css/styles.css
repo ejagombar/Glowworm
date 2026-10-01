@@ -1145,38 +1145,141 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .chat-send { width: 38px; height: 38px; padding: 0; border-radius: 3px; flex: none; }
 .chat-send .icon { width: 15px; height: 15px; }
 
-/* Glowworm loader: crawl, then curl into a spinner */
-.worm-loader {
-  position: relative; width: 150px; height: 52px;
-  display: flex; align-items: center; justify-content: center;
+/* Glowworm loader: wriggle in, loop head-first into a circle, then spin */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
-.worm-crawl {
-  position: absolute; left: 6px; top: 2px; width: 128px; height: 48px;
-  animation: worm-crawl 1.15s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
-}
-.worm-body { animation: worm-wiggle 0.5s ease-in-out infinite alternate; transform-origin: 50% 50%; }
-.worm-tail { animation: worm-glow 0.9s ease-in-out infinite alternate; }
-.worm-spin-wrap {
-  position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  opacity: 0;
-  animation: worm-in 0.35s ease 1.1s forwards;
-}
-.worm-spin { width: 46px; height: 46px; }
-.worm-rotor { animation: worm-rotate 1s linear infinite; transform-origin: 24px 24px; }
 
-@keyframes worm-crawl {
-  0% { transform: translateX(0); }
-  62% { transform: translateX(26px); opacity: 1; }
-  100% { transform: translateX(26px) scale(0.4); opacity: 0; }
+.glowworm-loader {
+  position: relative;
+  width: 64px;
+  height: 64px;
 }
-@keyframes worm-wiggle {
-  from { transform: translateY(0) rotate(-2deg); }
-  to { transform: translateY(-2px) rotate(2deg); }
+.glowworm {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
-@keyframes worm-glow { from { opacity: 0.45; } to { opacity: 1; } }
-@keyframes worm-in { to { opacity: 1; } }
-@keyframes worm-rotate { to { transform: rotate(360deg); } }
+
+/* Static ring + soft glow fade in as the worm coils up */
+.glow-halo { opacity: 0; animation: glow-pulse 1.4s ease-in-out 1.7s infinite; }
+.glow-core { opacity: 0.06; animation: glow-fade-in 0.5s ease-out 1.6s backwards; }
+.glow-track { opacity: 0.9; animation: glow-fade-in 0.5s ease-out 1.6s backwards; }
+
+/* The coiled worm spins around the centre once it has curled up */
+.glow-spiral {
+  animation: glow-spin 0.9s linear 2.25s infinite;
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+
+/* Phase 1 — the worm slides in from the left */
+.glow-worm {
+  animation: glow-crawl 0.9s cubic-bezier(0.22, 0.85, 0.35, 1) both;
+}
+
+/* Phase 2 — each segment loops into its spot on the spiral, head first */
+.seg-wrap {
+  transform-box: view-box;
+  animation: glow-curl 0.75s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: var(--curl-delay, 1.2s);
+}
+.seg-wrap-head {
+  animation: glow-curl-head 0.85s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: var(--curl-delay, 1.2s);
+  transform-origin: 86% 50%;
+  --curl-delay: 0.85s;
+}
+.seg-wrap-tail { transform-origin: 8% 50%; --dx: 39.5px; --dy: -4.33px; --s: 0.711; --curl-delay: 1.45s; }
+.seg-wrap-5   { transform-origin: 21% 50%; --dx: 21.53px; --dy: -0.65px; --s: 0.633; --curl-delay: 1.35s; }
+.seg-wrap-4   { transform-origin: 35% 50%; --dx: 8.57px; --dy: 7.66px; --s: 0.587; --curl-delay: 1.25s; }
+.seg-wrap-3   { transform-origin: 50% 50%; --dx: 3.24px; --dy: 12.07px; --s: 0.556; --curl-delay: 1.15s; }
+.seg-wrap-2   { transform-origin: 64% 50%; --dx: 0.1px; --dy: 5.13px; --s: 0.571; --curl-delay: 1.05s; }
+.seg-wrap-1   { transform-origin: 76% 50%; --dx: -11.66px; --dy: -10.04px; --s: 0.609; --curl-delay: 0.95s; }
+
+/* Segments keep wriggling while the worm crawls, then settle */
+.glow-worm .seg,
+.glow-worm .glow-head {
+  animation: glow-wriggle 0.42s ease-in-out 3 alternate;
+}
+.glow-worm .seg-tail { animation-delay: 0s; }
+.glow-worm .seg-5 { animation-delay: -0.07s; }
+.glow-worm .seg-4 { animation-delay: -0.14s; }
+.glow-worm .seg-3 { animation-delay: -0.21s; }
+.glow-worm .seg-2 { animation-delay: -0.28s; }
+.glow-worm .seg-1 { animation-delay: -0.35s; }
+.glow-worm .glow-head { animation-delay: -0.42s; }
+
+/* Sparkles twinkle in once the spiral is formed */
+.glow-sparkles .sparkle {
+  opacity: 0;
+  animation: glow-twinkle 1.15s ease-in-out 1.9s infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.glow-sparkles .sparkle.s2 { animation-delay: 2.22s; }
+.glow-sparkles .sparkle.s3 { animation-delay: 2.54s; }
+
+@keyframes glow-crawl {
+  0%   { transform: translateX(-120px); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+/* Body segments arc up and over into the spiral */
+@keyframes glow-curl {
+  0%   { transform: translate(0, 0) scale(1); animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0.3); }
+  45%  { transform: translate(calc(var(--dx) * 0.6), calc(var(--dy) * 0.6 - 18px)) scale(calc(1 - (1 - var(--s)) * 0.6)); animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1); }
+  100% { transform: translate(var(--dx), var(--dy)) scale(var(--s)); }
+}
+
+/* The head leads: it loops over the top before settling at the front of the spiral */
+@keyframes glow-curl-head {
+  0%   { transform: translate(0, 0) scale(1); animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0.3); }
+  30%  { transform: translate(0, -30px) scale(0.86); animation-timing-function: cubic-bezier(0.3, 0.4, 0.5, 1); }
+  62%  { transform: translate(-42px, -26px) scale(0.74); animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1); }
+  100% { transform: translate(-36px, -20px) scale(0.708); }
+}
+
+@keyframes glow-wriggle {
+  from { transform: translateY(-2px); }
+  to   { transform: translateY(2px); }
+}
+@keyframes glow-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.07; }
+  50%      { opacity: 0.2; }
+}
+@keyframes glow-fade-in {
+  from { opacity: 0; }
+}
+@keyframes glow-twinkle {
+  0%, 100% { opacity: 0.1; transform: scale(0.55); }
+  50%      { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow-worm,
+  .glow-spiral,
+  .seg-wrap,
+  .seg-wrap-head,
+  .glow-worm .seg,
+  .glow-worm .glow-head,
+  .glow-sparkles .sparkle,
+  .glow-halo {
+    animation: none;
+  }
+  .glow-spiral { transform: none; }
+  .glow-halo { opacity: 0.12; }
+  .glow-core { opacity: 0.06; }
+  .glow-track { opacity: 0.9; }
+  .seg-wrap { transform: translate(var(--dx), var(--dy)) scale(var(--s)); }
+  .seg-wrap-head { transform: translate(-36px, -20px) scale(0.708); }
+}
 
 /* Chat responsiveness */
 @media (max-width: 760px) {

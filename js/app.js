@@ -685,36 +685,54 @@ function renderTimelineAccounts(idx) {
 
 /* ============================== AI chat ============================== */
 function wormLoaderHTML() {
-  return `<div class="worm-loader" role="status" aria-label="Glowworm is thinking">
-    <svg class="worm-crawl" viewBox="0 0 140 44" aria-hidden="true">
-      <g class="worm-body">
-        <circle class="worm-tail" cx="10" cy="30" r="4.5" fill="#7dffb8"/>
-        <circle cx="24" cy="26" r="7" fill="#2cc57a"/>
-        <circle cx="42" cy="22" r="8.5" fill="#27b268"/>
-        <circle cx="63" cy="20" r="9.5" fill="#22a75e"/>
-        <circle cx="87" cy="21" r="11" fill="#1f9b57"/>
-        <circle cx="83.5" cy="17" r="2.4" fill="#ffffff"/>
-        <circle cx="93" cy="17" r="2.4" fill="#ffffff"/>
-        <circle cx="84" cy="17.4" r="1.2" fill="#0c3a22"/>
-        <circle cx="93.5" cy="17.4" r="1.2" fill="#0c3a22"/>
-        <path d="M83 11 q-2 -5 3 -6" stroke="#1f9b57" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-        <circle cx="86.5" cy="6.5" r="1.4" fill="#7dffb8"/>
-        <path d="M84 25 q3 2.5 6 0" stroke="#0c3a22" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+  return `<div class="glowworm-loader" role="status" aria-label="Glowworm is thinking">
+    <span class="sr-only">Glowworm is thinking…</span>
+    <svg class="glowworm" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <circle class="glow-halo" cx="50" cy="50" r="33" fill="#2fbf7f"/>
+      <circle class="glow-core" cx="50" cy="50" r="16" fill="#2fbf7f"/>
+      <circle class="glow-track" cx="50" cy="50" r="22" fill="none" style="stroke:var(--line)" stroke-width="2.5"/>
+      <g class="glow-spiral">
+        <g class="glow-worm">
+          <g class="seg-wrap seg-wrap-tail">
+            <circle class="seg seg-tail" cx="8" cy="50" r="4.5" fill="#7dffb8"/>
+          </g>
+          <g class="seg-wrap seg-wrap-5">
+            <circle class="seg seg-5" cx="21" cy="50" r="6" fill="#2cc57a"/>
+          </g>
+          <g class="seg-wrap seg-wrap-4">
+            <circle class="seg seg-4" cx="35" cy="50" r="7.5" fill="#27b268"/>
+          </g>
+          <g class="seg-wrap seg-wrap-3">
+            <circle class="seg seg-3" cx="50" cy="50" r="9" fill="#22a75e"/>
+          </g>
+          <g class="seg-wrap seg-wrap-2">
+            <circle class="seg seg-2" cx="64" cy="50" r="10.5" fill="#1f9b57"/>
+          </g>
+          <g class="seg-wrap seg-wrap-1">
+            <circle class="seg seg-1" cx="76" cy="50" r="11.5" fill="#1f9b57"/>
+          </g>
+          <g class="seg-wrap seg-wrap-head">
+            <g class="glow-head">
+              <circle cx="86" cy="50" r="12" fill="#1f9b57"/>
+              <path d="M80.9 39.7 q-2.6 -5.8 1.2 -7.8" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <circle cx="82.4" cy="31.4" r="1.4" fill="#7dffb8"/>
+              <path d="M90.3 38.9 q2.6 -5.8 5.9 -6.5" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <circle cx="96.4" cy="32.7" r="1.4" fill="#7dffb8"/>
+              <circle cx="80.9" cy="47" r="2.1" fill="#ffffff"/>
+              <circle cx="90.7" cy="47" r="2.1" fill="#ffffff"/>
+              <circle cx="81.3" cy="47.4" r="1.05" fill="#0c3a22"/>
+              <circle cx="91.1" cy="47.4" r="1.05" fill="#0c3a22"/>
+              <path d="M81.7 52.6 q4.3 3 8.6 0" stroke="#0c3a22" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+            </g>
+          </g>
+        </g>
+      </g>
+      <g class="glow-sparkles">
+        <path class="sparkle s1" d="M70 16 l1.3 2.8 2.8 1.3 -2.8 1.3 -1.3 2.8 -1.3 -2.8 -2.8 -1.3 2.8 -1.3 z" fill="#7dffb8"/>
+        <path class="sparkle s2" d="M26 72 l1.1 2.3 2.3 1.1 -2.3 1.1 -1.1 2.3 -1.1 -2.3 -2.3 -1.1 2.3 -1.1 z" fill="#7dffb8"/>
+        <path class="sparkle s3" d="M78 60 l1 2 2 1 -2 1 -1 2 -1 -2 -2 -1 2 -1 z" fill="#2cc57a"/>
       </g>
     </svg>
-    <span class="worm-spin-wrap">
-      <svg class="worm-spin" viewBox="0 0 48 48" aria-hidden="true">
-        <circle cx="24" cy="24" r="17" fill="none" style="stroke:var(--line)" stroke-width="3"/>
-        <circle cx="24" cy="24" r="17" fill="none" stroke="#1f9b57" stroke-width="3" stroke-linecap="round" stroke-dasharray="80 107"/>
-        <g class="worm-rotor">
-          <circle cx="24" cy="7" r="5.5" fill="#1f9b57"/>
-          <circle cx="23" cy="6" r="1.3" fill="#ffffff"/>
-          <circle cx="26.4" cy="6" r="1.3" fill="#ffffff"/>
-          <circle cx="23.3" cy="6.2" r="0.7" fill="#0c3a22"/>
-          <circle cx="26.7" cy="6.2" r="0.7" fill="#0c3a22"/>
-        </g>
-      </svg>
-    </span>
   </div>`;
 }
 
