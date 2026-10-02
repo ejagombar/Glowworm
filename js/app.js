@@ -9,8 +9,9 @@ const state = {
   pinned: DEFAULT_PINNED_WIDGETS.map((w) => ({ ...w })),
   chat: [],
   historyFilter: "all",
+  history: HISTORY.map((h) => ({ ...h })),
   wizardStep: 0,
-  wizardCats: CATEGORIES.filter((c) => c.budget != null).map((c) => ({ ...c })),
+  wizardCats: CATEGORIES.filter((c) => c.id !== "income" && c.id !== "savings").map((c) => ({ ...c })),
   editingId: null,
   period: "last-12m",
   editMode: false,
@@ -98,7 +99,8 @@ function init() {
   renderChat();
   renderSuggestions();
   wireEvents();
-  setTimeout(() => openWizard(), 500);
+  /* Welcome wizard is disabled for now — code kept for later.
+     setTimeout(() => openWizard(), 500); */
 }
 
 /* ============================== Theme ============================== */
@@ -236,6 +238,13 @@ function accountTypeLabel(a) {
 function accountTypeBadge(a) {
   return a.type === "savings" ? "badge-soft" : a.type === "credit" ? "badge-expense" : "badge-income";
 }
+function accountRef(a) {
+  if (a.accountNumber) {
+    const num = String(a.accountNumber).replace(/\s+/g, "");
+    return "···· " + num.slice(-4);
+  }
+  return a.last4 || "";
+}
 function accountTotals() {
   const spending = state.accounts.filter((a) => a.type !== "savings").reduce((s, a) => s + a.balance, 0);
   const savings = state.accounts.filter((a) => a.type === "savings").reduce((s, a) => s + a.balance, 0);
@@ -264,7 +273,7 @@ function renderAccounts() {
         <span class="badge ${accountTypeBadge(a)}">${esc(accountTypeLabel(a))}</span>
       </div>
       <div class="account-balance ${a.balance < 0 ? "neg" : ""}">${fmtBalance(a.balance)}</div>
-      <div class="account-sub">${esc(a.last4)} · ${txCount} transactions</div>`;
+      <div class="account-sub">${esc(accountRef(a))} · ${txCount} transactions</div>`;
     card.addEventListener("click", () => {
       state.selectedAccount = state.selectedAccount === a.id ? null : a.id;
       syncAccountSelection();
@@ -288,29 +297,51 @@ function renderSettingsAccounts() {
   const wrap = document.getElementById("settingsAccounts");
   wrap.innerHTML = "";
   state.accounts.forEach((a) => {
-    const row = document.createElement("div");
-    row.className = "account-row";
-    row.innerHTML = `
-      <span class="account-dot" style="background:${a.color}"></span>
-      <div><strong>${esc(a.name)}</strong><p class="muted">${esc(accountTypeLabel(a))} · ${fmtBalance(a.balance)}</p></div>
-      <button class="widget-btn" data-action="edit-account" data-account-id="${a.id}" title="Edit account"><svg class="icon"><use href="#i-settings"/></svg></button>`;
-    wrap.appendChild(row);
+    const card = document.createElement("div");
+    card.className = "settings-account-card";
+    const corrections = a.corrections ? a.corrections.length : 0;
+    const opened = a.openingDate ? " · opened " + formatShortDate(a.openingDate) : "";
+    const corr = corrections ? " · " + corrections + " correction" + (corrections === 1 ? "" : "s") : "";
+    card.innerHTML = `
+      <div class="settings-account-card-top">
+        <span class="account-dot" style="background:${a.color}"></span>
+        <div class="settings-account-name">${esc(a.name)}</div>
+        <span class="badge ${accountTypeBadge(a)}">${esc(accountTypeLabel(a))}</span>
+      </div>
+      <div class="settings-account-balance ${a.balance < 0 ? "neg" : ""}">${fmtBalance(a.balance)}</div>
+      <div class="settings-account-sub">${esc(accountRef(a))} · ${fmtBalance(a.opening)} at opening${opened}${corr}</div>`;
+    card.addEventListener("click", () => openAccountForm(a.id));
+    wrap.appendChild(card);
   });
 }
 let editingAccountId = null;
+function syncAccountValuationField() {
+  const row = document.getElementById("accValuationRow");
+  if (row) row.hidden = document.getElementById("accType").value !== "savings";
+}
 function openAccountForm(id) {
   editingAccountId = id || null;
-  const form = document.getElementById("accountForm");
-  form.hidden = false;
   const acc = id ? state.accounts.find((a) => a.id === id) : null;
+  document.getElementById("accountModalTitle").textContent = acc ? "Account settings" : "Add account";
+  document.getElementById("accountModalSub").textContent = acc ? acc.name : "Add a new account to Glowworm.";
   document.getElementById("accName").value = acc ? acc.name : "";
   document.getElementById("accType").value = acc ? acc.type : "debit";
   document.getElementById("accOpening").value = acc ? (acc.opening != null ? acc.opening : acc.balance) : "";
+  document.getElementById("accOpeningDate").value = acc && acc.openingDate ? acc.openingDate : "";
+  document.getElementById("accNumber").value = acc && acc.accountNumber ? acc.accountNumber : "";
+  document.getElementById("accSortCode").value = acc && acc.sortCode ? acc.sortCode : "";
+  document.getElementById("accIban").value = acc && acc.iban ? acc.iban : "";
+  document.getElementById("accBic").value = acc && acc.bic ? acc.bic : "";
+  document.getElementById("accValuation").value = acc && acc.balance != null ? acc.balance : "";
+  document.getElementById("accValuationDate").value = isoDate(new Date());
+  syncAccountValuationField();
   document.getElementById("accSaveBtn").textContent = acc ? "Save changes" : "Add account";
   document.getElementById("accDeleteBtn").hidden = !acc;
+  document.getElementById("accountModal").hidden = false;
+  document.getElementById("accName").focus();
 }
 function closeAccountForm() {
-  document.getElementById("accountForm").hidden = true;
+  document.getElementById("accountModal").hidden = true;
   editingAccountId = null;
 }
 function saveAccount() {
@@ -318,22 +349,70 @@ function saveAccount() {
   if (!name) { toast("Account name is required"); return; }
   const type = document.getElementById("accType").value;
   const opening = parseFloat(document.getElementById("accOpening").value) || 0;
+  const openingDate = document.getElementById("accOpeningDate").value;
+  const accountNumber = document.getElementById("accNumber").value.trim();
+  const sortCode = document.getElementById("accSortCode").value.trim();
+  const iban = document.getElementById("accIban").value.trim();
+  const bic = document.getElementById("accBic").value.trim();
+  const valuationInput = type === "savings" ? document.getElementById("accValuation").value : "";
+  const valuation = valuationInput === "" ? null : parseFloat(valuationInput);
+  const valuationDate = document.getElementById("accValuationDate").value || isoDate(new Date());
   const labels = { debit: "Debit", credit: "Credit", savings: "Savings" };
   const isEdit = !!editingAccountId;
   if (isEdit) {
     const a = state.accounts.find((x) => x.id === editingAccountId);
-    if (a) { a.name = name; a.type = type; a.typeLabel = labels[type]; a.opening = opening; }
+    if (a) {
+      const prevBalance = a.balance;
+      a.name = name;
+      a.type = type;
+      a.typeLabel = labels[type];
+      a.opening = opening;
+      a.openingDate = openingDate;
+      a.accountNumber = accountNumber;
+      a.sortCode = sortCode;
+      a.iban = iban;
+      a.bic = bic;
+      if (accountNumber) a.last4 = "···· " + accountNumber.replace(/\s+/g, "").slice(-4);
+      if (valuation != null && !isNaN(valuation) && valuation !== a.balance) {
+        a.corrections = a.corrections || [];
+        a.corrections.push({ date: valuationDate, value: valuation, note: "Manual valuation" });
+        a.balance = valuation;
+        logAudit({
+          title: "Updated account value",
+          sub: `${name} · ${formatShortDate(valuationDate)}`,
+          diff: [
+            { line: `- ${fmtBalance(prevBalance)}`, cls: "diff-del" },
+            { line: `+ ${fmtBalance(valuation)}`, cls: "diff-add" },
+          ],
+        });
+      }
+    }
   } else {
-    state.accounts.push({
+    const balance = valuation != null && !isNaN(valuation) ? valuation : opening;
+    const acc = {
       id: "a" + Date.now(),
       name,
       type,
       typeLabel: labels[type],
       txKey: name,
-      balance: opening,
+      balance,
       opening,
       color: MERCHANT_COLORS[state.accounts.length % MERCHANT_COLORS.length],
-      last4: "··· new",
+      last4: accountNumber ? "···· " + accountNumber.replace(/\s+/g, "").slice(-4) : "··· new",
+      openingDate,
+      accountNumber,
+      sortCode,
+      iban,
+      bic,
+      corrections: [],
+    };
+    if (valuation != null && !isNaN(valuation) && valuation !== opening) {
+      acc.corrections.push({ date: valuationDate, value: valuation, note: "Manual valuation" });
+    }
+    state.accounts.push(acc);
+    logAudit({
+      title: "Added account",
+      sub: `${name} · opening ${fmtBalance(opening)}`,
     });
   }
   closeAccountForm();
@@ -344,18 +423,33 @@ function saveAccount() {
   renderRecent();
   toast(isEdit ? "Account updated" : "Account added");
 }
+let confirmCallback = null;
+function showConfirm(title, message, okLabel, callback) {
+  document.getElementById("confirmTitle").textContent = title;
+  document.getElementById("confirmMessage").textContent = message;
+  document.getElementById("confirmOk").textContent = okLabel || "Delete";
+  confirmCallback = callback;
+  document.getElementById("confirmModal").hidden = false;
+}
+function closeConfirm() {
+  document.getElementById("confirmModal").hidden = true;
+  confirmCallback = null;
+}
 function deleteAccount(id) {
   const a = state.accounts.find((x) => x.id === id);
   if (!a) return;
-  if (!window.confirm("Delete account “" + a.name + "”?")) return;
-  state.accounts = state.accounts.filter((x) => x.id !== id);
-  if (state.selectedAccount === id) state.selectedAccount = null;
-  renderAccounts();
-  renderSettingsAccounts();
-  renderDashboardTotals();
-  renderTransactions();
-  renderRecent();
-  toast("Account deleted");
+  showConfirm("Delete account?", `Delete "${a.name}"? This can't be undone.`, "Delete account", () => {
+    state.accounts = state.accounts.filter((x) => x.id !== id);
+    if (state.selectedAccount === id) state.selectedAccount = null;
+    logAudit({ title: "Deleted account", sub: a.name });
+    closeAccountForm();
+    renderAccounts();
+    renderSettingsAccounts();
+    renderDashboardTotals();
+    renderTransactions();
+    renderRecent();
+    toast("Account deleted");
+  });
 }
 
 /* ============================== Privacy ============================== */
@@ -381,6 +475,7 @@ function switchView(name) {
   document.querySelectorAll(".tabnav-item[data-view]").forEach((n) => {
     n.classList.toggle("active", n.dataset.view === name);
   });
+  if (name === "history") renderHistory();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -888,23 +983,19 @@ function renderCategories() {
     card.className = "category-card";
     const isSystem = c.id === "income" || c.id === "savings";
     const isFixed = c.id === "savings"; /* internal transfer: fully system-managed */
-    const pct = c.budget ? Math.min(100, Math.round((c.spent / c.budget) * 100)) : 0;
-    const badge = c.budget ? "Budgeted" : isSystem ? "System" : "Unbudgeted";
-    const sub = c.budget
-      ? "of " + fmtMoney(c.budget) + " budget"
-      : c.id === "income" ? "Incoming" : c.id === "savings" ? "Between your own accounts" : "No budget set";
+    const badge = isSystem ? "System" : "";
+    const sub = c.id === "income" ? "Incoming" : c.id === "savings" ? "Between your own accounts" : "";
     card.innerHTML = `
       <div class="cat-top">
         <span class="category-dot" style="background:${c.color}"></span>
         <span class="cat-name">${esc(c.name)}</span>
-        <span class="cat-badge">${badge}</span>
+        ${badge ? `<span class="cat-badge">${badge}</span>` : ""}
         ${isFixed ? "" : `<button class="icon-btn cat-edit" data-edit-cat="${c.id}" aria-label="Edit ${esc(c.name)}" title="Edit category">
           <svg class="icon"><use href="#i-edit"/></svg>
         </button>`}
       </div>
       <div class="cat-amount">${c.spent != null ? fmtMoney(c.spent) : "—"}</div>
-      <div class="cat-budget">${sub}</div>
-      ${c.budget ? `<div class="progress"><span style="width:${pct}%;background:${c.color}"></span></div>` : ""}`;
+      ${sub ? `<div class="cat-sub">${sub}</div>` : ""}`;
     grid.appendChild(card);
   });
 }
@@ -929,8 +1020,6 @@ function openCategoryForm() {
   const nameEl = document.getElementById("catName");
   nameEl.disabled = false;
   nameEl.value = "";
-  document.getElementById("catBudgetRow").hidden = false;
-  document.getElementById("catBudget").value = "";
   selectedCatColor = MERCHANT_COLORS[CATEGORIES.length % MERCHANT_COLORS.length];
   renderCatColors();
   document.getElementById("catDeleteBtn").hidden = true;
@@ -949,8 +1038,6 @@ function openCategoryEdit(id) {
   const nameEl = document.getElementById("catName");
   nameEl.disabled = isSystem;   /* system categories can't be renamed */
   nameEl.value = cat.name;
-  document.getElementById("catBudgetRow").hidden = isSystem;  /* no budget for income/savings */
-  document.getElementById("catBudget").value = cat.budget != null ? cat.budget : "";
   selectedCatColor = cat.color;
   renderCatColors();
   document.getElementById("catDeleteBtn").hidden = isSystem;
@@ -971,7 +1058,6 @@ function refreshAfterCategoryChange() {
 function saveCategory() {
   const name = document.getElementById("catName").value.trim();
   if (!name) { toast("Category name is required"); return; }
-  const budget = parseFloat(document.getElementById("catBudget").value) || 0;
   const isEdit = !!editingCategoryId;
   const clash = CATEGORIES.find((c) => c.name.toLowerCase() === name.toLowerCase() && c.id !== editingCategoryId);
   if (clash) { toast("A category with that name already exists"); return; }
@@ -983,7 +1069,6 @@ function saveCategory() {
           TRANSACTIONS.forEach((t) => { if (t.category === cat.name) t.category = name; });
         }
         cat.name = name;
-        cat.budget = budget > 0 ? budget : null;
       }
       cat.color = selectedCatColor || cat.color;
     }
@@ -993,7 +1078,6 @@ function saveCategory() {
       id: "c" + Date.now(),
       name,
       color: selectedCatColor || MERCHANT_COLORS[CATEGORIES.length % MERCHANT_COLORS.length],
-      budget: budget > 0 ? budget : null,
       spent: 0,
     });
     toast("Category added");
@@ -1033,11 +1117,21 @@ function renderSchemas() {
 }
 
 /* ============================== History ============================== */
+function logAudit(entry) {
+  state.history.unshift({
+    id: Date.now(),
+    time: "Just now",
+    actor: "You",
+    kind: "you",
+    ...entry,
+  });
+  if (state.view === "history") renderHistory();
+}
 function renderHistory() {
   const list = document.getElementById("historyList");
   list.innerHTML = "";
   const f = state.historyFilter;
-  const rows = HISTORY.filter((h) => (f === "all" ? true : h.kind === f));
+  const rows = state.history.filter((h) => (f === "all" ? true : h.kind === f));
   rows.forEach((h) => {
     const el = document.createElement("div");
     el.className = "history-item";
@@ -1683,7 +1777,7 @@ function wireEvents() {
   document.getElementById("wizardAddCategory").addEventListener("click", () => {
     const name = window.prompt("New category name");
     if (name && name.trim()) {
-      state.wizardCats.push({ id: "c" + Date.now(), name: name.trim(), color: MERCHANT_COLORS[state.wizardCats.length % MERCHANT_COLORS.length], budget: 100, spent: 0 });
+      state.wizardCats.push({ id: "c" + Date.now(), name: name.trim(), color: MERCHANT_COLORS[state.wizardCats.length % MERCHANT_COLORS.length], spent: 0 });
       renderWizardCategories();
     }
   });
@@ -1717,6 +1811,18 @@ function wireEvents() {
   document.addEventListener("click", (e) => {
     const rec = e.target.closest("[data-recurring-key]");
     if (rec) openRecurring(rec.dataset.recurringKey);
+  });
+
+  // brand mark wiggle (no navigation)
+  let brandWiggleTimer;
+  document.getElementById("brandMark").addEventListener("click", (e) => {
+    e.preventDefault();
+    const b = document.getElementById("brandMark");
+    b.classList.remove("wiggle");
+    void b.offsetWidth;
+    b.classList.add("wiggle");
+    clearTimeout(brandWiggleTimer);
+    brandWiggleTimer = setTimeout(() => b.classList.remove("wiggle"), 1000);
   });
 
   // privacy toggle
@@ -1762,14 +1868,11 @@ function wireEvents() {
 
   // account settings form
   document.getElementById("settingsAddAccountBtn").addEventListener("click", () => openAccountForm(null));
+  document.getElementById("accType").addEventListener("change", syncAccountValuationField);
   document.getElementById("accSaveBtn").addEventListener("click", saveAccount);
   document.getElementById("accCancelBtn").addEventListener("click", closeAccountForm);
   document.getElementById("accDeleteBtn").addEventListener("click", () => {
     if (editingAccountId) deleteAccount(editingAccountId);
-  });
-  document.addEventListener("click", (e) => {
-    const edit = e.target.closest("[data-action='edit-account']");
-    if (edit) openAccountForm(edit.dataset.accountId);
   });
 
   // import dropzone
@@ -1806,15 +1909,35 @@ function wireEvents() {
       }
     }
     if (e.key === "Escape") {
+      if (!document.getElementById("confirmModal").hidden) {
+        closeConfirm();
+        return;
+      }
       closeWizard();
       closeDrawer();
       closeRecurring();
+      closeAccountForm();
     }
   });
 
   // recurring series modal backdrop
   document.getElementById("recurringModal").addEventListener("click", (e) => {
     if (e.target.id === "recurringModal") closeRecurring();
+  });
+
+  // account modal backdrop
+  document.getElementById("accountModal").addEventListener("click", (e) => {
+    if (e.target.id === "accountModal") closeAccountForm();
+  });
+
+  // confirm modal
+  document.getElementById("confirmOk").addEventListener("click", () => {
+    if (confirmCallback) confirmCallback();
+    closeConfirm();
+  });
+  document.getElementById("confirmCancel").addEventListener("click", closeConfirm);
+  document.getElementById("confirmModal").addEventListener("click", (e) => {
+    if (e.target.id === "confirmModal") closeConfirm();
   });
 
   // backdrop / close buttons
@@ -1828,4 +1951,6 @@ function handleAction(action) {
   if (action === "close-wizard") closeWizard();
   if (action === "close-drawer") closeDrawer();
   if (action === "close-recurring") closeRecurring();
+  if (action === "close-account") closeAccountForm();
+  if (action === "close-confirm") closeConfirm();
 }

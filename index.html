@@ -68,8 +68,26 @@
     <!-- Main -->
     <div class="main">
       <header class="masthead">
-        <a class="brand" href="#" data-view="dashboard">
-          <svg class="gw" aria-hidden="true"><use href="#i-glowworm"/></svg>
+        <a class="brand" href="#" id="brandMark">
+          <svg class="gw" viewBox="0 0 40 32" aria-hidden="true">
+            <g class="gw-body">
+              <circle class="gw-seg gw-seg-1" cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
+              <circle class="gw-seg gw-seg-2" cx="13" cy="21" r="5.5" fill="#2cc57a"/>
+              <circle class="gw-seg gw-seg-3" cx="21" cy="18" r="7" fill="#27b268"/>
+            </g>
+            <g class="gw-head">
+              <circle cx="30" cy="17" r="8.5" fill="#1f9b57"/>
+              <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff"/>
+              <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff"/>
+              <circle cx="28" cy="15" r="1.15" fill="#0c3a22"/>
+              <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22"/>
+              <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <circle cx="31" cy="5" r="1.3" fill="#7dffb8"/>
+              <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8"/>
+              <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+            </g>
+          </svg>
           <span class="brand-name">Glowworm</span>
         </a>
 
@@ -274,15 +292,11 @@
           <div class="category-form panel" id="categoryForm" hidden>
             <h3 class="category-form-title" id="catFormTitle">New category</h3>
             <p class="category-form-note" id="catFormNote" hidden>
-              System category — its name is fixed and it doesn't use a budget.
+              System category — its name is fixed.
             </p>
             <div class="field-row">
               <label>Name</label>
               <input class="field" id="catName" type="text" placeholder="e.g. Groceries" />
-            </div>
-            <div class="field-row" id="catBudgetRow">
-              <label>Monthly budget</label>
-              <input class="field" id="catBudget" type="number" step="0.01" placeholder="0.00" />
             </div>
             <div class="field-row">
               <label>Colour</label>
@@ -311,7 +325,7 @@
           <div class="dropzone" id="dropzone">
             <svg class="icon big"><use href="#i-import"/></svg>
             <p><strong>Drop a statement here</strong> or <button class="link" id="dropzoneBrowse">browse files</button></p>
-            <p class="muted">CSV, PDF, OFX, QIF, camera photos… anything goes.</p>
+            <p class="muted">CSV, PDF, OFX, QIF, camera photos, dividend &amp; interest payment history… anything goes.</p>
             <input type="file" id="fileInput" hidden multiple />
           </div>
 
@@ -424,6 +438,19 @@
           </div>
 
           <div class="settings-grid">
+            <div class="panel setting-block settings-accounts-block">
+              <div class="settings-accounts-head">
+                <div>
+                  <h2>Accounts</h2>
+                  <p class="muted">Name, type, opening balance and current valuation. Valuation updates are stored as corrections, not payments.</p>
+                </div>
+                <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
+                  <svg class="icon"><use href="#i-plus"/></svg> Add account
+                </button>
+              </div>
+              <div class="settings-accounts-grid" id="settingsAccounts"></div>
+            </div>
+
             <div class="panel setting-block">
               <h2>AI provider</h2>
               <p class="muted">Glowworm is AI agnostic. Pick whatever you trust.</p>
@@ -444,38 +471,6 @@
               <div class="field-row">
                 <label>Model</label>
                 <select class="field select"><option>Auto</option><option>Latest</option></select>
-              </div>
-            </div>
-
-            <div class="panel setting-block">
-              <h2>Accounts</h2>
-              <p class="muted">Configure name, type and opening balance.</p>
-              <div id="settingsAccounts"></div>
-              <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn" style="margin-top:12px">
-                <svg class="icon"><use href="#i-plus"/></svg> Add account
-              </button>
-              <div class="account-form" id="accountForm" hidden>
-                <div class="field-row">
-                  <label>Name</label>
-                  <input class="field" id="accName" type="text" placeholder="e.g. Joint account" />
-                </div>
-                <div class="field-row">
-                  <label>Type</label>
-                  <select class="field select" id="accType">
-                    <option value="debit">Debit</option>
-                    <option value="credit">Credit</option>
-                    <option value="savings">Savings</option>
-                  </select>
-                </div>
-                <div class="field-row">
-                  <label>Opening balance</label>
-                  <input class="field" id="accOpening" type="number" step="0.01" placeholder="0.00" />
-                </div>
-                <div class="account-form-actions">
-                  <button class="btn btn-primary" id="accSaveBtn">Add account</button>
-                  <button class="btn btn-danger" id="accDeleteBtn" hidden>Delete account</button>
-                  <button class="btn btn-ghost" id="accCancelBtn">Cancel</button>
-                </div>
               </div>
             </div>
 
@@ -517,7 +512,7 @@
 
       <div class="wizard-step" data-step="0">
         <div class="wizard-hero">
-          <span class="brand-mark lg"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+          <svg class="gw wizard-gw" aria-hidden="true"><use href="#i-glowworm"/></svg>
           <h2 id="wizardTitle">Welcome to Glowworm</h2>
           <p>Your money, made clear. Let's set things up in under a minute.</p>
         </div>
@@ -634,6 +629,102 @@
       </div>
       <div class="modal-body">
         <div class="tx-list" id="recurringTxList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account settings modal -->
+  <div class="modal-backdrop" id="accountModal" hidden>
+    <div class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+      <button class="icon-btn modal-close" data-action="close-account" aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div class="modal-head">
+        <span class="brand-mark lg account-mark"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+        <div class="modal-head-text">
+          <h3 id="accountModalTitle">Account settings</h3>
+          <p class="muted" id="accountModalSub">Configure this account.</p>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <label>Name</label>
+          <input class="field" id="accName" type="text" placeholder="e.g. Joint account" />
+        </div>
+        <div class="field-row">
+          <label>Type</label>
+          <select class="field select" id="accType">
+            <option value="debit">Debit</option>
+            <option value="credit">Credit</option>
+            <option value="savings">Savings</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Opening balance</label>
+          <div class="field-unit">
+            <span class="field-unit-symbol">£</span>
+            <input class="field" id="accOpening" type="number" step="0.01" placeholder="0.00" />
+          </div>
+        </div>
+        <div class="field-row">
+          <label>Opening balance date</label>
+          <input class="field" id="accOpeningDate" type="date" />
+        </div>
+        <div class="field-cols">
+          <div class="field-row">
+            <label>Account number</label>
+            <input class="field" id="accNumber" type="text" inputmode="numeric" placeholder="e.g. 10424211" />
+          </div>
+          <div class="field-row">
+            <label>Sort code</label>
+            <input class="field" id="accSortCode" type="text" inputmode="numeric" placeholder="e.g. 04-00-04" />
+          </div>
+        </div>
+        <div class="field-cols">
+          <div class="field-row">
+            <label>IBAN</label>
+            <input class="field" id="accIban" type="text" placeholder="GB29 NWBK 0400 0410 4242 11" />
+          </div>
+          <div class="field-row">
+            <label>BIC</label>
+            <input class="field" id="accBic" type="text" placeholder="NWBKGB2L" />
+          </div>
+        </div>
+        <div class="field-row" id="accValuationRow">
+          <label>Current value</label>
+          <div class="field-unit">
+            <span class="field-unit-symbol">£</span>
+            <input class="field" id="accValuation" type="number" step="0.01" placeholder="e.g. 4520.00" />
+            <input class="field field-date" id="accValuationDate" type="date" aria-label="Valuation date" />
+          </div>
+          <p class="field-hint">Set the value of this account at a point in time. It is saved as a correction in the audit log so it can be undone later.</p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-danger" id="accDeleteBtn" hidden>Delete account</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="accSaveBtn">Add account</button>
+        <button class="btn btn-ghost" id="accCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm modal -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <button class="icon-btn modal-close" data-action="close-confirm" aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div class="modal-head">
+        <div class="modal-head-text">
+          <h3 id="confirmTitle">Are you sure?</h3>
+          <p class="muted" id="confirmMessage"></p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-danger" id="confirmOk">Delete</button>
       </div>
     </div>
   </div>

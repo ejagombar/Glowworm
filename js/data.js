@@ -4,14 +4,14 @@
    ============================================================ */
 
 const CATEGORIES = [
-  { id: "transport", name: "Transport", color: "#4f5bc7", budget: 150, spent: 128.4 },
-  { id: "food", name: "Food & Dining", color: "#c9822e", budget: 300, spent: 246.1 },
-  { id: "bills", name: "Bills & Utilities", color: "#c0483f", budget: 400, spent: 382.0 },
-  { id: "entertainment", name: "Entertainment", color: "#7a58b8", budget: 100, spent: 64.3 },
-  { id: "shopping", name: "Shopping", color: "#2f7fb0", budget: 200, spent: 142.8 },
-  { id: "health", name: "Health", color: "#0e7a4d", budget: 80, spent: 21.5 },
-  { id: "income", name: "Income", color: "#0e7a4d", budget: null, spent: null },
-  { id: "savings", name: "Internal transfer", color: "#2e9d8f", budget: null, spent: null },
+  { id: "transport", name: "Transport", color: "#4f5bc7", spent: 128.4 },
+  { id: "food", name: "Food & Dining", color: "#c9822e", spent: 246.1 },
+  { id: "bills", name: "Bills & Utilities", color: "#c0483f", spent: 382.0 },
+  { id: "entertainment", name: "Entertainment", color: "#7a58b8", spent: 64.3 },
+  { id: "shopping", name: "Shopping", color: "#2f7fb0", spent: 142.8 },
+  { id: "health", name: "Health", color: "#0e7a4d", spent: 21.5 },
+  { id: "income", name: "Income", color: "#0e7a4d", spent: null },
+  { id: "savings", name: "Internal transfer", color: "#2e9d8f", spent: null },
 ];
 
 const RECENT_TX = [
@@ -157,15 +157,16 @@ const TRANSACTIONS = (() => {
 })();
 
 const ACCOUNTS = [
-  { id: "a-current", name: "Current account", type: "debit", typeLabel: "Debit", txKey: "Current", balance: 3912.66, opening: 3500.00, color: "#0e6f51", last4: "··· 4211" },
-  { id: "a-savings", name: "Savings", type: "savings", typeLabel: "Savings", txKey: "Savings", balance: 4500.00, opening: 4000.00, color: "#4f5bc7", last4: "··· 8823" },
-  { id: "a-credit", name: "Credit card", type: "credit", typeLabel: "Credit", txKey: "Credit card", balance: -120.40, opening: 0, color: "#c0483f", last4: "··· 1047" },
+  { id: "a-current", name: "Current account", type: "debit", typeLabel: "Debit", txKey: "Current", balance: 3912.66, opening: 3500.00, color: "#0e6f51", last4: "···· 4211", accountNumber: "10424211", sortCode: "04-00-04", iban: "GB29 NWBK 040004 10424211", bic: "NWBKGB2L", openingDate: "2023-01-06" },
+  { id: "a-savings", name: "Savings", type: "savings", typeLabel: "Savings", txKey: "Savings", balance: 4500.00, opening: 4000.00, color: "#4f5bc7", last4: "···· 8823", accountNumber: "00408823", sortCode: "04-00-04", iban: "GB29 NWBK 040004 00408823", bic: "NWBKGB2L", openingDate: "2023-01-06" },
+  { id: "a-credit", name: "Credit card", type: "credit", typeLabel: "Credit", txKey: "Credit card", balance: -120.40, opening: 0, color: "#c0483f", last4: "···· 1047", accountNumber: "5500000010471047", sortCode: "", iban: "", bic: "", openingDate: "2023-04-18" },
 ];
 
 const SCHEMAS = [
   { name: "Monzo CSV", bank: "Monzo", initials: "MO", color: "#c03b44", cols: ["Date", "Description", "Amount"], confidence: 98, source: "monzo-may-2024.csv" },
   { name: "NatWest PDF", bank: "NatWest", initials: "NW", color: "#4f5bc7", cols: ["Date", "Details", "Paid out", "Paid in"], confidence: 94, source: "natwest-apr-2024.pdf" },
   { name: "Barclays OFX", bank: "Barclays", initials: "BA", color: "#2f7fb0", cols: ["DTPOSTED", "NAME", "TRNAMT"], confidence: 91, source: "barclays-q1.ofx" },
+  { name: "Broker dividend CSV", bank: "Broker", initials: "BR", color: "#7a58b8", cols: ["Date", "Description", "Dividend", "Interest"], confidence: 96, source: "broker-dividends-2024.csv" },
 ];
 
 const HISTORY = [
