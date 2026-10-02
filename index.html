@@ -209,7 +209,7 @@
           <div class="filters panel">
             <div class="field search">
               <svg class="icon"><use href="#i-search"/></svg>
-              <input type="text" id="txSearch" placeholder="Search merchant or category…" />
+              <input type="text" id="txSearch" placeholder="Search description or category…" />
             </div>
             <select id="txCategory" class="field select">
               <option value="">All categories</option>
@@ -219,20 +219,13 @@
               <option value="expense">Expenses</option>
               <option value="income">Income</option>
               <option value="transfer">Transfers</option>
-              <option value="bill">Bills</option>
-            </select>
-            <select id="txAccount" class="field select">
-              <option value="">All accounts</option>
+              <option value="recurring">Recurring</option>
             </select>
           </div>
 
           <div class="panel table-panel">
-            <table class="tx-table">
-              <thead>
-                <tr>
-                  <th>Date</th><th>Merchant</th><th>Category</th><th>Account</th><th class="num">Amount</th><th></th>
-                </tr>
-              </thead>
+            <table class="tx-table" id="transactionsTable">
+              <thead id="transactionsHead"></thead>
               <tbody id="transactionsBody"></tbody>
             </table>
           </div>
@@ -621,6 +614,29 @@
       <button class="btn btn-primary" id="wApply">Apply changes</button>
     </div>
   </aside>
+
+  <!-- Recurring series modal -->
+  <div class="modal-backdrop" id="recurringModal" hidden>
+    <div class="modal recurring-modal" role="dialog" aria-modal="true" aria-labelledby="recurringTitle">
+      <button class="icon-btn modal-close" data-action="close-recurring" aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div class="modal-head">
+        <span class="brand-mark lg recurring-mark"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+        <div class="modal-head-text">
+          <h3 id="recurringTitle">Recurring series</h3>
+          <p class="muted" id="recurringSub"></p>
+        </div>
+        <div class="recurring-total">
+          <span class="muted" id="recurringTotalLabel">Total</span>
+          <strong id="recurringTotal">£0.00</strong>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="tx-list" id="recurringTxList"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="toast" id="toast" hidden></div>
 

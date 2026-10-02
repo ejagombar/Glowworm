@@ -17,6 +17,7 @@ const state = {
   dragId: null,
   accounts: ACCOUNTS.map((a) => ({ ...a })),
   selectedAccount: null,
+  recurringKey: null,
   balanceView: "all",
   historyMode: "transactions",
   timelineAccount: null,
@@ -62,6 +63,8 @@ document.addEventListener("DOMContentLoaded", init);
 
 function init() {
   initTheme();
+  const periodSel = document.getElementById("periodSelect");
+  if (periodSel) periodSel.value = state.period;
   state.chat = [
     { role: "user", text: "List my recent transactions", key: msgKey(), ts: Date.now() - 1000 },
     {
@@ -73,7 +76,7 @@ function init() {
         "Assuming all accounts, most recent first",
         "Generated query: SELECT * FROM tx ORDER BY date DESC LIMIT 8",
       ],
-      widget: { id: widgetId(), type: "transactions", title: "Recent transactions", data: { transactions: TRANSACTIONS.slice(0, 8) } },
+      widget: { id: widgetId(), type: "transactions", title: "Recent transactions", data: { transactions: periodFilteredTransactions().slice(0, 8) } },
       ts: Date.now(),
     },
   ];
@@ -83,7 +86,6 @@ function init() {
   renderCategories();
   renderAccounts();
   renderDashboardTotals();
-  populateAccountFilter();
   renderSettingsAccounts();
   renderSchemas();
   renderHistory();
@@ -121,6 +123,13 @@ function initTheme() {
 /* ============================== Period ============================== */
 function renderPeriod() {
   renderHeroChart();
+  renderTransactions();
+  renderRecent();
+  renderAccounts();
+  refreshTransactionWidgets();
+  renderChat();
+  renderPinned();
+  if (state.recurringKey) openRecurring(state.recurringKey);
 }
 function formatShortDate(iso) {
   if (!iso) return "";
@@ -135,17 +144,71 @@ function periodLabel() {
   }
   return PERIOD_LABELS[state.period] || "Last 12 months";
 }
+function dataNow() {
+  if (!TRANSACTIONS || !TRANSACTIONS.length) return new Date();
+  let max = "";
+  TRANSACTIONS.forEach((t) => { if (t.date && t.date > max) max = t.date; });
+  return max ? new Date(max + "T00:00:00") : new Date();
+}
+function isoDate(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function periodRange() {
+  if (state.period === "all") return null;
+  if (state.period === "custom") {
+    if (state.customFrom && state.customTo) return { start: state.customFrom, end: state.customTo };
+    return null;
+  }
+  const now = dataNow();
+  let start = new Date(now);
+  let end = new Date(now);
+  if (state.period === "ytd") {
+    start = new Date(now.getFullYear(), 0, 1);
+  } else if (state.period === "last-12m") {
+    start = new Date(now);
+    start.setMonth(start.getMonth() - 12);
+  } else if (state.period === "last-3m") {
+    start = new Date(now);
+    start.setMonth(start.getMonth() - 3);
+  } else if (state.period === "last-month") {
+    start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    end = new Date(now.getFullYear(), now.getMonth(), 0);
+  } else if (state.period === "last-day") {
+    start = new Date(now);
+    start.setDate(start.getDate() - 1);
+  }
+  return { start: isoDate(start), end: isoDate(end) };
+}
+function txInPeriod(t) {
+  const r = periodRange();
+  if (!r) return true;
+  const d = t.date || "";
+  return d >= r.start && d <= r.end;
+}
+function periodFilteredTransactions() {
+  return TRANSACTIONS.filter(txInPeriod);
+}
+function refreshTransactionWidgets() {
+  const txs = periodFilteredTransactions().slice(0, 8);
+  state.chat.forEach((m) => { if (m.widget && m.widget.type === "transactions") m.widget.data.transactions = txs; });
+  state.pinned.forEach((w) => { if (w.type === "transactions") w.data.transactions = txs; });
+}
+function fmtSignedMoney(v) {
+  const n = Number(v) || 0;
+  const sign = n < 0 ? "−" : n > 0 ? "+" : "";
+  return sign + fmtMoney(n);
+}
 function openCustomRange() {
   const pop = document.getElementById("customRange");
   pop.hidden = false;
   const from = document.getElementById("customFrom");
   const to = document.getElementById("customTo");
   if (!from.value) {
-    const d = new Date();
+    const d = dataNow();
     d.setMonth(d.getMonth() - 3);
-    from.value = d.toISOString().slice(0, 10);
+    from.value = isoDate(d);
   }
-  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
+  if (!to.value) to.value = isoDate(dataNow());
   from.focus();
 }
 function applyCustomRange() {
@@ -188,11 +251,12 @@ function renderDashboardTotals() {
 function renderAccounts() {
   const grid = document.getElementById("accountsGrid");
   grid.innerHTML = "";
+  const periodTxs = periodFilteredTransactions();
   state.accounts.forEach((a) => {
     const card = document.createElement("div");
     card.className = "account-card";
     card.dataset.accountId = a.id;
-    const txCount = TRANSACTIONS.filter((t) => t.account === (a.txKey || a.name)).length;
+    const txCount = periodTxs.filter((t) => t.account === (a.txKey || a.name)).length;
     card.innerHTML = `
       <div class="account-card-top">
         <span class="account-dot" style="background:${a.color}"></span>
@@ -203,8 +267,6 @@ function renderAccounts() {
       <div class="account-sub">${esc(a.last4)} · ${txCount} transactions</div>`;
     card.addEventListener("click", () => {
       state.selectedAccount = state.selectedAccount === a.id ? null : a.id;
-      const sel = document.getElementById("txAccount");
-      if (sel) sel.value = state.selectedAccount || "";
       syncAccountSelection();
       renderTransactions();
     });
@@ -219,19 +281,8 @@ function syncAccountSelection() {
   const sub = document.getElementById("accountsTxSub");
   if (sub) {
     const acc = state.accounts.find((a) => a.id === state.selectedAccount);
-    sub.textContent = acc ? acc.name : "All accounts";
+    sub.textContent = acc ? acc.name + " · statement view" : "All accounts · transfers linked";
   }
-}
-function populateAccountFilter() {
-  const sel = document.getElementById("txAccount");
-  sel.innerHTML = '<option value="">All accounts</option>';
-  state.accounts.forEach((a) => {
-    const opt = document.createElement("option");
-    opt.value = a.id;
-    opt.textContent = a.name;
-    sel.appendChild(opt);
-  });
-  sel.value = state.selectedAccount || "";
 }
 function renderSettingsAccounts() {
   const wrap = document.getElementById("settingsAccounts");
@@ -289,7 +340,8 @@ function saveAccount() {
   renderAccounts();
   renderSettingsAccounts();
   renderDashboardTotals();
-  populateAccountFilter();
+  renderTransactions();
+  renderRecent();
   toast(isEdit ? "Account updated" : "Account added");
 }
 function deleteAccount(id) {
@@ -301,8 +353,8 @@ function deleteAccount(id) {
   renderAccounts();
   renderSettingsAccounts();
   renderDashboardTotals();
-  populateAccountFilter();
   renderTransactions();
+  renderRecent();
   toast("Account deleted");
 }
 
@@ -421,23 +473,112 @@ function renderHeroChart() {
 function renderRecent() {
   const list = document.getElementById("recentTransactions");
   list.innerHTML = "";
-  TRANSACTIONS.slice(0, 7).forEach((t) => list.appendChild(txRowEl(t)));
+  displayRows({}).slice(0, 7).forEach((item) => list.appendChild(txRowEl(item)));
 }
 
-function txRowEl(t) {
+function txDescription(t) {
+  return t.description || t.merchant || "";
+}
+function accountNameForKey(key) {
+  const a = state.accounts.find((x) => (x.txKey || x.name) === key);
+  return a ? a.name : key || "";
+}
+function txSource(t) {
+  if (t.source) return t.source;
+  if (t.type === "income") return txDescription(t);
+  return t.account;
+}
+function txDestination(t) {
+  if (t.destination) return t.destination;
+  if (t.type === "income") return t.account;
+  return txDescription(t);
+}
+function txLinkedPeer(t) {
+  if (!t.transferId) return null;
+  return TRANSACTIONS.find((x) => x.id !== t.id && x.transferId === t.transferId) || null;
+}
+function txCounterparty(t) {
+  if (t.type === "transfer" && t.transferId) {
+    if (t.account === t.source) return "To " + accountNameForKey(t.destination);
+    return "From " + accountNameForKey(t.source);
+  }
+  if (t.amount < 0) return "To " + txDescription(t);
+  return "From " + txDescription(t);
+}
+function passesTxFilters(t, q, cat, type) {
+  const hay = (
+    txDescription(t) + " " + (t.merchant || "") + " " + (t.category || "") + " " + (t.recurringKey || "") + " " +
+    accountNameForKey(t.account) + " " + accountNameForKey(t.source) + " " + accountNameForKey(t.destination)
+  ).toLowerCase();
+  if (q && !hay.includes(q)) return false;
+  if (cat && t.category !== cat) return false;
+  if (type) {
+    if (type === "recurring" ? !t.recurring : t.type !== type) return false;
+  }
+  return true;
+}
+function groupPassesTxFilters(members, q, cat, type) {
+  if (cat && !members.some((m) => m.category === cat)) return false;
+  if (type) {
+    if (type === "recurring" ? !members.some((m) => m.recurring) : !members.some((m) => m.type === type)) return false;
+  }
+  if (q && !members.some((m) => {
+    const hay = (
+      txDescription(m) + " " + (m.merchant || "") + " " + (m.category || "") + " " + (m.recurringKey || "") + " " +
+      accountNameForKey(m.account) + " " + accountNameForKey(m.source) + " " + accountNameForKey(m.destination)
+    ).toLowerCase();
+    return hay.includes(q);
+  })) return false;
+  return true;
+}
+function displayRows({ accountKey = null, q = "", cat = "", type = "" } = {}) {
+  const rows = [];
+  const grouped = new Map();
+  periodFilteredTransactions().sort((a, b) => b.date.localeCompare(a.date)).forEach((t) => {
+    if (accountKey) {
+      if (t.account !== accountKey) return;
+      if (passesTxFilters(t, q, cat, type)) rows.push({ kind: "single", tx: t });
+      return;
+    }
+    if (t.type === "transfer" && t.transferId) {
+      if (!grouped.has(t.transferId)) grouped.set(t.transferId, []);
+      grouped.get(t.transferId).push(t);
+      return;
+    }
+    if (passesTxFilters(t, q, cat, type)) rows.push({ kind: "single", tx: t });
+  });
+  if (!accountKey) {
+    grouped.forEach((members) => {
+      if (!groupPassesTxFilters(members, q, cat, type)) return;
+      const rep = members.find((m) => m.amount < 0) || members[0];
+      rows.push({ kind: "linked", members, rep });
+    });
+  }
+  rows.sort((a, b) => (b.rep || b.tx).date.localeCompare((a.rep || a.tx).date));
+  return rows;
+}
+
+function txRowEl(item) {
   const row = document.createElement("div");
   row.className = "tx-row";
+  const t = item.rep || item.tx;
+  const linked = item.kind === "linked";
   const cat = CATEGORIES.find((c) => c.name === t.category);
-  const color = cat ? cat.color : merchantColor(t.merchant);
+  const color = cat ? cat.color : merchantColor(txDescription(t));
+  const iconText = linked || t.type === "transfer" ? "⇄" : initial(txDescription(t));
+  const main = linked
+    ? `<div class="tx-merchant">${esc(accountNameForKey(t.source))} → ${esc(accountNameForKey(t.destination))}</div>
+       <div class="tx-sub">Transfer · ${esc(t.category)} ${linkedBadge()} ${typeBadge(t)}</div>`
+    : `<div class="tx-merchant">${esc(txDescription(t))}</div>
+       <div class="tx-sub">${esc(t.category)} · ${esc(accountNameForKey(t.account))} ${typeBadge(t)}</div>`;
+  const amountCls = linked ? "transfer" : t.type === "transfer" ? "transfer" : t.amount >= 0 ? "pos" : "neg";
+  const amountHtml = linked || t.type === "transfer"
+    ? `⇄ ${fmtMoney(t.amount)}`
+    : `${t.amount >= 0 ? "+" : "−"}${fmtMoney(t.amount)}`;
   row.innerHTML = `
-    <div class="tx-icon" style="background:${color}">${esc(initial(t.merchant))}</div>
-    <div class="tx-main">
-      <div class="tx-merchant">${esc(t.merchant)}</div>
-      <div class="tx-sub">${esc(t.category)} · ${esc(t.account)}</div>
-    </div>
-    <div class="tx-amount ${t.amount >= 0 ? "pos" : t.type === "transfer" ? "transfer" : "neg"}">
-      ${t.type === "transfer" ? "⇄ " : ""}${t.amount >= 0 ? "+" : "−"}${fmtMoney(t.amount)}
-    </div>`;
+    <div class="tx-icon" style="background:${color}">${esc(iconText)}</div>
+    <div class="tx-main">${main}</div>
+    <div class="tx-amount ${amountCls}">${amountHtml}</div>`;
   return row;
 }
 
@@ -453,52 +594,193 @@ function merchantColor(s) {
 
 /* ============================== Transactions ============================== */
 function typeBadge(t) {
-  if (t === "income") return '<span class="badge badge-income">Income</span>';
-  if (t === "transfer") return '<span class="badge badge-transfer">Transfer</span>';
-  if (t === "bill") return '<span class="badge badge-bill">Bill</span>';
+  if (t && t.recurring) {
+    const key = esc(t.recurringKey || txDescription(t));
+    return `<button type="button" class="badge badge-recurring badge-btn" data-recurring-key="${key}" title="View all related transactions">Recurring</button>`;
+  }
   return "";
 }
+function linkedBadge() {
+  return '<span class="badge badge-linked" title="Matched with the other side of this transfer">Linked</span>';
+}
 function txAmountClass(t) {
-  if (t.amount >= 0) return "pos";
   if (t.type === "transfer") return "transfer";
+  if (t.amount >= 0) return "pos";
   return "neg";
 }
 
+function renderTransactionsHead(accountView) {
+  const head = document.getElementById("transactionsHead");
+  const cols = accountView
+    ? ["Date", "Description", "Category", "To / From", "Amount", ""]
+    : ["Date", "Description", "Category", "Account", "Amount", ""];
+  head.innerHTML = `<tr>${cols.map((c) => `<th${c === "Amount" ? ' class="num"' : ""}>${c}</th>`).join("")}</tr>`;
+}
+
 function renderTransactions() {
-  const q = (document.getElementById("txSearch").value || "").toLowerCase();
+  const q = (document.getElementById("txSearch").value || "").toLowerCase().trim();
   const cat = document.getElementById("txCategory").value;
   const type = document.getElementById("txType").value;
   const acc = state.accounts.find((a) => a.id === state.selectedAccount);
-  const rows = TRANSACTIONS.filter((t) => {
-    if (q && !(t.merchant.toLowerCase().includes(q) || t.category.toLowerCase().includes(q))) return false;
-    if (cat && t.category !== cat) return false;
-    if (type && t.type !== type) return false;
-    if (acc && t.account !== (acc.txKey || acc.name)) return false;
-    return true;
-  });
+  const accountKey = acc ? (acc.txKey || acc.name) : null;
+  const accountView = !!accountKey;
+
+  const table = document.getElementById("transactionsTable");
+  table.className = "tx-table" + (accountView ? " account-view" : "");
+  renderTransactionsHead(accountView);
+
+  const items = displayRows({ accountKey, q, cat, type });
   const body = document.getElementById("transactionsBody");
   body.innerHTML = "";
-  rows.forEach((t) => {
+
+  items.forEach((item) => {
+    const linked = item.kind === "linked";
+    const t = item.rep || item.tx;
     const catObj = CATEGORIES.find((c) => c.name === t.category);
     const tr = document.createElement("tr");
+    tr.dataset.txId = t.id;
+    if (linked) tr.classList.add("linked");
+
+    const badges = `${linked ? linkedBadge() : ""} ${typeBadge(t)}`.trim();
+    const accountCell = accountView
+      ? `<td class="cell-sub">${esc(txCounterparty(t))}</td>`
+      : `<td>${linked ? `${esc(accountNameForKey(t.source))} → ${esc(accountNameForKey(t.destination))}` : esc(accountNameForKey(t.account))}</td>`;
+    const amountCell = linked || t.type === "transfer"
+      ? `<td class="num tx-amount transfer">⇄ ${fmtMoney(t.amount)}</td>`
+      : `<td class="num tx-amount ${txAmountClass(t)}">${t.amount >= 0 ? "+" : "−"}${fmtMoney(t.amount)}</td>`;
+
     tr.innerHTML = `
       <td class="cell-sub">${esc(t.date.slice(8))} ${monthName(t.date.slice(5, 7))}</td>
-      <td>
-        <div class="cell-merchant">${esc(t.merchant)} ${typeBadge(t.type)}</div>
-        <div class="cell-sub">${esc(t.account)} account</div>
-      </td>
+      <td><div class="cell-merchant">${esc(txDescription(t))} ${badges}</div></td>
       <td><span class="category-dot" style="background:${catObj ? catObj.color : "#999"}"></span> ${esc(t.category)}</td>
-      <td>${esc(t.account)}</td>
-      <td class="num tx-amount ${txAmountClass(t)}">${t.type === "transfer" ? "⇄ " : ""}${t.amount >= 0 ? "+" : "−"}${fmtMoney(t.amount)}</td>
-      <td class="row-actions"><button class="widget-btn"><svg class="icon"><use href="#i-more"/></svg></button></td>`;
+      ${accountCell}
+      ${amountCell}
+      <td class="row-actions"><button class="widget-btn" data-edit-tx="${t.id}" title="Edit transaction" aria-label="Edit ${esc(txDescription(t))}"><svg class="icon"><use href="#i-edit"/></svg></button></td>`;
     body.appendChild(tr);
   });
-  if (!rows.length) {
+
+  if (!items.length) {
     body.innerHTML = `<tr><td colspan="6" class="cell-sub" style="padding:28px;text-align:center">No transactions match your filters.</td></tr>`;
   }
 }
 function monthName(mm) {
   return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(mm) - 1] || "";
+}
+
+/* ---------- Inline transaction editor ---------- */
+function closeTxEditor() {
+  const open = document.getElementById("txEditorRow");
+  if (open) open.remove();
+  document.querySelectorAll("#transactionsBody .editing").forEach((r) => r.classList.remove("editing"));
+}
+
+function openTxEditor(id) {
+  const t = TRANSACTIONS.find((x) => x.id === id);
+  if (!t) return;
+  closeTxEditor();
+  const row = document.querySelector(`#transactionsBody tr[data-tx-id="${id}"]`);
+  if (!row) return;
+  row.classList.add("editing");
+
+  const linked = !!t.transferId;
+  const catOpts = linked
+    ? `<option value="Internal transfer" selected>Internal transfer</option>`
+    : '<option value="">Select category…</option>' + CATEGORIES
+        .filter((c) => c.id !== "savings")
+        .map((c) => `<option value="${esc(c.name)}"${c.name === t.category ? " selected" : ""}>${esc(c.name)}</option>`)
+        .join("");
+
+  const accounts = state.accounts.map((a) => ({ value: a.txKey || a.name, label: a.name }));
+  if (!accounts.some((a) => a.value === t.account)) {
+    accounts.push({ value: t.account, label: accountNameForKey(t.account) || t.account });
+  }
+  const accOpts = linked
+    ? `<option value="${esc(t.account)}" selected>${esc(accountNameForKey(t.account) || t.account)}</option>`
+    : accounts
+        .map((a) => `<option value="${esc(a.value)}"${a.value === t.account ? " selected" : ""}>${esc(a.label)}</option>`)
+        .join("");
+
+  const editor = document.createElement("tr");
+  editor.id = "txEditorRow";
+  editor.className = "tx-editor-row";
+  editor.innerHTML = `<td colspan="6">
+    <div class="tx-editor" data-tx-id="${esc(id)}">
+      <label class="tx-field">Date
+        <input class="field" type="date" id="txeDate" value="${esc(t.date)}" />
+      </label>
+      <label class="tx-field grow">Description
+        <input class="field" type="text" id="txeDescription" value="${esc(txDescription(t))}" placeholder="e.g. Tesco Express" />
+      </label>
+      <label class="tx-field">Category
+        <select class="field" id="txeCategory"${linked ? " disabled" : ""}>${catOpts}</select>
+      </label>
+      <label class="tx-field">Account
+        <select class="field" id="txeAccount"${linked ? " disabled" : ""}>${accOpts}</select>
+      </label>
+      <label class="tx-field">Amount
+        <input class="field" type="number" step="0.01" id="txeAmount" value="${t.amount}" />
+      </label>
+      <div class="tx-editor-actions">
+        <button class="btn btn-primary btn-xs" id="txeSave">Save</button>
+        <button class="btn btn-ghost btn-xs" id="txeCancel">Cancel</button>
+      </div>
+    </div>
+  </td>`;
+  row.after(editor);
+  document.getElementById("txeDescription").focus();
+}
+
+function saveTxEditor() {
+  const editor = document.querySelector(".tx-editor");
+  if (!editor) return;
+  const t = TRANSACTIONS.find((x) => x.id === editor.dataset.txId);
+  if (!t) return;
+  const date = document.getElementById("txeDate").value;
+  const description = document.getElementById("txeDescription").value.trim();
+  const category = document.getElementById("txeCategory").value;
+  const account = document.getElementById("txeAccount").value;
+  const amount = parseFloat(document.getElementById("txeAmount").value);
+
+  if (!date) { toast("Date is required"); return; }
+  if (!description) { toast("Description is required"); return; }
+  if (isNaN(amount)) { toast("Amount is required"); return; }
+
+  t.date = date;
+  t.merchant = description;
+  t.description = description;
+  t.account = account;
+  t.amount = amount;
+
+  if (t.transferId) {
+    /* Transfers are detected and linked automatically — keep the link intact. */
+    const peer = txLinkedPeer(t);
+    t.category = "Internal transfer";
+    t.type = "transfer";
+    if (peer) {
+      const outbound = t.amount < 0;
+      const source = outbound ? account : peer.account;
+      const destination = outbound ? peer.account : account;
+      t.source = source;
+      t.destination = destination;
+      peer.type = "transfer";
+      peer.source = source;
+      peer.destination = destination;
+      peer.category = "Internal transfer";
+    }
+  } else {
+    t.category = category || "Uncategorised";
+    if (category === "Income") t.type = "income";
+    else t.type = "expense";
+    t.source = t.type === "income" ? description : account;
+    t.destination = t.type === "income" ? account : description;
+    delete t.transferId;
+  }
+
+  closeTxEditor();
+  renderTransactions();
+  renderRecent();
+  renderAccounts();
+  toast("Transaction updated");
 }
 
 function populateCategoryFilter() {
@@ -510,6 +792,88 @@ function populateCategoryFilter() {
     opt.textContent = c.name;
     sel.appendChild(opt);
   });
+}
+
+/* ============================== Recurring series ============================== */
+function recurringRowEl(item) {
+  const linked = item.kind === "linked";
+  const t = item.rep || item.tx;
+  const row = document.createElement("div");
+  row.className = "tx-row recurring-row";
+  const cat = CATEGORIES.find((c) => c.name === t.category);
+  const color = cat ? cat.color : merchantColor(txDescription(t));
+  const iconText = linked || t.type === "transfer" ? "⇄" : initial(txDescription(t));
+  const main = linked
+    ? `<div class="tx-merchant">${esc(accountNameForKey(t.source))} → ${esc(accountNameForKey(t.destination))}</div>
+       <div class="tx-sub">Transfer · ${esc(t.category)} ${linkedBadge()}</div>`
+    : `<div class="tx-merchant">${esc(txDescription(t))}</div>
+       <div class="tx-sub">${esc(t.category)} · ${esc(accountNameForKey(t.account))}</div>`;
+  const amountCls = linked ? "transfer" : t.type === "transfer" ? "transfer" : t.amount >= 0 ? "pos" : "neg";
+  const amountHtml = linked || t.type === "transfer"
+    ? `⇄ ${fmtMoney(t.amount)}`
+    : `${t.amount >= 0 ? "+" : "−"}${fmtMoney(t.amount)}`;
+  row.innerHTML = `
+    <div class="tx-icon" style="background:${color}">${esc(iconText)}</div>
+    <div class="tx-main">${main}</div>
+    <div class="tx-date">${esc(formatShortDate(t.date))}</div>
+    <div class="tx-amount ${amountCls}">${amountHtml}</div>`;
+  return row;
+}
+
+function openRecurring(key) {
+  state.recurringKey = key;
+  const txs = periodFilteredTransactions()
+    .filter((t) => (t.recurringKey || txDescription(t)) === key)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const isTransferSeries = txs.length > 0 && txs.every((t) => t.type === "transfer" && t.transferId);
+  const items = [];
+  let total = 0;
+
+  if (isTransferSeries) {
+    const grouped = new Map();
+    txs.forEach((t) => {
+      if (!grouped.has(t.transferId)) grouped.set(t.transferId, []);
+      grouped.get(t.transferId).push(t);
+    });
+    grouped.forEach((members) => {
+      const rep = members.find((m) => m.amount < 0) || members[0];
+      items.push({ kind: "linked", members, rep });
+      total += rep.amount;
+    });
+    items.sort((a, b) => a.rep.date.localeCompare(b.rep.date));
+  } else {
+    txs.forEach((t) => {
+      items.push({ kind: "single", tx: t });
+      total += t.amount;
+    });
+  }
+
+  document.getElementById("recurringTitle").textContent = key;
+  const unit = isTransferSeries
+    ? (items.length === 1 ? "transfer" : "transfers")
+    : (items.length === 1 ? "transaction" : "transactions");
+  document.getElementById("recurringSub").textContent =
+    items.length + " " + unit + " · " + periodLabel().toLowerCase() + " · auto-detected series";
+
+  const totalEl = document.getElementById("recurringTotal");
+  const totalLabelEl = document.getElementById("recurringTotalLabel");
+  if (isTransferSeries) {
+    totalEl.textContent = fmtMoney(Math.abs(total));
+    totalLabelEl.textContent = "Total transferred";
+  } else {
+    totalEl.textContent = fmtSignedMoney(total);
+    totalLabelEl.textContent = total < 0 ? "Total spent" : total > 0 ? "Total received" : "Total";
+  }
+
+  const list = document.getElementById("recurringTxList");
+  list.innerHTML = "";
+  items.forEach((item) => list.appendChild(recurringRowEl(item)));
+  document.getElementById("recurringModal").hidden = false;
+}
+function closeRecurring() {
+  document.getElementById("recurringModal").hidden = true;
+  state.recurringKey = null;
 }
 
 /* ============================== Categories ============================== */
@@ -928,11 +1292,15 @@ function sendChat(text) {
     const finish = () => {
       const idx = state.chat.findIndex((m) => m.pending);
       if (idx < 0) return;
+      const widget = JSON.parse(JSON.stringify(resp.widget));
+      if (widget.type === "transactions") {
+        widget.data.transactions = periodFilteredTransactions().slice(0, 8);
+      }
       state.chat[idx] = {
         role: "assistant",
         text: resp.answer,
         steps: resp.steps,
-        widget: { id: widgetId(), ...JSON.parse(JSON.stringify(resp.widget)) },
+        widget: { id: widgetId(), ...widget },
         key: state.chat[idx].key,
         ts: Date.now(),
       };
@@ -1331,10 +1699,24 @@ function wireEvents() {
     document.getElementById(id).addEventListener("input", renderTransactions);
     document.getElementById(id).addEventListener("change", renderTransactions);
   });
-  document.getElementById("txAccount").addEventListener("change", (e) => {
-    state.selectedAccount = e.target.value || null;
-    syncAccountSelection();
-    renderTransactions();
+
+  // inline transaction editor
+  document.getElementById("transactionsBody").addEventListener("click", (e) => {
+    const editBtn = e.target.closest("[data-edit-tx]");
+    if (editBtn) {
+      const open = document.querySelector(".tx-editor");
+      if (open && open.dataset.txId === editBtn.dataset.editTx) closeTxEditor();
+      else openTxEditor(editBtn.dataset.editTx);
+      return;
+    }
+    if (e.target.closest("#txeCancel")) { closeTxEditor(); return; }
+    if (e.target.closest("#txeSave")) { saveTxEditor(); return; }
+  });
+
+  // clickable recurring tags (table and recent activity)
+  document.addEventListener("click", (e) => {
+    const rec = e.target.closest("[data-recurring-key]");
+    if (rec) openRecurring(rec.dataset.recurringKey);
   });
 
   // privacy toggle
@@ -1408,10 +1790,31 @@ function wireEvents() {
       switchView("queries");
       setTimeout(() => document.getElementById("queryInput").focus(), 60);
     }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[0-6]$/.test(e.key)) {
+      const editable = e.target && e.target.closest ? e.target.closest("input, textarea, select, [contenteditable]") : null;
+      if (!editable) {
+        const views = {
+          "1": "dashboard",
+          "2": "queries",
+          "3": "transactions",
+          "4": "categories",
+          "5": "import",
+          "6": "history",
+          "0": "settings",
+        };
+        switchView(views[e.key]);
+      }
+    }
     if (e.key === "Escape") {
       closeWizard();
       closeDrawer();
+      closeRecurring();
     }
+  });
+
+  // recurring series modal backdrop
+  document.getElementById("recurringModal").addEventListener("click", (e) => {
+    if (e.target.id === "recurringModal") closeRecurring();
   });
 
   // backdrop / close buttons
@@ -1424,4 +1827,5 @@ function handleAction(action) {
   if (action === "run-setup") openWizard();
   if (action === "close-wizard") closeWizard();
   if (action === "close-drawer") closeDrawer();
+  if (action === "close-recurring") closeRecurring();
 }

@@ -15,22 +15,25 @@ const CATEGORIES = [
 ];
 
 const RECENT_TX = [
-  { date: "2024-06-01", merchant: "Acme Ltd — Salary", category: "Income", account: "Current", amount: 2450.00, type: "income" },
-  { date: "2024-06-01", merchant: "Transfer to Savings", category: "Internal transfer", account: "Savings", amount: -500.00, type: "transfer" },
-  { date: "2024-06-02", merchant: "Tesco Express", category: "Food & Dining", account: "Current", amount: -42.35, type: "expense" },
-  { date: "2024-06-03", merchant: "Octopus Energy", category: "Bills & Utilities", account: "Current", amount: -86.20, type: "bill" },
-  { date: "2024-06-04", merchant: "Transport for London", category: "Transport", account: "Current", amount: -12.50, type: "expense" },
-  { date: "2024-06-05", merchant: "Netflix", category: "Entertainment", account: "Current", amount: -10.99, type: "bill" },
-  { date: "2024-06-06", merchant: "Pret a Manger", category: "Food & Dining", account: "Current", amount: -8.75, type: "expense" },
-  { date: "2024-06-07", merchant: "Amazon", category: "Shopping", account: "Current", amount: -34.99, type: "expense" },
-  { date: "2024-06-08", merchant: "Boots Pharmacy", category: "Health", account: "Current", amount: -21.50, type: "expense" },
-  { date: "2024-06-09", merchant: "Spotify", category: "Entertainment", account: "Current", amount: -11.99, type: "bill" },
-  { date: "2024-06-10", merchant: "Uber", category: "Transport", account: "Current", amount: -18.40, type: "expense" },
-  { date: "2024-06-11", merchant: "Waterstones", category: "Shopping", account: "Current", amount: -24.00, type: "expense" },
-  { date: "2024-06-12", merchant: "Vodafone", category: "Bills & Utilities", account: "Current", amount: -45.00, type: "bill" },
-  { date: "2024-06-13", merchant: "Wagamama", category: "Food & Dining", account: "Current", amount: -32.80, type: "expense" },
-  { date: "2024-06-14", merchant: "Transport for London", category: "Transport", account: "Current", amount: -9.60, type: "expense" },
-  { date: "2024-06-15", merchant: "Zara", category: "Shopping", account: "Current", amount: -83.81, type: "expense" },
+  { date: "2024-06-01", merchant: "Acme Ltd — Salary", description: "Acme Ltd — Salary", category: "Income", account: "Current", source: "Acme Ltd — Salary", destination: "Current", amount: 2450.00, type: "income", recurring: true, recurringKey: "Acme Ltd — Salary" },
+  { date: "2024-06-01", merchant: "Transfer to Savings", description: "Transfer to Savings", category: "Internal transfer", account: "Current", source: "Current", destination: "Savings", amount: -500.00, type: "transfer", recurring: true, recurringKey: "Transfer to Savings", transferId: "tr-2024-06-01-current-savings" },
+  { date: "2024-06-01", merchant: "Transfer from Current", description: "Transfer from Current", category: "Internal transfer", account: "Savings", source: "Current", destination: "Savings", amount: 500.00, type: "transfer", recurring: true, recurringKey: "Transfer to Savings", transferId: "tr-2024-06-01-current-savings" },
+  { date: "2024-06-02", merchant: "Tesco Express", description: "Tesco Express", category: "Food & Dining", account: "Current", source: "Current", destination: "Tesco Express", amount: -42.35, type: "expense" },
+  { date: "2024-06-03", merchant: "Octopus Energy", description: "Octopus Energy", category: "Bills & Utilities", account: "Current", source: "Current", destination: "Octopus Energy", amount: -86.20, type: "expense", recurring: true, recurringKey: "Octopus Energy" },
+  { date: "2024-06-04", merchant: "Transport for London", description: "Transport for London", category: "Transport", account: "Current", source: "Current", destination: "Transport for London", amount: -12.50, type: "expense" },
+  { date: "2024-06-05", merchant: "Netflix", description: "Netflix", category: "Entertainment", account: "Current", source: "Current", destination: "Netflix", amount: -10.99, type: "expense", recurring: true, recurringKey: "Netflix" },
+  { date: "2024-06-06", merchant: "Pret a Manger", description: "Pret a Manger", category: "Food & Dining", account: "Current", source: "Current", destination: "Pret a Manger", amount: -8.75, type: "expense" },
+  { date: "2024-06-07", merchant: "Amazon", description: "Amazon", category: "Shopping", account: "Current", source: "Current", destination: "Amazon", amount: -34.99, type: "expense" },
+  { date: "2024-06-08", merchant: "Boots Pharmacy", description: "Boots Pharmacy", category: "Health", account: "Current", source: "Current", destination: "Boots Pharmacy", amount: -21.50, type: "expense" },
+  { date: "2024-06-09", merchant: "Spotify", description: "Spotify", category: "Entertainment", account: "Current", source: "Current", destination: "Spotify", amount: -11.99, type: "expense", recurring: true, recurringKey: "Spotify" },
+  { date: "2024-06-10", merchant: "Uber", description: "Uber", category: "Transport", account: "Current", source: "Current", destination: "Uber", amount: -18.40, type: "expense" },
+  { date: "2024-06-10", merchant: "Payment to Credit card", description: "Payment to Credit card", category: "Internal transfer", account: "Current", source: "Current", destination: "Credit card", amount: -120.40, type: "transfer", recurring: true, recurringKey: "Credit card payment", transferId: "tr-2024-06-10-current-creditcard" },
+  { date: "2024-06-10", merchant: "Payment from Current", description: "Payment from Current", category: "Internal transfer", account: "Credit card", source: "Current", destination: "Credit card", amount: 120.40, type: "transfer", recurring: true, recurringKey: "Credit card payment", transferId: "tr-2024-06-10-current-creditcard" },
+  { date: "2024-06-11", merchant: "Waterstones", description: "Waterstones", category: "Shopping", account: "Current", source: "Current", destination: "Waterstones", amount: -24.00, type: "expense" },
+  { date: "2024-06-12", merchant: "Vodafone", description: "Vodafone", category: "Bills & Utilities", account: "Current", source: "Current", destination: "Vodafone", amount: -45.00, type: "expense", recurring: true, recurringKey: "Vodafone" },
+  { date: "2024-06-13", merchant: "Wagamama", description: "Wagamama", category: "Food & Dining", account: "Current", source: "Current", destination: "Wagamama", amount: -32.80, type: "expense" },
+  { date: "2024-06-14", merchant: "Transport for London", description: "Transport for London", category: "Transport", account: "Current", source: "Current", destination: "Transport for London", amount: -9.60, type: "expense" },
+  { date: "2024-06-15", merchant: "Zara", description: "Zara", category: "Shopping", account: "Current", source: "Current", destination: "Zara", amount: -83.81, type: "expense" },
 ];
 
 /* ============================================================
@@ -103,16 +106,16 @@ const SAVINGS_BALANCE_SERIES = (() => {
    few everyday purchases per month, on top of the recent hand-written set */
 const TX_POOL = [
   { merchant: "Tesco Express", category: "Food & Dining", account: "Current", amount: -42.35, type: "expense" },
-  { merchant: "Octopus Energy", category: "Bills & Utilities", account: "Current", amount: -86.2, type: "bill" },
+  { merchant: "Octopus Energy", category: "Bills & Utilities", account: "Current", amount: -86.2, type: "expense", recurring: true },
   { merchant: "Transport for London", category: "Transport", account: "Current", amount: -12.5, type: "expense" },
-  { merchant: "Netflix", category: "Entertainment", account: "Current", amount: -10.99, type: "bill" },
+  { merchant: "Netflix", category: "Entertainment", account: "Current", amount: -10.99, type: "expense", recurring: true },
   { merchant: "Pret a Manger", category: "Food & Dining", account: "Current", amount: -8.75, type: "expense" },
   { merchant: "Amazon", category: "Shopping", account: "Current", amount: -34.99, type: "expense" },
   { merchant: "Boots Pharmacy", category: "Health", account: "Current", amount: -21.5, type: "expense" },
-  { merchant: "Spotify", category: "Entertainment", account: "Current", amount: -11.99, type: "bill" },
+  { merchant: "Spotify", category: "Entertainment", account: "Current", amount: -11.99, type: "expense", recurring: true },
   { merchant: "Uber", category: "Transport", account: "Current", amount: -18.4, type: "expense" },
   { merchant: "Waterstones", category: "Shopping", account: "Current", amount: -24.0, type: "expense" },
-  { merchant: "Vodafone", category: "Bills & Utilities", account: "Current", amount: -45.0, type: "bill" },
+  { merchant: "Vodafone", category: "Bills & Utilities", account: "Current", amount: -45.0, type: "expense", recurring: true },
   { merchant: "Wagamama", category: "Food & Dining", account: "Current", amount: -32.8, type: "expense" },
   { merchant: "Zara", category: "Shopping", account: "Current", amount: -83.81, type: "expense" },
 ];
@@ -121,26 +124,36 @@ const TRANSACTIONS = (() => {
   const rng = seededRng(3);
   const rows = [];
   HISTORY_MONTHS.slice(0, -1).forEach((m) => {
-    rows.push({ date: m.key + "-01", merchant: "Acme Ltd — Salary", category: "Income", account: "Current", amount: 2400 + Math.round(rng() * 100), type: "income" });
+    rows.push({ date: m.key + "-01", merchant: "Acme Ltd — Salary", description: "Acme Ltd — Salary", category: "Income", account: "Current", source: "Acme Ltd — Salary", destination: "Current", amount: 2400 + Math.round(rng() * 100), type: "income", recurring: true, recurringKey: "Acme Ltd — Salary" });
     if (rng() < 0.55) {
-      rows.push({ date: m.key + "-02", merchant: "Transfer to Savings", category: "Internal transfer", account: "Savings", amount: -(400 + Math.round(rng() * 200)), type: "transfer" });
+      const transferAmount = 400 + Math.round(rng() * 200);
+      const transferId = "tr-" + m.key + "-current-savings";
+      rows.push({ date: m.key + "-02", merchant: "Transfer to Savings", description: "Transfer to Savings", category: "Internal transfer", account: "Current", source: "Current", destination: "Savings", amount: -transferAmount, type: "transfer", recurring: true, recurringKey: "Transfer to Savings", transferId });
+      rows.push({ date: m.key + "-02", merchant: "Transfer from Current", description: "Transfer from Current", category: "Internal transfer", account: "Savings", source: "Current", destination: "Savings", amount: transferAmount, type: "transfer", recurring: true, recurringKey: "Transfer to Savings", transferId });
     }
     TX_POOL
       .filter(() => rng() < 0.45)
       .slice(0, 3 + Math.floor(rng() * 3))
       .forEach((p) => {
         const day = 3 + Math.floor(rng() * 25);
-        rows.push({
+        const row = {
           date: m.key + "-" + String(day).padStart(2, "0"),
           merchant: p.merchant,
+          description: p.merchant,
           category: p.category,
           account: p.account,
+          source: p.account,
+          destination: p.merchant,
           amount: Math.round(p.amount * (0.85 + rng() * 0.3) * 100) / 100,
           type: p.type,
-        });
+        };
+        if (p.recurring) { row.recurring = true; row.recurringKey = p.merchant; }
+        rows.push(row);
       });
   });
-  return rows.concat(RECENT_TX).sort((a, b) => b.date.localeCompare(a.date));
+  return rows.concat(RECENT_TX)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((t, i) => ({ ...t, id: "t" + i }));
 })();
 
 const ACCOUNTS = [

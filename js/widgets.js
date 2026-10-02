@@ -239,12 +239,12 @@ function widgetBody(widget) {
   if (t === "transactions") {
     const rows = (data.transactions || []).map((tx) => `<tr>
       <td class="cell-sub">${esc(String(tx.date).slice(8))} ${esc(monthName(String(tx.date).slice(5, 7)))}</td>
-      <td><div class="cell-merchant">${esc(tx.merchant)}</div></td>
+      <td><div class="cell-merchant">${esc(tx.description || tx.merchant)}</div></td>
       <td>${esc(tx.category)}</td>
-      <td class="num tx-amount ${tx.amount >= 0 ? "pos" : "neg"}">${tx.amount >= 0 ? "+" : "−"}${fmtMoney(tx.amount)}</td>
+      <td class="num tx-amount ${tx.type === "transfer" ? "transfer" : tx.amount >= 0 ? "pos" : "neg"}">${tx.type === "transfer" ? "⇄ " + fmtMoney(tx.amount) : (tx.amount >= 0 ? "+" : "−") + fmtMoney(tx.amount)}</td>
     </tr>`).join("");
     return `<div class="table-widget tx-widget"><table class="tx-table">
-      <thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   }
