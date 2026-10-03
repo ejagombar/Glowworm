@@ -83,6 +83,15 @@ function niceStep(raw) {
   return f * pow;
 }
 
+function fmtMoneyAxis(v) {
+  const sym = ({ GBP: "\u00a3", USD: "$", EUR: "\u20ac" })[WIDGET_CURRENCY] || WIDGET_CURRENCY + " ";
+  const n = Number(v) / 100; // minor -> major units
+  const sign = n < 0 ? "\u2212" : "";
+  const a = Math.abs(n);
+  if (a >= 1000) return sign + sym + (Math.round(a) / 1000).toFixed(a >= 100000 ? 0 : 1).replace(/\.0$/, "") + "k";
+  return sign + sym + (Number.isInteger(a) ? a : Math.round(a * 10) / 10);
+}
+
 function barChartSVG(data, width = 640, height = 260) {
   const s = data.series || [];
   const labels = data.labels || [];
@@ -98,7 +107,7 @@ function barChartSVG(data, width = 640, height = 260) {
   ticks.forEach((t) => {
     const y = padT + innerH - (t / max) * innerH;
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtMoneyAxis(t)}</text>`);
   });
 
   labels.forEach((label, i) => {
@@ -133,7 +142,7 @@ function lineChartSVG(data, width = 640, height = 260) {
   axisTicks(max, 4).forEach((t) => {
     const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${t >= 1000 ? (t / 1000) + "k" : t}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtMoneyAxis(t)}</text>`);
   });
 
   const points = vals.map((v, i) => `${px(i)},${py(v)}`).join(" ");

@@ -183,7 +183,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		IncomeTrend: incomeTrendLabel, IncomeTrendDate: incomeTrendDate,
 		SpendMinor: spendMinor, SpendPct: spendPct, SpendDir: spendDir,
 		HeroChart:      seriesData,
-		HeroRangeLabel: "All accounts · " + lowerFirst(base.PeriodLabel),
+		HeroRangeLabel: "All accounts · all time",
 		Recent:         recent,
 		Widgets:        widgetViews,
 	}
@@ -260,17 +260,12 @@ func (a *App) spendTrend() (string, string) {
 
 // balanceSeriesFor returns JSON chart data for the hero chart (all scope).
 func (a *App) balanceSeriesFor(base *viewBase, scope string) string {
-	from := base.PeriodFrom
-	if from == "" {
-		var minDate any
-		_ = a.DB.QueryRow(`SELECT MIN(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&minDate)
-		if md, ok := minDate.(string); ok && md != "" {
-			from = md
-		} else {
-			from = time.Now().AddDate(-1, 0, 0).Format("2006-01-02")
-		}
-	}
-	labels, values, err := balancesSeries(a, from, base.PeriodTo)
+	// The hero chart is the prototype's all-time balance view (doc 04 §4:
+	// "Balance overview" — line chart over the full account history),
+	// independent of the period selector (which drives the stat cards).
+	from := seriesStart(a)
+	to := a.Clock.Today()
+	labels, values, err := balancesSeries(a, from, to)
 	if err != nil || len(labels) == 0 {
 		return `{"labels":[],"series":[{"name":"Balance","color":"#0e6f51","values":[]}]}`
 	}
@@ -279,23 +274,35 @@ func (a *App) balanceSeriesFor(base *viewBase, scope string) string {
 		jsonSlice(labels), name, color, jsonInts(values))
 }
 
-func balancesSeries(a *App, from, to string) ([]string, []int64, error) {
-	rows, err := a.DB.Query(`SELECT DISTINCT strftime('%Y-%m', date) AS m FROM transactions
-		WHERE deleted_at IS NULL AND date BETWEEN ? AND ? ORDER BY m ASC`, from, to)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	var labels []string
-	for rows.Next() {
-		var m string
-		if err := rows.Scan(&m); err != nil {
-			return nil, nil, err
+// seriesStart is the earliest date that matters for balance history: the
+// earliest transaction or the earliest opening balance, whichever comes first.
+func seriesStart(a *App) string {
+	var txMin, opMin any
+	_ = a.DB.QueryRow(`SELECT MIN(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&txMin)
+	_ = a.DB.QueryRow(`SELECT MIN(opening_balance_date) FROM accounts WHERE deleted_at IS NULL AND opening_balance_date <> ''`).Scan(&opMin)
+	start := ""
+	for _, v := range []any{txMin, opMin} {
+		if s, ok := v.(string); ok && s != "" {
+			if start == "" || s < start {
+				start = s
+			}
 		}
-		labels = append(labels, m)
 	}
+	if start == "" {
+		start = a.Clock.Today()
+	}
+	return start
+}
+
+func balancesSeries(a *App, from, to string) ([]string, []int64, error) {
+	// Full month range from the series start to today — a flat opening
+	// balance line appears even in months without transactions.
+	labels := monthRange(from, to)
 	if len(labels) == 0 {
 		return nil, nil, nil
+	}
+	if len(labels) > 240 {
+		labels = labels[len(labels)-240:]
 	}
 	values := make([]int64, len(labels))
 	for i, m := range labels {
@@ -323,6 +330,9 @@ func balancesSeries(a *App, from, to string) ([]string, []int64, error) {
 	return labels, values, nil
 }
 
+// balanceAt is the checkpoint replay (doc 02 §6): opening balance (or the
+// latest valuation before `date`) plus transactions after that checkpoint.
+// The opening balance is the baseline — not just a cutoff.
 func balanceAt(a *App, accountID, date string) (int64, error) {
 	var opening int64
 	var openingDate any
@@ -334,7 +344,7 @@ func balanceAt(a *App, accountID, date string) (int64, error) {
 	if s, ok := openingDate.(string); ok && s != "" {
 		since = s
 	}
-	var balance int64
+	balance := opening
 	var valDate any
 	var val int64
 	err := a.DB.QueryRow(`SELECT value_minor, date FROM valuations WHERE account_id=? AND date<=? AND deleted_at IS NULL
@@ -887,3 +897,28 @@ func abs64(v int64) int64 {
 
 // moneyFmt is exposed for handlers composing labels.
 func moneyFmt(minor int64, cc string) string { return money.Format(minor, cc) }
+
+// monthRange lists YYYY-MM keys from one month to another (inclusive).
+func monthRange(from, to string) []string {
+	if len(from) < 7 || len(to) < 7 {
+		return nil
+	}
+	fy, fm := atoi(from[:4]), atoi(from[5:7])
+	ty, tm := atoi(to[:4]), atoi(to[5:7])
+	if fy == 0 || fm < 1 || fm > 12 || ty == 0 || tm < 1 || tm > 12 {
+		return nil
+	}
+	var out []string
+	for y, m := fy, fm; y < ty || (y == ty && m <= tm); {
+		out = append(out, fmt.Sprintf("%04d-%02d", y, m))
+		m++
+		if m > 12 {
+			m = 1
+			y++
+		}
+		if len(out) >= 600 { // safety cap (~50 years)
+			break
+		}
+	}
+	return out
+}
