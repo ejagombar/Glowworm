@@ -77,15 +77,44 @@ func (e *ParseError) Error() string { return fmt.Sprintf("line %d: %s", e.Line, 
 var dateRefFormats = []string{
 	"2006-01-02", "02/01/2006", "01/02/2006", "02-01-2006", "2 Jan 2006",
 	"02 Jan 2006", "Jan 2, 2006", "20060102", "01.02.2006", "2.1.2006",
-	"2006/01/02", "02-Jan-2006", "2 January 2006",
+	"2006/01/02", "02-Jan-2006", "2 January 2006", "January 2, 2006",
+	"2 Jan 06", "Jan 2 2006",
 }
 
-// tryDate attempts each reference format and returns (ISO, format).
+// dateTimeFormats are datetime-first layouts (ISO etc.). Month names and
+// AM/PM match case-insensitively in time.Parse, so "2 JUNE 2026" is covered.
+var dateTimeFormats = []string{
+	"2006-01-02T15:04:05Z07:00", "2006-01-02T15:04:05", "2006-01-02T15:04",
+	"2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02 3:04 PM",
+	"02/01/2006 15:04", "02/01/2006 3:04 PM", "01/02/2006 15:04",
+	"2 January 2006 15:04", "2 January 2006 15:04:05", "2 January 2006 3:04 PM",
+	"2 Jan 2006 15:04", "2 Jan 2006 3:04 PM", "Jan 2, 2006 15:04",
+}
+
+// tryDate attempts each reference format (bare dates, then with time
+// suffixes) and returns (ISO date, matched layout). Tolerates extra
+// whitespace and a comma between date and time ("02/06/2026, 11:36").
 func tryDate(s string) (string, string) {
-	s = strings.TrimSpace(s)
-	for _, f := range dateRefFormats {
-		if t, err := time.Parse(f, s); err == nil {
-			return t.Format("2006-01-02"), f
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	candidates := []string{s}
+	if strings.Contains(s, ",") {
+		candidates = append(candidates, strings.Join(strings.Fields(strings.ReplaceAll(s, ",", " ")), " "))
+	}
+	for _, c := range candidates {
+		for _, f := range dateTimeFormats {
+			if t, err := time.Parse(f, c); err == nil {
+				return t.Format("2006-01-02"), f
+			}
+		}
+		for _, base := range dateRefFormats {
+			if t, err := time.Parse(base, c); err == nil {
+				return t.Format("2006-01-02"), base
+			}
+			for _, suf := range []string{" 15:04", " 15:04:05", " 3:04 PM"} {
+				if t, err := time.Parse(base+suf, c); err == nil {
+					return t.Format("2006-01-02"), base + suf
+				}
+			}
 		}
 	}
 	return "", ""

@@ -55,8 +55,13 @@ func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
 		idx[strings.TrimSpace(name)] = i
 	}
 	rows := []Row{}
+	// Report real source lines: the header occupies line 1, data starts at 2.
+	lineOffset := 1
+	if m.HasHeader {
+		lineOffset = 2
+	}
 	for line, rec := range tableRecords(table, m) {
-		row := Row{Line: line, Raw: map[string]string{}, Currency: currency}
+		row := Row{Line: line + lineOffset, Raw: map[string]string{}, Currency: currency}
 		var descParts []string
 		amountSet := false
 		for _, col := range m.Columns {
@@ -80,7 +85,7 @@ func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
 				if row.Date == "" {
 					iso, detected := tryDate(val)
 					if iso == "" {
-						return nil, &ParseError{Line: line, Message: fmt.Sprintf("couldn't read the date %q", val)}
+						return nil, &ParseError{Line: row.Line, Message: fmt.Sprintf("couldn't read the date %q", val)}
 					}
 					row.Date = iso
 					if m.DateFormat == "" {
@@ -99,7 +104,7 @@ func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
 				}
 				minor, err := parseAmount(col, val)
 				if err != nil {
-					return nil, &ParseError{Line: line, Message: err.Error()}
+					return nil, &ParseError{Line: row.Line, Message: err.Error()}
 				}
 				row.AmountMinor += minor
 				amountSet = true
@@ -107,7 +112,7 @@ func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
 				if val != "" {
 					minor, err := parseAmount(col, val)
 					if err != nil {
-						return nil, &ParseError{Line: line, Message: err.Error()}
+						return nil, &ParseError{Line: row.Line, Message: err.Error()}
 					}
 					row.AmountMinor += minor
 					amountSet = true
@@ -116,7 +121,7 @@ func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
 				if val != "" {
 					minor, err := parseAmount(col, val)
 					if err != nil {
-						return nil, &ParseError{Line: line, Message: err.Error()}
+						return nil, &ParseError{Line: row.Line, Message: err.Error()}
 					}
 					row.AmountMinor -= minor
 					amountSet = true

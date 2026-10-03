@@ -137,3 +137,56 @@ func TestParseAmountConventions(t *testing.T) {
 		}
 	}
 }
+
+func TestTryDateFormats(t *testing.T) {
+	cases := map[string]string{
+		"2 June 2026 11:36":    "2026-06-02",
+		"2 June 2026 11:36:44": "2026-06-02",
+		"2 June 2026 11:36 AM": "2026-06-02",
+		"2 JUNE 2026 11:36":    "2026-06-02",
+		"2  June  2026  11:36": "2026-06-02",
+		"02/06/2026, 11:36":    "2026-06-02",
+		"02/06/2026 23:04":     "2026-06-02",
+		"2026-06-02T11:36:00":  "2026-06-02",
+		"2026-06-02T11:36:00Z": "2026-06-02",
+		"2026-06-02 11:36:00":  "2026-06-02",
+		"June 2, 2026":         "2026-06-02",
+		"2 Jun 2026":           "2026-06-02",
+		"02 Jun 2026 3:04 PM":  "2026-06-02",
+		"02/06/2026":           "2026-06-02",
+		"2026-06-02":           "2026-06-02",
+		" 2 June 2026 11:36 ":  "2026-06-02",
+	}
+	for in, want := range cases {
+		got, f := tryDate(in)
+		if got != want {
+			t.Errorf("tryDate(%q) = %q (layout %q), want %q", in, got, f, want)
+		}
+	}
+	if iso, _ := tryDate("not a date"); iso != "" {
+		t.Errorf(`tryDate("not a date") = %q, want ""`, iso)
+	}
+}
+
+func TestParseRowsLineNumbers(t *testing.T) {
+	m := &Mapping{Kind: "csv", HasHeader: true, Columns: []ColumnMap{
+		{Source: "Date", Role: RoleDate}, {Source: "Amount", Role: RoleAmount},
+	}}
+	table := [][]string{
+		{"Date", "Amount"},
+		{"2 June 2026 11:36", "-5.00"},
+		{"bad-date", "-7.00"}, // file line 3
+		{"3 June 2026", "-9.00"},
+	}
+	_, err := ParseRows(m, table, "GBP")
+	if err == nil {
+		t.Fatal("expected parse error for bad-date row")
+	}
+	pe, ok := err.(*ParseError)
+	if !ok {
+		t.Fatalf("expected *ParseError, got %T", err)
+	}
+	if pe.Line != 3 {
+		t.Errorf("reported line = %d, want 3 (real file line)", pe.Line)
+	}
+}

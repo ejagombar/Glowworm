@@ -532,7 +532,7 @@ func (s *Service) markFailed(id, msg string) (*Batch, error) {
 func (s *Service) markParseError(id string, err error) (*Batch, error) {
 	msg := err.Error()
 	if pe, ok := err.(*importer.ParseError); ok {
-		msg = fmt.Sprintf("Only some rows parsed — check the column mapping (%s)", pe.Error())
+		msg = fmt.Sprintf("First problem: %s — adjust the column roles or Date format below, then re-parse.", pe.Message)
 	}
 	_ = s.setStatus(id, "awaiting_schema")
 	if _, err := s.DB.Exec(`UPDATE import_batches SET parse_error = ? WHERE id = ?`, msg, id); err != nil {
