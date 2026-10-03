@@ -278,5 +278,24 @@ type Message struct {
 	CreatedAt      string  `json:"created_at"`
 }
 
+// AccountName resolves via the enriched Account (repos enrich rows).
+func (t *Transaction) AccountName() string {
+	if t.Account != nil {
+		return t.Account.Name
+	}
+	return t.AccountID
+}
+
+// RecurringLabel returns the series label (key fallback).
+func (t *Transaction) RecurringLabel() string {
+	if t.Recurring != nil {
+		return *t.Recurring
+	}
+	if t.RecurringKey != nil {
+		return *t.RecurringKey
+	}
+	return ""
+}
+
 // Date parsing helpers used by services.
 var _ = time.Now
