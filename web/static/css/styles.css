@@ -1528,3 +1528,7 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .login-error { color: var(--expense); font-size: 12.5px; margin: 0 0 10px; }
 /* Transfer counterpart selector row (doc 04 §5.2.4) */
 .tx-editor .tx-field select.field { min-width: 200px; }
+/* v1 additions: logout button alignment inside masthead-actions */
+.logout-form { display: inline-flex; align-items: center; }
+.logout-form .icon-btn { align-self: center; }
+/* v1 additions: standalone pages (login) drop the content padding */
