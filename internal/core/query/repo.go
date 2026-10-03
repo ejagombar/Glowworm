@@ -3,6 +3,7 @@ package query
 
 import (
 	"database/sql"
+	"encoding/json"
 
 	"glowworm/internal/core"
 	"glowworm/internal/store"
@@ -82,9 +83,16 @@ func (r *ConvRepo) Messages(conversationID string) ([]*core.Message, error) {
 	var out []*core.Message
 	for rows.Next() {
 		var m core.Message
-		var widget, dataset, plan sql.NullString
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Text, &m.Steps, &widget, &dataset, &plan, &m.CreatedAt); err != nil {
+		var steps, widget, dataset, plan sql.NullString
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Text, &steps, &widget, &dataset, &plan, &m.CreatedAt); err != nil {
 			return nil, err
+		}
+		// steps is stored as a JSON array; scan as a string and decode.
+		if steps.Valid && steps.String != "" {
+			var s []string
+			if err := json.Unmarshal([]byte(steps.String), &s); err == nil {
+				m.Steps = s
+			}
 		}
 		if widget.Valid {
 			s := widget.String
