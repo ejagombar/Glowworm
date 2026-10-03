@@ -55,7 +55,7 @@
         </a>
         {{end}}
       </div>
-      <div class="cat-amount">{{if .SpentMinor}}{{money .SpentMinor $.Currency}}{{else}}—{{end}}</div>
+      {{if not .IsSystem}}<div class="cat-amount">{{if .SpentMinor}}{{money .SpentMinor $.Currency}}{{else}}—{{end}}</div>{{end}}
       {{if eq .Type "income"}}<div class="cat-sub">Incoming</div>{{end}}
       {{if eq .Type "internal"}}<div class="cat-sub">Between your own accounts</div>{{end}}
     </div>

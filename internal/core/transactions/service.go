@@ -46,6 +46,26 @@ func (s *Service) InternalCategoryID() (string, error) {
 	return c.ID, nil
 }
 
+// deriveType infers the transaction type — the user never picks it (doc:
+// income is the Income category; transfer means a linked internal move;
+// everything else is an expense).
+func (s *Service) deriveType(categoryID *string, linked bool) string {
+	if linked {
+		return core.TypeTransfer
+	}
+	if categoryID != nil && *categoryID != "" {
+		if c, err := s.Categories.Get(*categoryID); err == nil {
+			if c.Type == core.CategoryInternal {
+				return core.TypeTransfer
+			}
+			if c.Type == core.CategoryIncome {
+				return core.TypeIncome
+			}
+		}
+	}
+	return core.TypeExpense
+}
+
 // eligibleCategory validates type masking (doc 02 §4): expense→spend,
 // income→income, transfer→internal.
 func (s *Service) eligibleCategory(txType string, categoryID *string) error {
@@ -101,9 +121,8 @@ func (in *CreateInput) Validate() error {
 		return &ValidationError{Message: "Amount is required"}
 	}
 	switch in.Type {
-	case core.TypeExpense, core.TypeIncome:
-	case "":
-		in.Type = core.TypeExpense
+	case core.TypeExpense, core.TypeIncome, "":
+		// Empty type is fine: the service derives it from category/links.
 	default:
 		return &ValidationError{Message: "Type must be expense, income or transfer"}
 	}
@@ -132,8 +151,15 @@ func (s *Service) Create(in CreateInput) (*core.Transaction, error) {
 	t := &core.Transaction{
 		AccountID: in.AccountID, Date: in.Date, Description: in.Description,
 		Merchant: in.Merchant, AmountMinor: in.AmountMinor, Currency: in.Currency,
-		Type: in.Type, CategoryID: in.CategoryID,
+		CategoryID: in.CategoryID,
 		CategorySource: core.CategorySourceUser,
+	}
+	if in.CategoryID == nil {
+		t.CategorySource = core.CategorySourceNone
+	}
+	t.Type = in.Type
+	if t.Type == "" {
+		t.Type = s.deriveType(in.CategoryID, false)
 	}
 	if in.CategoryID == nil {
 		t.CategorySource = core.CategorySourceNone
@@ -199,11 +225,15 @@ func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.
 		}
 		t.CategoryConfidence = nil
 	}
-	if in.Type != "" && in.Type != t.Type {
-		if t.TransferID != nil {
+	if in.Type != "" {
+		if in.Type != t.Type && t.TransferID != nil {
 			return nil, &ValidationError{Message: "Break the transfer link before changing its type"}
 		}
 		t.Type = in.Type
+	} else if t.TransferID == nil {
+		// Type is no longer user-set: re-derive from the (possibly new)
+		// category. Linked rows stay transfers.
+		t.Type = s.deriveType(t.CategoryID, false)
 	}
 	if err := s.eligibleCategory(t.Type, t.CategoryID); err != nil {
 		return nil, err

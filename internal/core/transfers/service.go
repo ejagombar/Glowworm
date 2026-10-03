@@ -425,3 +425,24 @@ func shiftDate(date string, days int) string {
 }
 
 var _ = normalize.Text
+
+// CounterpartOf returns the linked transaction on the other side of a
+// transfer (the UI editor shows it when editing an existing transfer).
+func (s *Service) CounterpartOf(txID string) (*core.Transaction, error) {
+	t, err := s.Txs.Get(txID)
+	if err != nil {
+		return nil, err
+	}
+	if t.TransferID == nil {
+		return nil, &ValidationError{Message: "This transaction is not linked"}
+	}
+	tr, err := s.Txs.TransferByID(*t.TransferID)
+	if err != nil {
+		return nil, err
+	}
+	other := tr.DestinationTxID
+	if other == t.ID {
+		other = tr.SourceTxID
+	}
+	return s.Txs.Get(other)
+}

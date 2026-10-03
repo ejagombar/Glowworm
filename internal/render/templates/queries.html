@@ -27,8 +27,8 @@
         </div>
         {{end}}
         {{range .Messages}}
+        {{if .DayLabel}}<div class="msg-day">{{.DayLabel}}</div>{{end}}
         {{if eq .Role "user"}}
-        <div class="msg-day">{{.DayLabel}}</div>
         <div class="msg user"><div class="msg-content"><div class="msg-bubble">{{.Text}}</div></div></div>
         {{else}}
         <div class="msg assistant">

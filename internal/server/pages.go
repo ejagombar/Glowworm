@@ -459,21 +459,11 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 		FiltersCat   string
 		FiltersType  string
 	}{
-		viewBase: base, Accounts: cards, Rows: rows, Categories: filterSpendCats(cats),
+		viewBase: base, Accounts: cards, Rows: rows, Categories: cats,
 		SelectedAcc: accountID, SelectedName: selectedName, Sub: sub,
 		FiltersQ: f.Q, FiltersCat: f.CategoryID, FiltersType: f.Type,
 	}
 	return a.Render.Render(w, "transactions", data)
-}
-
-func filterSpendCats(cats []*core.Category) []*core.Category {
-	out := cats[:0]
-	for _, c := range cats {
-		if c.Type == core.CategorySpend {
-			out = append(out, c)
-		}
-	}
-	return out
 }
 
 // handleCategories renders the categories view (doc 04 §5.5).
@@ -736,11 +726,16 @@ func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 // server-side from the stored widget JSON).
 func toMessageViews(msgs []*core.Message) []queryMessageView {
 	out := make([]queryMessageView, 0, len(msgs))
-	day := ""
+	lastDay := ""
 	for _, m := range msgs {
-		dayLabel := dayLabelFor(m.CreatedAt)
+		// Day badge only when the day changes (user request: not every message).
+		d := dayKey(m.CreatedAt)
+		var dayLabel string
+		if d != lastDay {
+			dayLabel = dayLabelFor(m.CreatedAt)
+			lastDay = d
+		}
 		view := queryMessageView{Role: m.Role, Text: m.Text, Steps: m.Steps, DayLabel: dayLabel}
-		_ = day
 		if m.Widget != nil {
 			var w widgets.Widget
 			if json.Unmarshal([]byte(*m.Widget), &w) == nil {
@@ -766,6 +761,15 @@ func dayLabelFor(ts string) string {
 		return "Yesterday"
 	}
 	return t.Format("2 January 2006")
+}
+
+// dayKey returns the calendar day of a timestamp (for change detection).
+func dayKey(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ""
+	}
+	return t.Format("2006-01-02")
 }
 
 // widgetCardHTML re-renders a widget card server-side (prototype widgetEl).

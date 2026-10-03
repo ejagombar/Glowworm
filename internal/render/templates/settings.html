@@ -95,6 +95,31 @@
     </div>
 
     <div class="panel setting-block">
+      <h2>Account</h2>
+      <p class="muted">Signed in as <strong>{{.UserName}}</strong>. Passwords are at least 10 characters.</p>
+      <div class="field-row">
+        <label>Current password</label>
+        <input class="field" type="password" id="pwCurrent" autocomplete="current-password" />
+      </div>
+      <div class="field-row">
+        <label>New password</label>
+        <input class="field" type="password" id="pwNew" autocomplete="new-password" placeholder="At least 10 characters" />
+      </div>
+      <div class="field-row">
+        <label>Confirm new password</label>
+        <input class="field" type="password" id="pwConfirm" autocomplete="new-password" />
+      </div>
+      <div class="field-row" style="gap:8px">
+        <button class="btn btn-primary" id="passwordSave">Change password</button>
+        <span class="spacer"></span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
+          <button class="btn btn-ghost" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel setting-block">
       <h2>Getting started</h2>
       <p class="muted">Re-run the setup walkthrough and rebuild your categories.</p>
       <button class="btn btn-primary" id="runSetupBtn">Run setup walkthrough</button>
