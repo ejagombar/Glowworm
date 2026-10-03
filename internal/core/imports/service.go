@@ -148,7 +148,12 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			det.MatchedSchema = schema.Name
 			det.BankHint = schema.BankHint
 			det.DateFormat = m.DateFormat
-			b, err := s.applyMapping(batchID, m, data, &schema.ID)
+				det.Columns = m.Columns
+			det.Confidence = 1.0
+			det.ProposedName = schema.Name
+			det.MatchedSchema = schema.Name
+			det.BankHint = schema.BankHint
+			b, err := s.applyMapping(batchID, m, data, &schema.ID, det)
 			if err != nil {
 				return nil, err
 			}
@@ -165,7 +170,7 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 				det.Confidence = m.Confidence
 				det.BankHint = m.BankHint
 				det.DateFormat = m.DateFormat
-				b, err := s.applyMapping(batchID, m, data, nil)
+				b, err := s.applyMapping(batchID, m, data, nil, det)
 				if err != nil {
 					return nil, err
 				}
@@ -293,7 +298,7 @@ func validateMapping(m *importer.Mapping, headers []string, sample [][]string) e
 
 // applyMapping parses + stages with the given mapping (doc 06 §6) and saves
 // the schema fingerprint when schemaID is provided.
-func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte, schemaID *string) (*Batch, error) {
+func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte, schemaID *string, det *Detection) (*Batch, error) {
 	batch, err := s.getBatch(batchID)
 	if err != nil {
 		return nil, err
@@ -533,7 +538,7 @@ func (s *Service) markAwaitingSchema(id string, det *Detection) error {
 // ApplySchemaPublic re-parses the stored upload with a corrected mapping
 // (doc 06 §5 fix-mapping stage).
 func (s *Service) ApplySchemaPublic(batchID string, m *importer.Mapping, data []byte) (*Batch, error) {
-	return s.applyMapping(batchID, m, data, nil)
+	return s.applyMapping(batchID, m, data, nil, nil)
 }
 
 func sampleTable(table [][]string, n int) [][]string {
@@ -595,7 +600,7 @@ type StagedRow struct {
 	AmountMinor    int64   `json:"amount_minor"`
 	Currency       string  `json:"currency"`
 	CategoryID     *string `json:"category_id"`
-	CategoryName   string  `json:"category_name,omitempty"`
+	CategoryName   string  `json:"category_name"`
 	CategorySource string  `json:"category_source"`
 	Confidence     *float64 `json:"category_confidence"`
 	NeedsReview    bool    `json:"needs_review"`

@@ -67,7 +67,12 @@ func New() (*Renderer, error) {
 			b, _ := jsonMarshal(v)
 			return template.JS(b)
 		},
+		// jsonAttr renders pre-serialised JSON into an attribute; html/template
+		// escapes quotes (&quot;) which the browser decodes back.
 		"jsonAttr":    func(v any) template.HTMLAttr {
+			if s, ok := v.(string); ok {
+				return template.HTMLAttr(s)
+			}
 			b, _ := jsonMarshal(v)
 			return template.HTMLAttr(b)
 		},

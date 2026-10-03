@@ -171,6 +171,20 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/settings/ai", j(a.apiAIGet))
 	mux.HandleFunc("PUT /api/v1/settings/ai", j(a.apiAISet))
 	mux.HandleFunc("POST /api/v1/settings/ai/test", j(a.apiAITest))
+
+	// NL query + conversations (doc 03 §9).
+	mux.HandleFunc("POST /api/v1/query", j(a.apiQuery))
+	mux.HandleFunc("POST /api/v1/query/stream", j(a.apiQueryStream))
+	mux.HandleFunc("GET /api/v1/conversations", j(a.apiConversationsList))
+	mux.HandleFunc("GET /api/v1/conversations/{id}", j(a.apiConversationGet))
+	mux.HandleFunc("DELETE /api/v1/conversations/{id}", j(a.apiConversationDelete))
+
+	// Pinned widgets (doc 03 §8).
+	mux.HandleFunc("GET /api/v1/widgets/pinned", j(a.apiWidgetsGet))
+	mux.HandleFunc("PUT /api/v1/widgets/pinned", j(a.apiWidgetsReorder))
+	mux.HandleFunc("POST /api/v1/widgets/pinned", j(a.apiWidgetPin))
+	mux.HandleFunc("PATCH /api/v1/widgets/pinned/{id}", j(a.apiWidgetPatch))
+	mux.HandleFunc("DELETE /api/v1/widgets/pinned/{id}", j(a.apiWidgetUnpin))
 }
 
 // --- accounts ---
@@ -438,6 +452,10 @@ func (a *App) apiSetupAccount(w http.ResponseWriter, r *http.Request) error {
 func (a *App) apiSetupComplete(w http.ResponseWriter, r *http.Request) error {
 	if err := a.Setup.Complete(); err != nil {
 		return err
+	}
+	// Seed the default dashboard once (doc 10 §11).
+	if err := a.SeedDefaultWidgets(); err != nil {
+		a.Log.Error("seed widgets", "err", err)
 	}
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
@@ -1061,3 +1079,4 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, map[string]any{"ok": true, "latency_ms": latency})
 	return nil
 }
+

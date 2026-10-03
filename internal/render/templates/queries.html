@@ -8,7 +8,11 @@
           <svg class="icon"><use href="#i-chevron"/></svg>
         </button>
       </div>
-      <div class="queries-days" id="queriesDays"></div>
+      <div class="queries-days" id="queriesDays">
+        {{range .Conversations}}
+        <a class="queries-day" href="/queries?c={{.ID}}"><span>{{.Title}}</span></a>
+        {{end}}
+      </div>
     </aside>
     <div class="queries-main" {{if .ConversationID}}data-conversation-id="{{.ConversationID}}"{{end}}>
       <button class="btn btn-ghost btn-xs queries-sidebar-expand" id="queriesSidebarExpand" aria-label="Show history">

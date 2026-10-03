@@ -1,15 +1,18 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/periods"
+	"glowworm/internal/core/widgets"
 	"glowworm/internal/money"
 	"glowworm/internal/store/repos"
 )
@@ -150,6 +153,10 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	if len(recent) > 7 {
 		recent = recent[:7]
 	}
+	widgetViews, err := a.WidgetsList()
+	if err != nil {
+		return err
+	}
 
 	data := struct {
 		*viewBase
@@ -166,7 +173,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		HeroChart       string // JSON chart data (bar/line)
 		HeroRangeLabel  string
 		Recent          []*repos.DisplayRow
-		Widgets         []*core.PinnedWidget
+		Widgets         []*WidgetView
 	}{
 		viewBase: base,
 		Greeting: a.Clock.Greeting(),
@@ -178,7 +185,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		HeroChart: seriesData,
 		HeroRangeLabel: "All accounts · " + lowerFirst(base.PeriodLabel),
 		Recent: recent,
-		Widgets: []*core.PinnedWidget{},
+		Widgets: widgetViews,
 	}
 	return a.Render.Render(w, "dashboard", data)
 }
@@ -693,12 +700,183 @@ func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	convs, err := a.Query.Repo.ListConversations()
+	if err != nil {
+		return err
+	}
+	convID := r.URL.Query().Get("c")
+	var conv *core.Conversation
+	if convID == "" && len(convs) > 0 {
+		conv = convs[0]
+		convID = conv.ID
+	} else if convID != "" {
+		conv, err = a.Query.Repo.GetConversation(convID)
+		if err != nil {
+			conv = nil
+			convID = ""
+		}
+	}
+	var msgs []queryMessageView
+	if conv != nil {
+		raw, err := a.Query.Repo.Messages(conv.ID)
+		if err == nil {
+			msgs = toMessageViews(raw)
+		}
+	}
 	data := struct {
 		*viewBase
 		Messages       []queryMessageView
 		ConversationID string
-	}{viewBase: base, Messages: []queryMessageView{}}
+		Conversations  []*core.Conversation
+	}{viewBase: base, Messages: msgs, ConversationID: convID, Conversations: convs}
 	return a.Render.Render(w, "queries", data)
+}
+
+// toMessageViews projects persisted messages (widget HTML re-rendered
+// server-side from the stored widget JSON).
+func toMessageViews(msgs []*core.Message) []queryMessageView {
+	out := make([]queryMessageView, 0, len(msgs))
+	day := ""
+	for _, m := range msgs {
+		dayLabel := dayLabelFor(m.CreatedAt)
+		view := queryMessageView{Role: m.Role, Text: m.Text, Steps: m.Steps, DayLabel: dayLabel}
+		_ = day
+		if m.Widget != nil {
+			var w widgets.Widget
+			if json.Unmarshal([]byte(*m.Widget), &w) == nil {
+				view.WidgetHTML = template.HTML(widgetCardHTML(&w))
+			}
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+func dayLabelFor(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ""
+	}
+	today := strings.TrimSpace(time.Now().Format("2006-01-02"))
+	that := strings.TrimSpace(t.Format("2006-01-02"))
+	if today == that {
+		return "Today"
+	}
+	if t.Format("2006-01-02") == time.Now().AddDate(0, 0, -1).Format("2006-01-02") {
+		return "Yesterday"
+	}
+	return t.Format("2 January 2006")
+}
+
+// widgetCardHTML re-renders a widget card server-side (prototype widgetEl).
+func widgetCardHTML(w *widgets.Widget) string {
+	var b strings.Builder
+	b.WriteString(`<article class="widget span-12" data-widget-id="` + w.ID + `" data-widget-type="` + w.Type + `"`)
+	b.WriteString(` data-widget-title="` + template.HTMLEscapeString(w.Title) + `"`)
+	b.WriteString(` data-widget-data="` + template.HTMLEscapeString(w.DataJSON()) + `"`)
+	if w.Dataset != nil {
+		b.WriteString(` data-widget-dataset="` + template.HTMLEscapeString(marshalAny(w.Dataset)) + `"`)
+	}
+	b.WriteString(`><div class="widget-head"><div class="widget-title">` + template.HTMLEscapeString(w.Title) + `</div>`)
+	b.WriteString(`<div class="widget-actions">
+		<button class="widget-btn" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
+		<button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
+	</div></div><div class="widget-body">`)
+	switch w.Type {
+	case "number":
+		d, _ := w.Data.(map[string]any)
+		b.WriteString(`<div class="num-widget"><div class="num-value">` + template.HTMLEscapeString(str(d["value"])) + `</div>`)
+		if d["caption"] != nil {
+			b.WriteString(`<div class="num-caption">` + template.HTMLEscapeString(str(d["caption"])) + `</div>`)
+		}
+		b.WriteString(`</div>`)
+	case "text":
+		d, _ := w.Data.(map[string]any)
+		b.WriteString(`<div class="text-widget"><p>` + template.HTMLEscapeString(str(d["body"])) + `</p></div>`)
+	case "table":
+		d, _ := w.Data.(map[string]any)
+		b.WriteString(`<div class="table-widget"><table><thead><tr>`)
+		if cols, ok := d["columns"].([]any); ok {
+			for _, c := range cols {
+				b.WriteString(`<th>` + template.HTMLEscapeString(str(c)) + `</th>`)
+			}
+		}
+		b.WriteString(`</tr></thead><tbody>`)
+		if rows, ok := d["rows"].([]any); ok {
+			for _, r := range rows {
+				b.WriteString(`<tr>`)
+				if cells, ok := r.([]any); ok {
+					for _, c := range cells {
+						b.WriteString(`<td>` + template.HTMLEscapeString(str(c)) + `</td>`)
+					}
+				}
+				b.WriteString(`</tr>`)
+			}
+		}
+		b.WriteString(`</tbody></table></div>`)
+	case "transactions":
+		d, _ := w.Data.(map[string]any)
+		if txs, ok := d["transactions"].([]any); ok {
+			b.WriteString(`<div class="table-widget tx-widget"><table class="tx-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead><tbody>`)
+			for _, t := range txs {
+				tm, _ := t.(map[string]any)
+				date := str(tm["date"])
+				desc := str(tm["description"])
+				cat := str(tm["category"])
+				amount := int64(0)
+				if f, ok := tm["amount_minor"].(float64); ok {
+					amount = int64(f)
+				}
+				cur := str(tm["currency"])
+				if cur == "" {
+					cur = "GBP"
+				}
+				cls := "neg"
+				if amount >= 0 {
+					cls = "pos"
+				}
+				b.WriteString(`<tr><td class="cell-sub">` + template.HTMLEscapeString(dayMonth(date)) + `</td><td><div class="cell-merchant">` + template.HTMLEscapeString(desc) + `</div></td><td>` + template.HTMLEscapeString(cat) + `</td><td class="num tx-amount ` + cls + `">` + moneySignedCell(amount, cur) + `</td></tr>`)
+			}
+			b.WriteString(`</tbody></table></div>`)
+		}
+	default: // bar/line/pie render client-side via the widget engine
+		typ := w.Type
+		if typ != "pie" && typ != "line" && typ != "bar" {
+			typ = "bar"
+		}
+		if typ == "pie" {
+			b.WriteString(`<div class="pie-wrap"><div class="pie-chart" data-chart-type="pie" data-chart-data="` + template.HTMLEscapeString(w.DataJSON()) + `"></div></div>`)
+		} else {
+			b.WriteString(`<div class="chart-host" data-chart-type="` + typ + `" data-chart-data="` + template.HTMLEscapeString(w.DataJSON()) + `"></div>`)
+		}
+	}
+	b.WriteString(`</div></article>`)
+	return b.String()
+}
+
+func dayMonth(iso string) string {
+	t, err := time.Parse("2006-01-02", iso)
+	if err != nil {
+		return iso
+	}
+	return t.Format("2 Jan")
+}
+
+func moneySignedCell(amount int64, cur string) string {
+	cls := "neg"
+	sign := "−"
+	if amount >= 0 {
+		cls = "pos"
+		sign = "+"
+	}
+	return `<span class="` + cls + `">` + sign + money.Format(abs64(amount), cur) + `</span>`
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // moneyFmt is exposed for handlers composing labels.

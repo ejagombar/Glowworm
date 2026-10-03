@@ -62,6 +62,18 @@ type Answer struct {
 	Dataset    *widgets.Dataset `json:"dataset"`
 }
 
+// CompilePublic executes an already-validated plan (pinned widget refresh,
+// doc 10 §11) — no LLM involved.
+func (s *Service) CompilePublic(p *Plan) (*widgets.Dataset, string, error) {
+	if err := s.resolveTime(p); err != nil {
+		return nil, "", err
+	}
+	if err := s.validate(p); err != nil {
+		return nil, "", err
+	}
+	return s.compile(p)
+}
+
 // Ask runs the full pipeline (doc 10 §2).
 func (s *Service) Ask(question string) (*Answer, error) {
 	if s.Provider == nil {
@@ -92,6 +104,56 @@ func (s *Service) Ask(question string) (*Answer, error) {
 	widget := s.present(plan, ds)
 	text := s.answer(plan, ds)
 	return &Answer{Text: text, Steps: steps, Widget: widget, Plan: plan, Dataset: ds}, nil
+}
+
+// UnmarshalJSON accepts both the nested entity shape ({entity:{kind,...}})
+// and the flattened internal shape.
+func (p *Plan) UnmarshalJSON(b []byte) error {
+	type alias Plan
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return err
+	}
+	*p = Plan(a)
+	var nested struct {
+		Entity *struct {
+			Kind         string `json:"kind"`
+			ID           string `json:"id"`
+			ResolvedName string `json:"resolved_name"`
+			Match        string `json:"match"`
+		} `json:"entity"`
+	}
+	if err := json.Unmarshal(b, &nested); err == nil && nested.Entity != nil {
+		p.EntityKind = nested.Entity.Kind
+		p.EntityID = nested.Entity.ID
+		p.EntityName = nested.Entity.ResolvedName
+		p.EntityMatch = nested.Entity.Match
+	}
+	return nil
+}
+
+// MarshalJSON re-nests the entity (doc 10 §3 shape).
+func (p Plan) MarshalJSON() ([]byte, error) {
+	type alias Plan
+	a := alias(p)
+	if p.EntityKind != "" && p.EntityKind != "none" {
+		a.EntityKind = ""
+		a.EntityID = ""
+		a.EntityName = ""
+		a.EntityMatch = ""
+		b, err := json.Marshal(a)
+		if err != nil {
+			return nil, err
+		}
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		m["entity"] = map[string]any{
+			"kind": p.EntityKind, "id": p.EntityID,
+			"resolved_name": p.EntityName, "match": p.EntityMatch,
+		}
+		return json.Marshal(m)
+	}
+	return json.Marshal(a)
 }
 
 // ClarifyError asks the user to disambiguate (doc 10 §9).
@@ -337,7 +399,7 @@ func (s *Service) compileMoney(p *Plan) (*widgets.Dataset, string, error) {
 	if p.Breakdown == "month" || p.Breakdown == "week" || p.Breakdown == "day" {
 		limit = 0 // time series: no limit
 	}
-	sqlDisplay := fmt.Sprintf("SELECT %s, %s(amount_minor) FROM tx WHERE %s GROUP BY %s", dim, sign, where, groupCol)
+	sqlDisplay := fmt.Sprintf("SELECT %s, SUM(%s) FROM tx WHERE 1=1%s GROUP BY %s", dim, sign, strings.TrimPrefix(where, " AND 1=1"), groupCol)
 	q := fmt.Sprintf(`SELECT %s AS bucket, COALESCE(SUM(%s),0) AS total FROM transactions t
 		WHERE t.deleted_at IS NULL%s GROUP BY %s ORDER BY %s`, labelCol, sign, where, groupCol, orderFor(p, groupCol))
 	qArgs := args
@@ -387,7 +449,7 @@ func (s *Service) metricWhere(p *Plan) (string, []any) {
 	default: // net: income minus spend
 		typeClause = ` AND t.type != 'transfer'`
 	}
-	where := ` 1=1` + typeClause
+	where := ` AND 1=1` + typeClause
 	args := []any{}
 	if p.From != "" {
 		where += ` AND t.date >= ?`

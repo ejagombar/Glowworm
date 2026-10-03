@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"glowworm/internal/core/categories"
 	"glowworm/internal/core/categoriser"
 	"glowworm/internal/core/imports"
+	"glowworm/internal/core/query"
 	"glowworm/internal/core/recurring"
 	"glowworm/internal/core/settings"
 	"glowworm/internal/core/setup"
@@ -56,6 +58,7 @@ type App struct {
 	Imports   *imports.Service
 	Transfers *transfers.Service
 	Recurring *recurring.Service
+	Query     *query.Service
 
 	AuditWriter *audit.Writer
 	Exec        *auditexec.Executor
@@ -101,8 +104,13 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.Settings = &settings.Service{DB: db, Repos: rp.Settings, Audit: writer}
 	app.Setup = &setup.Service{DB: db, Users: rp.Users, Settings: rp.Settings, Audit: writer}
 
-	// AI provider from encrypted config (doc 09 §4).
+	// AI provider from encrypted config (doc 09 §4); GLOWWORM_AI_MOCK=1
+	// injects the deterministic mock (tests/dev only).
 	provider := a_resolveProvider(db, secret, log)
+	if os.Getenv("GLOWWORM_AI_MOCK") == "1" {
+		log.Info("using mock AI provider (GLOWWORM_AI_MOCK=1)")
+		provider = &ai.Mock{}
+	}
 	app.Cat = &categoriser.Service{
 		DB: db, Txs: rp.Transactions, Categories: rp.Categories, Settings: rp.Settings,
 		Audit: writer, Provider: provider,
@@ -144,6 +152,10 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		},
 	}
 	app.Recurring = &recurring.Service{DB: db, Txs: rp.Transactions, Audit: writer}
+	app.Query = &query.Service{
+		DB: db, Provider: provider, Clock: clk,
+		Repo: &query.ConvRepo{DB: db},
+	}
 	app.Exec = &auditexec.Executor{
 		DB: db, Accounts: rp.Accounts, Categories: rp.Categories, Txs: rp.Transactions,
 		InternalCat: func(tx *sql.Tx) (string, error) {
