@@ -1265,12 +1265,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }).then(async (r) => {
       const b = await r.json().catch(() => ({}));
       if (!r.ok) {
-        flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">${esc((b.error && b.error.message) || "Upload failed")}</div></div>`;
+        const why = (b.error && b.error.message) || `server error ${r.status}`;
+        flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">Upload failed: ${esc(why)}</div></div>`;
         return;
       }
       renderBatch(b);
-    }).catch(() => {
-      flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">Upload failed</div></div>`;
+    }).catch((e) => {
+      flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">Upload failed: ${esc(e && e.message ? e.message : "network error — is the server running?")}</div></div>`;
     });
   };
 
@@ -1457,7 +1458,10 @@ document.addEventListener("DOMContentLoaded", () => {
           body: JSON.stringify({ account_id: accountID }),
         }).then(async (r) => {
           const b = await r.json().catch(() => ({}));
-          if (!r.ok) { toast((b.error && b.error.message) || "Import failed"); return; }
+          if (!r.ok) {
+            toast(`Import failed: ${(b.error && b.error.message) || `server error ${r.status}`}`);
+            return;
+          }
           flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">
             <svg class="icon" style="color:var(--income)"><use href="#i-check"/></svg>
             Imported ${b.rows || 0} transactions — see the <a href="/transactions">transactions</a> and <a href="/history?mode=audit">audit log</a>.</div></div>`;

@@ -316,8 +316,12 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		if etags[path] == "" {
 			etags[path] = etag
 		}
+		// ETag revalidation (304s keep it cheap) — deliberately NOT
+		// `immutable`: a self-hosted app updated in place must never serve a
+		// browser-cached stale app.js (documented deviation from doc 04 §12,
+		// which specified immutable caching).
 		w.Header().Set("ETag", etag)
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Header().Set("Cache-Control", "no-cache")
 		if r.Header.Get("If-None-Match") == etag {
 			w.WriteHeader(http.StatusNotModified)
 			return

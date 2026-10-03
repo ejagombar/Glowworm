@@ -1,9 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -43,9 +45,17 @@ func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 		start := time.Now()
 		defer func() {
 			if p := recover(); p != nil {
-				log.Error("panic", "req_id", id, "path", r.URL.Path, "panic", p)
+				log.Error("panic", "req_id", id, "path", r.URL.Path, "panic", p,
+					"stack", string(debug.Stack()))
 				if sw.status == 200 {
-					http.Error(sw, "Internal server error", http.StatusInternalServerError)
+					// Always answer JSON so clients can show the reason
+					// instead of an unparseable body.
+					sw.Header().Set("Content-Type", "application/json")
+					sw.WriteHeader(http.StatusInternalServerError)
+					json.NewEncoder(sw).Encode(map[string]any{
+						"error": map[string]any{"code": "internal",
+							"message": "Something went wrong on the server (the log has the details)."},
+					})
 				}
 			}
 			log.Info("request", "req_id", id, "method", r.Method, "path", r.URL.Path,
