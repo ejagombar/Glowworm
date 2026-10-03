@@ -1,0 +1,83 @@
+{{define "content"}}
+<section class="view active" id="view-transactions">
+  <div class="view-head">
+    <div>
+      <h1>Transactions</h1>
+      <p class="sub">Your accounts, balances and every transaction.</p>
+    </div>
+    <a class="btn btn-primary" href="/settings">
+      <svg class="icon"><use href="#i-plus"/></svg> New account
+    </a>
+  </div>
+
+  <div class="accounts-grid" id="accountsGrid">
+    {{range .Accounts}}
+    <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions?account={{.ID}}&period={{$.Period}}">
+      <div class="account-card-top">
+        <span class="account-dot" style="background:{{.Color}}"></span>
+        <span class="account-name">{{.Name}}</span>
+        <span class="badge {{accountTypeBadge .Type}}">{{.TypeLabel}}</span>
+      </div>
+      <div class="account-balance {{if .BalanceNeg}}neg{{end}}">{{money .BalanceMinor $.Currency}}</div>
+      <div class="account-sub">{{if .RefLast4}}···· {{.RefLast4}} · {{end}}{{.TxCount}} transactions</div>
+    </a>
+    {{end}}
+    {{if not .Accounts}}
+    <div class="account-card"><div class="account-card-top"><span class="account-name">No accounts yet</span></div>
+      <div class="account-sub">Add one from Settings.</div></div>
+    {{end}}
+  </div>
+
+  <div class="section-head">
+    <h2>All transactions</h2>
+    <span class="muted" id="accountsTxSub">{{.Sub}}</span>
+  </div>
+
+  <div class="filters panel">
+    <div class="field search">
+      <svg class="icon"><use href="#i-search"/></svg>
+      <input type="text" name="q" form="txFilters" id="txSearch" value="{{.FiltersQ}}" placeholder="Search description or category…" />
+    </div>
+    <form id="txFilters" method="get" action="/transactions" class="filters-form">
+      <input type="hidden" name="period" value="{{.Period}}" />
+      {{if .SelectedAcc}}<input type="hidden" name="account" value="{{.SelectedAcc}}" />{{end}}
+      <input type="hidden" name="q" id="txSearchHid" value="{{.FiltersQ}}" />
+      <select id="txCategory" name="category" class="field select" onchange="this.form.submit()">
+        <option value="">All categories</option>
+        {{range .Categories}}<option value="{{.ID}}"{{if eq .ID $.FiltersCat}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <select id="txType" name="type" class="field select" onchange="this.form.submit()">
+        <option value="">All types</option>
+        <option value="expense"{{if eq .FiltersType "expense"}} selected{{end}}>Expenses</option>
+        <option value="income"{{if eq .FiltersType "income"}} selected{{end}}>Income</option>
+        <option value="transfer"{{if eq .FiltersType "transfer"}} selected{{end}}>Transfers</option>
+        <option value="recurring"{{if eq .FiltersType "recurring"}} selected{{end}}>Recurring</option>
+      </select>
+    </form>
+  </div>
+
+  <div class="panel table-panel">
+    <table class="tx-table{{if .SelectedAcc}} account-view{{end}}" id="transactionsTable">
+      <thead id="transactionsHead">{{template "tx-head" .}}</thead>
+      <tbody id="transactionsBody">
+        {{if .Rows}}
+          {{range .Rows}}{{template "tx-tr" dict "Row" . "Currency" $.Currency "Selected" $.SelectedAcc}}{{end}}
+        {{else}}
+          <tr><td colspan="6" class="cell-sub" style="padding:28px;text-align:center">No transactions match your filters.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{define "tx-head"}}{{$stmt := false}}{{if .SelectedAcc}}{{$stmt = true}}{{end}}
+<tr>
+  <th>Date</th>
+  <th>Description</th>
+  <th>Category</th>
+  {{if $stmt}}<th>To / From</th>{{else}}<th>Account</th>{{end}}
+  <th class="num">Amount</th>
+  <th></th>
+</tr>
+{{end}}

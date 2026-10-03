@@ -194,6 +194,12 @@ func (r *Accounts) DeleteValuation(tx *sql.Tx, id string) error {
 	return err
 }
 
+// RestoreValuation un-deletes a correction (path restore).
+func (r *Accounts) RestoreValuation(id string) error {
+	_, err := r.DB.Exec(`UPDATE valuations SET deleted_at = NULL WHERE id = ?`, id)
+	return err
+}
+
 func nullIfEmpty(s string) any {
 	if s == "" {
 		return nil

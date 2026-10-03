@@ -18,11 +18,11 @@ func (r *Users) Count() (int, error) {
 	return n, err
 }
 
-func (r *Users) Create(u *core.User, passwordHash string) error {
+func (r *Users) Create(tx *sql.Tx, u *core.User, passwordHash string) error {
 	u.ID = util.NewID()
 	u.CreatedAt = util.NowStr()
 	u.UpdatedAt = u.CreatedAt
-	_, err := r.DB.Exec(`INSERT INTO users (id, username, display_name, password_hash, created_at, updated_at)
+	_, err := exec(r.DB, tx, `INSERT INTO users (id, username, display_name, password_hash, created_at, updated_at)
 		VALUES (?,?,?,?,?,?)`, u.ID, u.Username, u.DisplayName, passwordHash, u.CreatedAt, u.UpdatedAt)
 	return err
 }

@@ -1,0 +1,87 @@
+{{define "content"}}
+<section class="view active" id="view-dashboard">
+  <div class="dash-shell" id="dashShell">
+    <div class="dash-main">
+      <div class="view-head">
+        <div>
+          <h1>{{.Greeting}}{{if .UserName}}, {{.UserName}}{{end}}</h1>
+          <p class="sub">Here's your money at a glance.</p>
+        </div>
+      </div>
+
+      <!-- Overview -->
+      <div class="overview">
+        <div class="stats-grid col">
+          <article class="stat-card compact clickable" data-balance-view="available">
+            <span class="stat-icon"><svg class="icon"><use href="#i-bank"/></svg></span>
+            <div class="stat-label">Available balance</div>
+            <div class="stat-value">{{money .AvailableMinor .Currency}}</div>
+            <div class="stat-trend"><svg class="icon"><use href="#i-check"/></svg> Show graph</div>
+          </article>
+          <article class="stat-card compact clickable" data-balance-view="savings">
+            <span class="stat-icon"><svg class="icon"><use href="#i-check"/></svg></span>
+            <div class="stat-label">Savings</div>
+            <div class="stat-value">{{money .SavingsMinor .Currency}}</div>
+            <div class="stat-trend"><svg class="icon"><use href="#i-check"/></svg> Show graph</div>
+          </article>
+          <article class="stat-card compact">
+            <span class="stat-icon"><svg class="icon"><use href="#i-up"/></svg></span>
+            <div class="stat-label">Income this month</div>
+            <div class="stat-value">{{money .IncomeMinor .Currency}}</div>
+            {{if .IncomeTrend}}
+            <div class="stat-trend up"><svg class="icon"><use href="#i-up"/></svg> {{.IncomeTrend}} · {{dayMonth .IncomeTrendDate}}</div>
+            {{end}}
+          </article>
+          <article class="stat-card compact">
+            <span class="stat-icon"><svg class="icon"><use href="#i-down"/></svg></span>
+            <div class="stat-label">Spent this month</div>
+            <div class="stat-value">{{money .SpendMinor .Currency}}</div>
+            {{if .SpendPct}}
+            <div class="stat-trend {{.SpendDir}}"><svg class="icon"><use href="#i-down"/></svg> {{.SpendPct}}</div>
+            {{end}}
+          </article>
+        </div>
+
+        <div class="panel overview-chart">
+          <div class="section-head inside">
+            <div>
+              <h2>Balance overview</h2>
+              <p class="muted small" id="heroRange">{{.HeroRangeLabel}}</p>
+            </div>
+          </div>
+          <div class="chart-host" id="heroChart" data-chart-type="line" data-chart-data="{{jsonAttr .HeroChart}}"></div>
+        </div>
+      </div>
+
+      <!-- Pinned widgets -->
+      <div class="section-head">
+        <h2>Pinned widgets</h2>
+        <div class="section-head-actions">
+          <span class="muted" id="pinnedHint">Saved from your questions</span>
+          <button class="btn btn-ghost btn-xs" id="pinnedEditBtn" aria-label="Edit pinned widgets">
+            <svg class="icon"><use href="#i-settings"/></svg> Edit
+          </button>
+        </div>
+      </div>
+      <div class="widgets-grid" id="pinnedGrid">{{template "pinned-widgets" dict "Widgets" .Widgets "Currency" .Currency}}</div>
+
+      <!-- Recent transactions -->
+      <div class="section-head">
+        <h2>Recent activity</h2>
+        <a class="btn btn-ghost btn-xs" href="/transactions">View all</a>
+      </div>
+      <div class="panel">
+        <div class="tx-list" id="recentTransactions">
+          {{if .Recent}}
+            {{range .Recent}}{{template "tx-row" dict "Row" . "Currency" $.Currency}}{{end}}
+          {{else}}
+            <div class="tx-row"><div class="tx-main"><div class="tx-merchant">No activity yet</div>
+              <div class="tx-sub">Import a statement to get started.</div></div></div>
+          {{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{{end}}
+

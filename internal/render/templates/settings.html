@@ -1,0 +1,106 @@
+{{define "content"}}
+<section class="view active" id="view-settings">
+  <div class="view-head">
+    <div>
+      <h1>Settings</h1>
+      <p class="sub">Accounts, AI provider and appearance.</p>
+    </div>
+  </div>
+
+  <div class="settings-grid">
+    <div class="panel setting-block settings-accounts-block">
+      <div class="settings-accounts-head">
+        <div>
+          <h2>Accounts</h2>
+          <p class="muted">Name, type, opening balance and current valuation. Valuation updates are stored as corrections, not payments.</p>
+        </div>
+        <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
+          <svg class="icon"><use href="#i-plus"/></svg> Add account
+        </button>
+      </div>
+      <div class="settings-accounts-grid" id="settingsAccounts">
+        {{range .Accounts}}
+        <button class="settings-account-card" data-account-form="{{.ID}}">
+          <div class="settings-account-card-top">
+            <span class="account-dot" style="background:{{.Color}}"></span>
+            <div class="settings-account-name">{{.Name}}</div>
+            <span class="badge {{accountTypeBadge .Type}}">{{.TypeLabel}}</span>
+          </div>
+          <div class="settings-account-balance {{if .BalanceNeg}}neg{{end}}">{{money .BalanceMinor $.Currency}}</div>
+          <div class="settings-account-sub">
+            {{if .RefLast4}}···· {{.RefLast4}} · {{end}}{{money .OpeningMinor $.Currency}} at opening{{if .OpeningDate}} · opened {{dayMonthYear .OpeningDate}}{{end}}{{if .Corrections}} · {{.Corrections}} correction{{if ne .Corrections 1}}s{{end}}{{end}}
+          </div>
+        </button>
+        {{end}}
+        {{if not .Accounts}}
+        <div class="settings-account-card"><div class="settings-account-name">No accounts yet</div>
+          <div class="settings-account-sub">Add your first account to start importing statements.</div></div>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="panel setting-block">
+      <h2>AI provider</h2>
+      <p class="muted">Glowworm is AI agnostic. Pick whatever you trust.</p>
+      <div class="field-row">
+        <label>Provider</label>
+        <select class="field select" id="aiProvider">
+          <option value=""{{if eq .AIProvider ""}} selected{{end}}>None</option>
+          <option value="openai"{{if eq .AIProvider "openai"}} selected{{end}}>OpenAI (GPT)</option>
+          <option value="anthropic"{{if eq .AIProvider "anthropic"}} selected{{end}}>Anthropic (Claude)</option>
+          <option value="google"{{if eq .AIProvider "google"}} selected{{end}}>Google (Gemini)</option>
+          <option value="ollama"{{if eq .AIProvider "ollama"}} selected{{end}}>Ollama (local)</option>
+          <option value="custom"{{if eq .AIProvider "custom"}} selected{{end}}>Custom endpoint</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>API key</label>
+        <input class="field" type="password" id="aiKey" placeholder="{{.AIKeyMask}}" />
+      </div>
+      <div class="field-row">
+        <label>Model</label>
+        <select class="field select" id="aiModel"><option>Auto</option><option>Latest</option></select>
+      </div>
+      <div class="field-row">
+        <button class="btn btn-primary" id="aiSave">Save provider</button>
+        <button class="btn btn-ghost" id="aiTest">Test connection</button>
+      </div>
+    </div>
+
+    <div class="panel setting-block">
+      <h2>Appearance</h2>
+      <div class="field-row">
+        <label>Theme</label>
+        <select class="field select" id="themeSelect">
+          <option value="light"{{if eq .Theme "light"}} selected{{end}}>Light</option>
+          <option value="dark"{{if eq .Theme "dark"}} selected{{end}}>Dark</option>
+          <option value="system"{{if eq .Theme "system"}} selected{{end}}>System</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>Currency</label>
+        <select class="field select" id="currencySelect">
+          <option value="GBP"{{if eq .Currency "GBP"}} selected{{end}}>£ GBP</option>
+          <option value="USD"{{if eq .Currency "USD"}} selected{{end}}>$ USD</option>
+          <option value="EUR"{{if eq .Currency "EUR"}} selected{{end}}>€ EUR</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>Your name</label>
+        <input class="field" type="text" id="userNameInput" value="{{.UserName}}" placeholder="Shown on your dashboard greeting" />
+      </div>
+      <div class="field-row">
+        <button class="btn btn-primary" id="appearanceSave">Save appearance</button>
+      </div>
+    </div>
+
+    <div class="panel setting-block">
+      <h2>Getting started</h2>
+      <p class="muted">Re-run the setup walkthrough and rebuild your categories.</p>
+      <button class="btn btn-primary" id="runSetupBtn">Run setup walkthrough</button>
+    </div>
+  </div>
+</section>
+
+{{template "account-modal" dict "CSRF" .CSRFToken "Currency" .Currency "Symbol" (symbol .Currency)}}
+{{end}}

@@ -1,0 +1,59 @@
+{{define "content"}}
+<section class="view active" id="view-queries">
+  <div class="queries-page">
+    <aside class="queries-sidebar collapsed" id="queriesSidebar">
+      <div class="queries-sidebar-head">
+        <span class="queries-sidebar-title">History</span>
+        <button class="icon-btn queries-sidebar-toggle" id="queriesSidebarToggle" aria-label="Collapse history">
+          <svg class="icon"><use href="#i-chevron"/></svg>
+        </button>
+      </div>
+      <div class="queries-days" id="queriesDays"></div>
+    </aside>
+    <div class="queries-main" {{if .ConversationID}}data-conversation-id="{{.ConversationID}}"{{end}}>
+      <button class="btn btn-ghost btn-xs queries-sidebar-expand" id="queriesSidebarExpand" aria-label="Show history">
+        <svg class="icon"><use href="#i-chevron"/></svg> History
+      </button>
+      <div class="queries-messages" id="queryMessages">
+        {{if not .Messages}}
+        <div class="msg assistant">
+          <div class="msg-content">
+            <div class="msg-text">Ask me anything about your money — try one of the suggestions below.</div>
+          </div>
+        </div>
+        {{end}}
+        {{range .Messages}}
+        {{if eq .Role "user"}}
+        <div class="msg-day">{{.DayLabel}}</div>
+        <div class="msg user"><div class="msg-content"><div class="msg-bubble">{{.Text}}</div></div></div>
+        {{else}}
+        <div class="msg assistant">
+          <div class="msg-content">
+            {{if .Text}}<div class="msg-text">{{.Text}}</div>{{end}}
+            {{if .Steps}}{{template "msg-reason" .Steps}}{{end}}
+            {{if .WidgetHTML}}{{.WidgetHTML}}{{end}}
+          </div>
+        </div>
+        {{end}}
+        {{end}}
+      </div>
+      <div class="queries-composer">
+        <textarea id="queryInput" rows="1" placeholder="Ask about your money — e.g. “transport spend this year”" autocomplete="off"></textarea>
+        <button class="btn btn-primary query-submit" id="queryBtn" aria-label="Send">
+          <svg class="icon"><use href="#i-arrow-right"/></svg>
+        </button>
+      </div>
+      <div class="queries-suggestions" id="querySuggestions">
+        <button class="chip" data-chat-suggest="How much have I spent on Transport over the past year?">Transport spend</button>
+        <button class="chip" data-chat-suggest="Where did my money go this month?">Where did my money go?</button>
+        <button class="chip" data-chat-suggest="How has my balance changed this year?">Balance over time</button>
+        <button class="chip" data-chat-suggest="List my recent transactions">List transactions</button>
+      </div>
+    </div>
+  </div>
+</section>
+{{end}}
+
+{{define "msg-reason"}}{{range .}}
+<div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span>{{.}}</span></div>
+{{end}}{{end}}

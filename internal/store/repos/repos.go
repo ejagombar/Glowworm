@@ -41,4 +41,10 @@ func row(db *store.DB, tx *sql.Tx, q string, args ...any) *sql.Row {
 	return db.QueryRow(q, args...)
 }
 
+// Row exposes tx-aware single-row queries to services/executors.
+func Row(db *store.DB, tx *sql.Tx, q string, args ...any) *sql.Row { return row(db, tx, q, args...) }
+
+// Exec exposes tx-aware mutations to services/executors.
+func Exec(db *store.DB, tx *sql.Tx, q string, args ...any) (sql.Result, error) { return exec(db, tx, q, args...) }
+
 var ErrNotFound = sql.ErrNoRows

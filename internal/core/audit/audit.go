@@ -172,9 +172,13 @@ func (e *Engine) load(tx *sql.Tx, id int64) (*AuditRow, error) {
 	return &ent, nil
 }
 
+// ApplyFunc executes (or undoes) an entry's effect. reapply=true re-applies
+// the recorded "after" state (path restore); false undoes it (revert/shelve).
+type ApplyFunc func(tx *sql.Tx, ent *AuditRow, reapply bool) error
+
 // Revert undoes one entry's effect through the service-layer hook and appends
 // an audit.reverted entry (doc 11 §4.2).
-func (e *Engine) Revert(entryID int64, apply func(tx *sql.Tx, ent *AuditRow) error) error {
+func (e *Engine) Revert(entryID int64, apply ApplyFunc) error {
 	return e.DB.WithTx(func(tx *sql.Tx) error {
 		ent, err := e.load(tx, entryID)
 		if err != nil {
@@ -188,7 +192,7 @@ func (e *Engine) Revert(entryID int64, apply func(tx *sql.Tx, ent *AuditRow) err
 			return fmt.Errorf("audit: entry %d already reverted", entryID)
 		}
 		if apply != nil {
-			if err := apply(tx, ent); err != nil {
+			if err := apply(tx, ent, false); err != nil {
 				return err
 			}
 		}
@@ -206,7 +210,7 @@ func (e *Engine) Revert(entryID int64, apply func(tx *sql.Tx, ent *AuditRow) err
 
 // JumpBack shelves every active entry after entryID (reverting their effects
 // in reverse order), forks a new path and appends audit.jumpback (doc 11 §4.2).
-func (e *Engine) JumpBack(entryID int64, apply func(tx *sql.Tx, ent *AuditRow) error) (JumpResult, error) {
+func (e *Engine) JumpBack(entryID int64, apply ApplyFunc) (JumpResult, error) {
 	var res JumpResult
 	err := e.DB.WithTx(func(tx *sql.Tx) error {
 		ent, err := e.load(tx, entryID)
@@ -243,7 +247,7 @@ func (e *Engine) JumpBack(entryID int64, apply func(tx *sql.Tx, ent *AuditRow) e
 				continue
 			}
 			if apply != nil {
-				if err := apply(tx, &t); err != nil {
+				if err := apply(tx, &t, false); err != nil {
 					failed = append(failed, map[string]any{"id": t.ID, "reason": err.Error()})
 					continue
 				}
@@ -293,7 +297,7 @@ type JumpResult struct {
 // RestorePath makes path the active path: reverts the currently active
 // future, re-applies the path's inactive entries (skipping previously
 // reverted ones), and appends audit.path.activated (doc 11 §4.2).
-func (e *Engine) RestorePath(pathID string, apply func(tx *sql.Tx, ent *AuditRow) error) (RestoreResult, error) {
+func (e *Engine) RestorePath(pathID string, apply ApplyFunc) (RestoreResult, error) {
 	var res RestoreResult
 	err := e.DB.WithTx(func(tx *sql.Tx) error {
 		var isActive bool
@@ -311,7 +315,7 @@ func (e *Engine) RestorePath(pathID string, apply func(tx *sql.Tx, ent *AuditRow
 		for i := len(toShelve) - 1; i >= 0; i-- {
 			t := toShelve[i]
 			if apply != nil {
-				if err := apply(tx, &t); err != nil {
+				if err := apply(tx, &t, false); err != nil {
 					continue // never block a restore on a failed shelve
 				}
 			}
@@ -342,7 +346,7 @@ func (e *Engine) RestorePath(pathID string, apply func(tx *sql.Tx, ent *AuditRow
 				continue
 			}
 			if apply != nil {
-				if err := apply(tx, &r); err != nil {
+				if err := apply(tx, &r, true); err != nil {
 					skipped = append(skipped, r.ID)
 					continue
 				}
@@ -462,7 +466,7 @@ func (e *Engine) Forget(entryID int64) error {
 }
 
 // Delete undoes the entry's effect (where it has one) and scrubs the record.
-func (e *Engine) Delete(entryID int64, apply func(tx *sql.Tx, ent *AuditRow) error) error {
+func (e *Engine) Delete(entryID int64, apply ApplyFunc) error {
 	return e.DB.WithTx(func(tx *sql.Tx) error {
 		ent, err := e.load(tx, entryID)
 		if err != nil {
@@ -474,7 +478,7 @@ func (e *Engine) Delete(entryID int64, apply func(tx *sql.Tx, ent *AuditRow) err
 		}
 		if ent.State == "active" && apply != nil && cap.Revert {
 			// Undo the effect first (subject to blocked rules), then scrub.
-			if err := apply(tx, ent); err != nil {
+			if err := apply(tx, ent, false); err != nil {
 				return err
 			}
 		}

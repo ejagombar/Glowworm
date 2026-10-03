@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.Title}} — Glowworm</title>
+  <link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("glowworm-theme") || {{.Theme}};
+        var dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body{{if .Privacy}} class="privacy"{{end}}>
+  <!-- Icon sprite -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-transactions" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol>
+    <symbol id="i-categories" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></symbol>
+    <symbol id="i-timeline" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L21 11l-6.8 2.7L12 20l-2.2-6.3L3 11l6.8-2.7L12 2z"/><path d="M19 3l.8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3z"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="12" r="1.6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><line x1="7" y1="7" x2="17" y2="17"/><polyline points="17 7 17 17 7 17"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+    <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 9l9-6 9 6"/><path d="M4 9v9M9 9v9M15 9v9M20 9v9"/><path d="M2 21h20"/><path d="M4 18h16"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></symbol>
+    <symbol id="i-glowworm" viewBox="0 0 40 32">
+      <circle cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
+      <circle cx="13" cy="21" r="5.5" fill="#2cc57a"/>
+      <circle cx="21" cy="18" r="7" fill="#27b268"/>
+      <circle cx="30" cy="17" r="8.5" fill="#1f9b57"/>
+      <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff"/>
+      <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff"/>
+      <circle cx="28" cy="15" r="1.15" fill="#0c3a22"/>
+      <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22"/>
+      <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <circle cx="31" cy="5" r="1.3" fill="#7dffb8"/>
+      <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8"/>
+      <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+    </symbol>
+  </svg>
+
+  </svg>
+
+  <div class="app">
+{{if not .Standalone}}
+    <div class="main">
+      <header class="masthead">
+        <a class="brand" href="/" id="brandMark">
+          <svg class="gw" viewBox="0 0 40 32" aria-hidden="true">
+            <g class="gw-body">
+              <circle class="gw-seg gw-seg-1" cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
+              <circle class="gw-seg gw-seg-2" cx="13" cy="21" r="5.5" fill="#2cc57a"/>
+              <circle class="gw-seg gw-seg-3" cx="21" cy="18" r="7" fill="#27b268"/>
+            </g>
+            <g class="gw-head">
+              <circle cx="30" cy="17" r="8.5" fill="#1f9b57"/>
+              <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff"/>
+              <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff"/>
+              <circle cx="28" cy="15" r="1.15" fill="#0c3a22"/>
+              <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22"/>
+              <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <circle cx="31" cy="5" r="1.3" fill="#7dffb8"/>
+              <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8"/>
+              <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+            </g>
+          </svg>
+          <span class="brand-name">Glowworm</span>
+        </a>
+
+        <nav class="tabnav" aria-label="Primary">
+          <a href="/" class="tabnav-item{{if eq .View "dashboard"}} active{{end}}"><span class="tab-index">01</span>Dashboard</a>
+          <a href="/queries" class="tabnav-item{{if eq .View "queries"}} active{{end}}"><span class="tab-index">02</span>Queries</a>
+          <a href="/transactions" class="tabnav-item{{if eq .View "transactions"}} active{{end}}"><span class="tab-index">03</span>Transactions</a>
+          <a href="/categories" class="tabnav-item{{if eq .View "categories"}} active{{end}}"><span class="tab-index">04</span>Categories</a>
+          <a href="/import" class="tabnav-item{{if eq .View "import"}} active{{end}}"><span class="tab-index">05</span>Import</a>
+          <a href="/history" class="tabnav-item{{if eq .View "history"}} active{{end}}"><span class="tab-index">06</span>History</a>
+        </nav>
+
+        <div class="period-wrap">
+          <select class="period-select" id="periodSelect" aria-label="Date range">
+            <option value="all"{{if eq .Period "all"}} selected{{end}}>All time</option>
+            <option value="ytd"{{if eq .Period "ytd"}} selected{{end}}>Year to date</option>
+            <option value="last-12m"{{if eq .Period "last-12m"}} selected{{end}}>Last 12 months</option>
+            <option value="last-3m"{{if eq .Period "last-3m"}} selected{{end}}>Last 3 months</option>
+            <option value="last-month"{{if eq .Period "last-month"}} selected{{end}}>Last month</option>
+            <option value="last-day"{{if eq .Period "last-day"}} selected{{end}}>Last day</option>
+            <option value="custom"{{if eq .Period "custom"}} selected{{end}}>Custom…</option>
+          </select>
+          <div class="custom-range" id="customRange" hidden>
+            <input type="date" id="customFrom" aria-label="From date" {{if .PeriodFrom}}value="{{.PeriodFrom}}"{{end}} />
+            <span class="custom-range-sep">–</span>
+            <input type="date" id="customTo" aria-label="To date" {{if .PeriodTo}}value="{{.PeriodTo}}"{{end}} />
+            <button class="btn btn-primary btn-xs" id="customApply">Apply</button>
+          </div>
+        </div>
+
+        <div class="masthead-actions">
+          <button class="icon-btn{{if .Privacy}} active{{end}}" id="privacyToggle" title="Hide balances" aria-label="Toggle balance visibility">
+            <svg class="icon"><use href="#i-eye"/></svg>
+          </button>
+          <a class="tabnav-item tabnav-icon{{if eq .View "settings"}} active{{end}}" href="/settings" title="Settings" aria-label="Settings">
+            <svg class="icon"><use href="#i-cog"/></svg>
+          </a>
+          {{if ne .AuthMode "none"}}
+          <form method="post" action="/logout" class="logout-form">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
+            <button class="tabnav-item tabnav-icon" title="Sign out" aria-label="Sign out" type="submit">
+              <svg class="icon"><use href="#i-arrow-right"/></svg>
+            </button>
+          </form>
+          {{end}}
+        </div>
+      </header>
+
+      <main class="content" id="content">
+        {{template "content" .}}
+      </main>
+    </div>
+{{else}}
+      <main class="content" id="content">
+        {{template "content" .}}
+      </main>
+{{end}}
+  </div>
+
+  <!-- Confirm modal -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <button class="icon-btn modal-close" data-action="close-confirm" aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div class="modal-head">
+        <div class="modal-head-text">
+          <h3 id="confirmTitle">Are you sure?</h3>
+          <p class="muted" id="confirmMessage"></p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-danger" id="confirmOk">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="/htmx/htmx.min.js"></script>
+  <script>window.__CSRF__ = {{.CSRFToken}};</script>
+  <script src="/static/js/widgets.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

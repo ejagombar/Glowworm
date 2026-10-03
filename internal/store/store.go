@@ -51,7 +51,10 @@ func Open(dialect, dsn string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1) // SQLite: serialize writers; simplest correct concurrency
+	// WAL allows concurrent readers; writes serialize via busy_timeout.
+	// A small pool avoids hard deadlocks when a tx-holding goroutine issues
+	// a read on a second connection (it busy-waits instead of hanging).
+	db.SetMaxOpenConns(4)
 	s := &DB{DB: db, Dialect: dialect}
 	if dialect == "sqlite" {
 		for _, pragma := range []string{

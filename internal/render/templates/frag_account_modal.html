@@ -1,0 +1,76 @@
+{{define "account-modal"}}
+<div class="modal-backdrop" id="accountModal" hidden>
+  <div class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+    <button class="icon-btn modal-close" data-action="close-account" aria-label="Close">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+    <div class="modal-head">
+      <span class="brand-mark lg account-mark"><svg class="gw"><use href="#i-glowworm"/></svg></span>
+      <div class="modal-head-text">
+        <h3 id="accountModalTitle">Add account</h3>
+        <p class="muted" id="accountModalSub">Add a new account to Glowworm.</p>
+      </div>
+    </div>
+    <form class="modal-body" id="accountForm" data-account-id="">
+      <div class="field-row">
+        <label>Name</label>
+        <input class="field" id="accName" type="text" placeholder="e.g. Joint account" />
+      </div>
+      <div class="field-row">
+        <label>Type</label>
+        <select class="field select" id="accType">
+          <option value="debit">Debit</option>
+          <option value="credit">Credit</option>
+          <option value="savings">Savings</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>Opening balance</label>
+        <div class="field-unit">
+          <span class="field-unit-symbol">{{.Symbol}}</span>
+          <input class="field" id="accOpening" type="number" step="0.01" placeholder="0.00" />
+        </div>
+      </div>
+      <div class="field-row">
+        <label>Opening balance date</label>
+        <input class="field" id="accOpeningDate" type="date" />
+      </div>
+      <div class="field-cols">
+        <div class="field-row">
+          <label>Account number</label>
+          <input class="field" id="accNumber" type="text" inputmode="numeric" placeholder="e.g. 10424211" />
+        </div>
+        <div class="field-row">
+          <label>Sort code</label>
+          <input class="field" id="accSortCode" type="text" inputmode="numeric" placeholder="e.g. 04-00-04" />
+        </div>
+      </div>
+      <div class="field-cols">
+        <div class="field-row">
+          <label>IBAN</label>
+          <input class="field" id="accIban" type="text" placeholder="GB29 NWBK 0400 0410 4242 11" />
+        </div>
+        <div class="field-row">
+          <label>BIC</label>
+          <input class="field" id="accBic" type="text" placeholder="NWBKGB2L" />
+        </div>
+      </div>
+      <div class="field-row" id="accValuationRow">
+        <label>Current value</label>
+        <div class="field-unit">
+          <span class="field-unit-symbol">{{.Symbol}}</span>
+          <input class="field" id="accValuation" type="number" step="0.01" placeholder="e.g. 4520.00" />
+          <input class="field field-date" id="accValuationDate" type="date" aria-label="Valuation date" />
+        </div>
+        <p class="field-hint">Set the value of this account at a point in time. It is saved as a correction in the audit log so it can be undone later.</p>
+      </div>
+    </form>
+    <div class="modal-foot">
+      <button class="btn btn-danger" id="accDeleteBtn" hidden>Delete account</button>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="accSaveBtn">Add account</button>
+      <button class="btn btn-ghost" id="accCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+{{end}}

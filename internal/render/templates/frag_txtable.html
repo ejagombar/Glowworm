@@ -1,0 +1,27 @@
+{{define "tx-tr"}}{{/* expects dict Row, Currency, Selected (account id or "") */}}
+{{$row := .Row}}{{$cur := .Currency}}{{$stmt := .Selected}}
+{{$t := $row.Rep}}
+{{$cat := "Uncategorised"}}{{$color := "#999"}}
+{{if $t.Category}}{{$cat = $t.Category.Name}}{{$color = $t.Category.Color}}{{end}}
+<tr{{if eq $row.Kind "linked"}} class="linked"{{end}}>
+  <td class="cell-sub">{{$t.Date}}</td>
+  <td><div class="cell-merchant">{{$t.Description}}
+    {{if eq $row.Kind "linked"}}<span class="badge badge-linked" title="Matched with the other side of this transfer">Linked</span>{{end}}
+    {{if $t.RecurringKey}}<button type="button" class="badge badge-recurring badge-btn" data-recurring-key="{{$t.RecurringKey}}" title="View all related transactions">Recurring</button>{{end}}
+  </div></td>
+  <td><span class="category-dot" style="background:{{$color}}"></span> {{$cat}}</td>
+  {{if $stmt}}
+  <td class="cell-sub">{{$t.Counterparty}}</td>
+  {{else}}
+  <td>{{if eq $row.Kind "linked"}}{{$row.Source}} → {{$row.Destination}}{{else}}{{$t.AccountName}}{{end}}</td>
+  {{end}}
+  {{if or (eq $row.Kind "linked") (eq $t.Type "transfer")}}
+  <td class="num tx-amount transfer">⇄ {{money $t.AmountMinor $cur}}</td>
+  {{else if ge $t.AmountMinor 0}}
+  <td class="num tx-amount pos">+{{money $t.AmountMinor $cur}}</td>
+  {{else}}
+  <td class="num tx-amount neg">−{{money (mul -1 $t.AmountMinor) $cur}}</td>
+  {{end}}
+  <td class="row-actions"><button class="widget-btn" data-edit-tx="{{$t.ID}}" title="Edit transaction" aria-label="Edit {{$t.Description}}"><svg class="icon"><use href="#i-edit"/></svg></button></td>
+</tr>
+{{end}}

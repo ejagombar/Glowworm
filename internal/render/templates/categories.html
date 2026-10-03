@@ -1,0 +1,62 @@
+{{define "content"}}
+<section class="view active" id="view-categories">
+  <div class="view-head">
+    <div>
+      <h1>Categories</h1>
+      <p class="sub">Where your money gets sorted. Glowworm learns these over time.</p>
+    </div>
+    <button class="btn btn-primary" id="addCategoryBtn">
+      <svg class="icon"><use href="#i-plus"/></svg> New category
+    </button>
+  </div>
+
+  <form class="category-form panel" id="categoryForm" method="post" action="/categories" hidden>
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
+    <h3 class="category-form-title" id="catFormTitle">New category</h3>
+    <div class="field-row">
+      <label>Name</label>
+      <input class="field" id="catName" name="name" type="text" placeholder="e.g. Groceries" />
+    </div>
+    <div class="field-row">
+      <label>Colour</label>
+      <div class="cat-colors" id="catColors">
+        {{range $.Palette}}<button type="button" class="cat-color" style="background:{{.}}" data-cat-color="{{.}}" aria-label="Colour {{.}}"></button>{{end}}
+      </div>
+      <input type="hidden" name="color" id="catColorInput" value="" />
+    </div>
+    <div class="field-row" id="catTypeRow">
+      <label>Type</label>
+      <select class="field select" id="catType" name="type">
+        <option value="spend">Spend</option>
+        <option value="income">Income</option>
+      </select>
+    </div>
+    <div class="category-form-actions">
+      <button class="btn btn-danger" id="catDeleteBtn" hidden type="button">Delete category</button>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="catSaveBtn" type="submit">Add category</button>
+      <button class="btn btn-ghost" id="catCancelBtn" type="button">Cancel</button>
+    </div>
+  </form>
+
+  <div class="category-grid" id="categoriesGrid">
+    {{range .Categories}}
+    <div class="category-card">
+      <div class="cat-top">
+        <span class="category-dot" style="background:{{.Color}}"></span>
+        <span class="cat-name">{{.Name}}</span>
+        {{if .IsSystem}}<span class="cat-badge">System</span>{{end}}
+        {{if not .IsSystem}}
+        <a class="icon-btn cat-edit" href="/categories?edit={{.ID}}&period={{$.Period}}" aria-label="Edit {{.Name}}" title="Edit category">
+          <svg class="icon"><use href="#i-edit"/></svg>
+        </a>
+        {{end}}
+      </div>
+      <div class="cat-amount">{{if .SpentMinor}}{{money .SpentMinor $.Currency}}{{else}}—{{end}}</div>
+      {{if eq .Type "income"}}<div class="cat-sub">Incoming</div>{{end}}
+      {{if eq .Type "internal"}}<div class="cat-sub">Between your own accounts</div>{{end}}
+    </div>
+    {{end}}
+  </div>
+</section>
+{{end}}
