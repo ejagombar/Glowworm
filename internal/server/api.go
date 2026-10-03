@@ -983,11 +983,8 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 		}
 		keyCipher = cipher
 	}
-	if in.Provider == "ollama" || in.Provider == "" {
-		keyCipher = keyCipher // local providers need no key
-	}
 	if in.Provider == "" {
-		keyCipher = ""
+		keyCipher = "" // disabling the provider clears the stored key
 	}
 	models := row.Models
 	if in.Models != nil {
