@@ -1286,6 +1286,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (fileInput.files.length) upload(fileInput.files[0]);
   });
 
+  // One row of the column→role mapping editor (doc 06 §5.2). The collector
+  // below reads tr.dataset.source and the select's value.
+  function mappingRowHTML(col) {
+    const roles = ["date","description","amount","amount_in","amount_out","currency","balance","type_hint","memo","source","destination","ignore"];
+    const opts = roles.map((r) =>
+      `<option value="${r}"${(col.role || "ignore") === r ? " selected" : ""}>${r.replace(/_/g, " ")}</option>`).join("");
+    return `<tr data-source="${esc(col.source)}"><td>${esc(col.source)}</td><td><select class="field select" style="min-width:150px">${opts}</select></td></tr>`;
+  }
+
   const renderBatch = (b) => {
     if (b.status === "failed") {
       const why = b.parse_error || "The file could not be read.";
@@ -1314,7 +1323,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const sheets = (d.sheets || []).map((s) => `<option value="${esc(s)}"${s === d.sheet ? " selected" : ""}>${esc(s)}</option>`).join("");
     const cols = (d.columns || []).map((c) => mappingRowHTML(c)).join("");
     const sample = (d.sample || []).slice(0, 4).map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("");
-    const roles = ["date","description","amount","amount_in","amount_out","currency","balance","type_hint","memo","source","destination","ignore"];
     flowBox.innerHTML = `
       <div class="panel category-form">
         <h3 class="category-form-title">${d.matched_schema ? "Matched saved schema “" + esc(d.matched_schema) + "”" : "Detected schema"}${d.confidence ? ` <span class="schema-conf">· ${Math.round(d.confidence * 100)}% match</span>` : ""}</h3>
