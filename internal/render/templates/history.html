@@ -84,12 +84,12 @@
       </article>
       <article class="stat-card">
         <div class="stat-label">Reconciled</div>
-        <div class="stat-value {{if eq .ReconcileStatus "verified"}}ok{{end}}">{{.ReconcileLabel}}</div>
-        <div class="stat-trend {{if eq .ReconcileStatus "verified"}}up{{end}}">{{.ReconcileHint}}</div>
+        <div class="stat-value {{if eq .ReconcileStatus "verified"}}ok{{end}} no-blur">{{.ReconcileLabel}}</div>
+        <div class="stat-trend {{if eq .ReconcileStatus "verified"}}up{{end}} no-blur">{{.ReconcileHint}}</div>
       </article>
       <article class="stat-card">
         <div class="stat-label">Transactions in period</div>
-        <div class="stat-value" id="timelineTxCount">{{.TxCountToDate}}</div>
+        <div class="stat-value no-blur" id="timelineTxCount">{{.TxCountToDate}}</div>
       </article>
     </div>
 

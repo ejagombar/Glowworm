@@ -5,9 +5,9 @@
       <h1>Transactions</h1>
       <p class="sub">Your accounts, balances and every transaction.</p>
     </div>
-    <a class="btn btn-primary" href="/settings">
-      <svg class="icon"><use href="#i-plus"/></svg> New account
-    </a>
+    <button class="btn btn-primary" id="newTxBtn" type="button">
+      <svg class="icon"><use href="#i-plus"/></svg> New transaction
+    </button>
   </div>
 
   <div class="accounts-grid" id="accountsGrid">
@@ -82,3 +82,4 @@
   <th></th>
 </tr>
 {{end}}
+{{template "tx-modal" dict "Symbol" (symbol .Currency) "Today" .Today "Categories" .Categories}}

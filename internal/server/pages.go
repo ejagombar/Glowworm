@@ -458,10 +458,12 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 		FiltersQ     string
 		FiltersCat   string
 		FiltersType  string
+		Today        string
 	}{
 		viewBase: base, Accounts: cards, Rows: rows, Categories: cats,
 		SelectedAcc: accountID, SelectedName: selectedName, Sub: sub,
 		FiltersQ: f.Q, FiltersCat: f.CategoryID, FiltersType: f.Type,
+		Today: a.Clock.Today(),
 	}
 	return a.Render.Render(w, "transactions", data)
 }

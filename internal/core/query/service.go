@@ -825,8 +825,16 @@ func entityKindLabel(kind string) string {
 	return "an entity"
 }
 
-// present selects the presentation (doc 10 §6).
+// present selects the presentation (doc 10 §6). The plan rides along so the
+// client can pin the widget with its resolved period (doc 05: pinned widgets
+// store plans; the dashboard re-executes them).
 func (s *Service) present(p *Plan, ds *widgets.Dataset) *widgets.Widget {
+	w := s.presentBody(p, ds)
+	w.Plan = p
+	return w
+}
+
+func (s *Service) presentBody(p *Plan, ds *widgets.Dataset) *widgets.Widget {
 	if p.Metric == "list" {
 		return &widgets.Widget{Type: "transactions", Title: p.Title, Dataset: ds,
 			Data: ds.Rows[0][0]}

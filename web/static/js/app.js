@@ -270,6 +270,8 @@ function widgetCardHTML(widget) {
   el.dataset.widgetId = widget.id || "";
   el.dataset.widgetType = widget.type || "";
   el.dataset.widgetTitle = widget.title || "";
+  if (widget.plan) el.dataset.widgetPlan = JSON.stringify(widget.plan);
+  if (widget.dataset) el.dataset.widgetDataset = JSON.stringify(widget.dataset);
   el.innerHTML = `
     <div class="widget-head">
       <div class="widget-title">${esc(widget.title || "Widget")}</div>
@@ -382,8 +384,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!r.ok) { toast("Could not update widget"); return; }
         closeDrawer();
         toast("Widget updated");
-        if (window.htmx) htmx.trigger(document.body, "widgets-changed");
-        else location.reload();
+        location.reload();
       }).catch(() => toast("Could not update widget"));
     });
   }
@@ -405,7 +406,7 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
           body: JSON.stringify({
             title: card.dataset.widgetTitle, type: card.dataset.widgetType,
-            dataset: JSON.parse(card.dataset.widgetDataset),
+            dataset: card.dataset.widgetDataset ? JSON.parse(card.dataset.widgetDataset) : null,
             plan: card.dataset.widgetPlan ? JSON.parse(card.dataset.widgetPlan) : null,
           }),
         }).then((r) => {
@@ -617,9 +618,45 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Escape") {
       const cm = document.getElementById("confirmModal");
       if (cm && !cm.hidden) { cm.hidden = true; confirmCallback = null; return; }
-      closeModal("setupWizard"); closeDrawer(); closeModal("recurringModal"); closeModal("accountModal");
+      closeModal("setupWizard"); closeDrawer(); closeModal("recurringModal"); closeModal("accountModal"); closeModal("txModal");
     }
   });
+
+  // New transaction modal (manual entry, doc 04 §5.2).
+  const newTxBtn = document.getElementById("newTxBtn");
+  if (newTxBtn) {
+    newTxBtn.addEventListener("click", () => openModal("txModal"));
+    document.querySelectorAll("[data-action='close-tx-modal']").forEach((b) =>
+      b.addEventListener("click", () => closeModal("txModal")));
+    document.getElementById("txModal")?.addEventListener("click", (e) => {
+      if (e.target.id === "txModal") closeModal("txModal");
+    });
+    document.getElementById("txAddForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const date = document.getElementById("txDate").value;
+      const description = document.getElementById("txDesc").value.trim();
+      const amount = parseFloat(document.getElementById("txAmount").value);
+      const accountID = document.getElementById("txAccount").value;
+      const categoryID = document.getElementById("txCategory").value || null;
+      if (!accountID) { toast("Add an account first (Settings → Accounts)"); return; }
+      if (!date) { toast("Date is required"); return; }
+      if (!description) { toast("Description is required"); return; }
+      if (isNaN(amount) || amount === 0) { toast("Amount is required (negative for spending)"); return; }
+      fetch("/api/v1/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ account_id: accountID, date, description, amount_minor: Math.round(amount * 100), category_id: categoryID }),
+      }).then(async (r) => {
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          toast((b.error && b.error.message) || "Could not add transaction");
+          return;
+        }
+        toast("Transaction added");
+        location.reload();
+      }).catch(() => toast("Could not add transaction"));
+    });
+  }
 
   // Setup wizard footer.
   const wizardNext = document.getElementById("wizardNext");
@@ -763,6 +800,12 @@ function initialOf(s) {
   const words = String(s || "").trim().split(/\\s+/);
   return (words[0] && words[0][0] ? words[0][0] : "?").toUpperCase();
 }
+function monthEndOf(ym) {
+  const [y, m] = String(ym || "").split("-").map(Number);
+  if (!y || !m) return ym;
+  return ym + "-" + String(new Date(y, m, 0).getDate()).padStart(2, "0");
+}
+
 function shortDate(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
@@ -770,13 +813,7 @@ function shortDate(iso) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-/* ---------- HTMX wiring: CSRF header + event toasts ---------- */
-document.addEventListener("htmx:configRequest", (e) => {
-  e.detail.headers["X-CSRF-Token"] = csrfToken();
-});
-document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (window.drawChartHosts) drawChartHosts(document);
-});
+/* ---------- Toast event hook ---------- */
 document.addEventListener("glowworm-toast", (e) => {
   if (e.detail && e.detail.value) toast(e.detail.value);
 });
@@ -873,6 +910,42 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accSaveBtn")?.addEventListener("click", (e) => { e.preventDefault(); saveAccount(); });
   document.getElementById("accCancelBtn")?.addEventListener("click", () => closeModal("accountModal"));
   document.querySelectorAll("[data-action='close-account']").forEach((b) => b.addEventListener("click", () => closeModal("accountModal")));
+  // New transaction modal (doc 04 §5.2): manual add without an import.
+  document.getElementById("newTxBtn")?.addEventListener("click", () => {
+    openModal("txModal");
+    document.getElementById("txDesc").focus();
+  });
+  document.querySelectorAll("[data-action='close-tx-modal']").forEach((b) => b.addEventListener("click", () => closeModal("txModal")));
+  document.getElementById("txModal")?.addEventListener("click", (e) => { if (e.target.id === "txModal") closeModal("txModal"); });
+  document.getElementById("txAddForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const accountID = document.getElementById("txAccount").value;
+    const date = document.getElementById("txDate").value;
+    const description = document.getElementById("txDesc").value.trim();
+    const amount = parseFloat(document.getElementById("txAmount").value);
+    if (!accountID) { toast("Add an account first (Settings → Account)"); return; }
+    if (!date) { toast("Date is required"); return; }
+    if (!description) { toast("Description is required"); return; }
+    if (isNaN(amount) || amount === 0) { toast("Amount is required (negative for spending)"); return; }
+    const body = {
+      account_id: accountID, date, description,
+      amount_minor: Math.round(amount * 100),
+      category_id: document.getElementById("txCategory").value || null,
+    };
+    fetch("/api/v1/transactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        toast((b.error && b.error.message) || "Could not add transaction");
+        return;
+      }
+      toast("Transaction added");
+      location.reload();
+    }).catch(() => toast("Could not add transaction"));
+  });
   document.getElementById("accDeleteBtn")?.addEventListener("click", () => {
     const form = document.getElementById("accountForm");
     const id = form.dataset.accountId;
