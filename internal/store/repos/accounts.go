@@ -106,13 +106,13 @@ func (r *Accounts) Update(tx *sql.Tx, a *core.Account) error {
 }
 
 // SoftDelete / Restore for the history engine (doc 11 §4.5).
-func (r *Accounts) SoftDelete(id string) error {
-	_, err := r.DB.Exec(`UPDATE accounts SET deleted_at = ? WHERE id = ?`, util.NowStr(), id)
+func (r *Accounts) SoftDelete(tx *sql.Tx, id string) error {
+	_, err := exec(r.DB, tx, `UPDATE accounts SET deleted_at = ? WHERE id = ?`, util.NowStr(), id)
 	return err
 }
 
-func (r *Accounts) Restore(id string) error {
-	_, err := r.DB.Exec(`UPDATE accounts SET deleted_at = NULL WHERE id = ?`, id)
+func (r *Accounts) Restore(tx *sql.Tx, id string) error {
+	_, err := exec(r.DB, tx, `UPDATE accounts SET deleted_at = NULL WHERE id = ?`, id)
 	return err
 }
 
@@ -195,8 +195,8 @@ func (r *Accounts) DeleteValuation(tx *sql.Tx, id string) error {
 }
 
 // RestoreValuation un-deletes a correction (path restore).
-func (r *Accounts) RestoreValuation(id string) error {
-	_, err := r.DB.Exec(`UPDATE valuations SET deleted_at = NULL WHERE id = ?`, id)
+func (r *Accounts) RestoreValuation(tx *sql.Tx, id string) error {
+	_, err := exec(r.DB, tx, `UPDATE valuations SET deleted_at = NULL WHERE id = ?`, id)
 	return err
 }
 

@@ -103,8 +103,8 @@ func (r *Categories) Delete(tx *sql.Tx, id string) error {
 }
 
 // Restore un-deletes (path restore).
-func (r *Categories) Restore(id string) error {
-	_, err := r.DB.Exec(`UPDATE categories SET deleted_at = NULL WHERE id = ?`, id)
+func (r *Categories) Restore(tx *sql.Tx, id string) error {
+	_, err := exec(r.DB, tx, `UPDATE categories SET deleted_at = NULL WHERE id = ?`, id)
 	return err
 }
 

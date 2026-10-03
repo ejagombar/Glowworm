@@ -335,13 +335,13 @@ func (r *Transactions) Update(tx *sql.Tx, t *core.Transaction) error {
 }
 
 // SoftDelete / Restore for the history engine (doc 11 §4.5).
-func (r *Transactions) SoftDelete(id string) error {
-	_, err := r.DB.Exec(`UPDATE transactions SET deleted_at = ? WHERE id = ?`, util.NowStr(), id)
+func (r *Transactions) SoftDelete(tx *sql.Tx, id string) error {
+	_, err := exec(r.DB, tx, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, util.NowStr(), id)
 	return err
 }
 
-func (r *Transactions) Restore(id string) error {
-	_, err := r.DB.Exec(`UPDATE transactions SET deleted_at = NULL WHERE id = ?`, id)
+func (r *Transactions) Restore(tx *sql.Tx, id string) error {
+	_, err := exec(r.DB, tx, `UPDATE transactions SET deleted_at = NULL WHERE id = ?`, id)
 	return err
 }
 

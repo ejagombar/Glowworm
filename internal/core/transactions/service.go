@@ -263,7 +263,7 @@ func (s *Service) Delete(id string) error {
 				return err
 			}
 		}
-		if err := s.Repos.SoftDelete(id); err != nil {
+		if err := s.Repos.SoftDelete(tx, id); err != nil {
 			return err
 		}
 		_, err := s.Audit.Write(tx, audit.Input{

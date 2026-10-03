@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"glowworm/internal/store"
+
 	"golang.org/x/crypto/bcrypt"
 
 	"glowworm/internal/ai"
@@ -125,6 +127,10 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/setup/status", j(a.apiSetupStatus))
 	mux.HandleFunc("POST /api/v1/setup/account", j(a.apiSetupAccount))
 	mux.HandleFunc("POST /api/v1/setup/complete", j(a.apiSetupComplete))
+
+	// Timeline + reconciliation (doc 03 §10).
+	mux.HandleFunc("GET /api/v1/snapshot", j(a.apiSnapshot))
+	mux.HandleFunc("GET /api/v1/reconcile/status", j(a.apiReconcileStatus))
 
 	// Audit (doc 03 §10).
 	mux.HandleFunc("GET /api/v1/audit", j(a.apiAuditList))
@@ -1080,3 +1086,99 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+
+// --- snapshot / timeline / reconcile (doc 03 §10) ---
+
+// apiSnapshot reconstructs per-account balances at a date (doc 11 §5.3).
+func (a *App) apiSnapshot(w http.ResponseWriter, r *http.Request) error {
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = a.Clock.Today()
+	}
+	balances, err := balancesAll(a.DB, date)
+	if err != nil {
+		return err
+	}
+	list, err := a.Accounts.List(nil)
+	if err != nil {
+		return err
+	}
+	type accBal struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Color    string `json:"color"`
+		Balance  int64  `json:"balance_minor"`
+	}
+	items := []accBal{}
+	var total int64
+	for _, acct := range list {
+		b := balances[acct.ID]
+		items = append(items, accBal{ID: acct.ID, Name: acct.Name, Type: acct.Type, Color: acct.Color, Balance: b})
+		total += b
+	}
+	var txCount int64
+	_ = a.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL AND date <= ?`, date).Scan(&txCount)
+	status, label, hint := a.reconcileSummary()
+	writeJSON(w, map[string]any{
+		"date": date, "accounts": items, "total_minor": total,
+		"currency": a.Settings.Get().Currency, "tx_count": txCount,
+		"reconciled": map[string]any{"status": status, "label": label, "hint": hint},
+	})
+	return nil
+}
+
+func balancesAll(db *store.DB, date string) (map[string]int64, error) {
+	ids := []string{}
+	rows, err := db.Query(`SELECT id FROM accounts WHERE deleted_at IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id string
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+	out := map[string]int64{}
+	for _, id := range ids {
+		var opening int64
+		var since any
+		if err := db.QueryRow(`SELECT opening_balance_minor, opening_balance_date FROM accounts WHERE id = ?`, id).Scan(&opening, &since); err != nil {
+			continue
+		}
+		balance := opening
+		sinceStr := ""
+		if sd, ok := since.(string); ok {
+			sinceStr = sd
+		}
+		var val int64
+		var valDate string
+		err := db.QueryRow(`SELECT value_minor, date FROM valuations WHERE account_id = ? AND date <= ? AND deleted_at IS NULL
+			ORDER BY date DESC, created_at DESC LIMIT 1`, id, date).Scan(&val, &valDate)
+		if err == nil {
+			balance = val
+			sinceStr = valDate
+		}
+		q := `SELECT COALESCE(SUM(amount_minor),0) FROM transactions WHERE account_id = ? AND deleted_at IS NULL AND date <= ?`
+		args := []any{id, date}
+		if sinceStr != "" {
+			q += ` AND date > ?`
+			args = append(args, sinceStr)
+		}
+		var sum any
+		_ = db.QueryRow(q, args...).Scan(&sum)
+		if v, ok := sum.(int64); ok {
+			balance += v
+		}
+		out[id] = balance
+	}
+	return out, nil
+}
+
+// apiReconcileStatus aggregates the reconciliation card (doc 11 §6).
+func (a *App) apiReconcileStatus(w http.ResponseWriter, r *http.Request) error {
+	status, label, hint := a.reconcileSummary()
+	writeJSON(w, map[string]any{"status": status, "label": label, "hint": hint})
+	return nil
+}

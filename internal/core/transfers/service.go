@@ -36,9 +36,9 @@ func (e *ValidationError) Error() string { return e.Message }
 const (
 	dateWindowDays  = 4
 	scoreIdentifier = 0.5
-	scoreKeywords   = 0.2
-	scoreAmount     = 0.2
-	scoreDateClose  = 0.1
+	scoreKeywords   = 0.3
+	scoreAmount     = 0.3
+	scoreDateClose  = 0.2
 )
 
 // Detect scans unlinked transactions for transfer pairs and auto-links
@@ -146,6 +146,8 @@ func (s *Service) Detect() (int, error) {
 		conf := bestScore
 		tr := &core.Transfer{SourceTxID: src.ID, DestinationTxID: dst.ID,
 			Detected: "auto", Method: bestMethod, Confidence: &conf}
+		preSrcType, preSrcCat := src.Type, deref(src.CategoryID)
+		preDstType, preDstCat := dst.Type, deref(dst.CategoryID)
 		err := s.DB.WithTx(func(tx *sql.Tx) error {
 			if err := s.Txs.CreateTransfer(tx, tr, src, dst, internalCat); err != nil {
 				return err
@@ -155,11 +157,17 @@ func (s *Service) Detect() (int, error) {
 				EntityType: "transfer", EntityID: tr.ID,
 				Title: fmt.Sprintf("Detected transfer: %s → %s", src.AccountName(), dst.AccountName()),
 				Sub:   fmt.Sprintf("£%.2f · %s match", math.Abs(float64(src.AmountMinor))/100, bestMethod),
+				Before: map[string]any{
+					"legs": []map[string]any{
+						{"id": src.ID, "type": preSrcType, "category_id": preSrcCat, "category_source": src.CategorySource},
+						{"id": dst.ID, "type": preDstType, "category_id": preDstCat, "category_source": dst.CategorySource},
+					},
+				},
 				After: map[string]any{
 					"transfer_id": tr.ID,
 					"legs": []map[string]any{
-						{"id": src.ID, "type": "expense", "category_id": nil, "category_source": "none"},
-						{"id": dst.ID, "type": "income", "category_id": nil, "category_source": "none"},
+						{"id": src.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
+						{"id": dst.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
 					},
 				},
 				Revert: map[string]any{"transfer_id": tr.ID},
@@ -255,6 +263,8 @@ func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error
 		return nil, &ValidationError{Message: "Transfer legs need opposite signs (money out and money in)"}
 	}
 	tr := &core.Transfer{SourceTxID: src.ID, DestinationTxID: dst.ID, Detected: "manual", Method: "manual"}
+	preSrcType, preSrcCat := src.Type, deref(src.CategoryID)
+	preDstType, preDstCat := dst.Type, deref(dst.CategoryID)
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Txs.CreateTransfer(tx, tr, src, dst, internalCat); err != nil {
 			return err
@@ -264,11 +274,17 @@ func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error
 			EntityType: "transfer", EntityID: tr.ID,
 			Title: fmt.Sprintf("Linked transfer: %s → %s", src.AccountName(), dst.AccountName()),
 			Sub:   fmt.Sprintf("%s · %s", src.Description, b.Description),
+			Before: map[string]any{
+				"legs": []map[string]any{
+					{"id": src.ID, "type": preSrcType, "category_id": preSrcCat, "category_source": src.CategorySource},
+					{"id": dst.ID, "type": preDstType, "category_id": preDstCat, "category_source": dst.CategorySource},
+				},
+			},
 			After: map[string]any{
 				"transfer_id": tr.ID,
 				"legs": []map[string]any{
-					{"id": src.ID, "type": src.Type, "category_id": nil, "category_source": "none"},
-					{"id": dst.ID, "type": dst.Type, "category_id": nil, "category_source": "none"},
+					{"id": src.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
+					{"id": dst.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
 				},
 			},
 			Revert: map[string]any{"transfer_id": tr.ID},
@@ -391,6 +407,13 @@ func (s *Service) Suggestions(txID string) ([]*Suggestion, error) {
 		out = out[:50]
 	}
 	return out, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func shiftDate(date string, days int) string {

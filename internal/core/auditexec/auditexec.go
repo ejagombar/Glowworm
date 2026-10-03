@@ -45,15 +45,15 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		if ent.Action == "transaction.created" {
 			// Revert = soft delete; re-apply = restore.
 			if reapply {
-				return x.Txs.Restore(id)
+				return x.Txs.Restore(tx, id)
 			}
-			return x.Txs.SoftDelete(id)
+			return x.Txs.SoftDelete(tx, id)
 		}
 		// transaction.deleted: revert = restore the row.
 		if reapply {
-			return x.Txs.SoftDelete(id)
+			return x.Txs.SoftDelete(tx, id)
 		}
-		return x.Txs.Restore(id)
+		return x.Txs.Restore(tx, id)
 
 	case "transaction.edited", "categorisation.applied":
 		id := str(revert["transaction_id"])
@@ -79,9 +79,9 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	case "account.created":
 		id := str(revert["account_id"])
 		if reapply {
-			return x.Accounts.Restore(id)
+			return x.Accounts.Restore(tx, id)
 		}
-		return x.Accounts.SoftDelete(id)
+		return x.Accounts.SoftDelete(tx, id)
 
 	case "account.updated":
 		id := str(revert["account_id"])
@@ -111,14 +111,14 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 			vid = vID
 		}
 		if reapply {
-			return x.Accounts.RestoreValuation(vid)
+			return x.Accounts.RestoreValuation(tx, vid)
 		}
 		return x.Accounts.DeleteValuation(tx, vid)
 
 	case "category.created":
 		id := str(revert["category_id"])
 		if reapply {
-			return x.Categories.Restore(id)
+			return x.Categories.Restore(tx, id)
 		}
 		return x.Categories.Delete(tx, id)
 
