@@ -69,6 +69,8 @@
       </tbody>
     </table>
   </div>
+
+  {{template "tx-modal" dict "Symbol" (symbol .Currency) "Today" .Today "Categories" .Categories}}
 </section>
 {{end}}
 
@@ -82,4 +84,3 @@
   <th></th>
 </tr>
 {{end}}
-{{template "tx-modal" dict "Symbol" (symbol .Currency) "Today" .Today "Categories" .Categories}}
