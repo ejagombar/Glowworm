@@ -78,6 +78,11 @@ func serviceError(w http.ResponseWriter, err error) bool {
 		apiError(w, http.StatusBadRequest, "validation_failed", te.Message)
 		return true
 	}
+	var ae *acctValidationError
+	if errors.As(err, &ae) {
+		apiError(w, http.StatusBadRequest, "validation_failed", ae.Message)
+		return true
+	}
 	if errors.Is(err, transactions.ErrNotFound) {
 		apiError(w, http.StatusNotFound, "not_found", "Not found")
 		return true
@@ -127,6 +132,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/setup/status", j(a.apiSetupStatus))
 	mux.HandleFunc("POST /api/v1/setup/account", j(a.apiSetupAccount))
 	mux.HandleFunc("POST /api/v1/setup/complete", j(a.apiSetupComplete))
+	mux.HandleFunc("POST /api/v1/account/password", j(a.apiChangePassword))
 
 	// Timeline + reconciliation (doc 03 §10).
 	mux.HandleFunc("GET /api/v1/snapshot", j(a.apiSnapshot))
@@ -318,6 +324,26 @@ func (a *App) apiTransactionGet(w http.ResponseWriter, r *http.Request) error {
 	t, err := a.Transactions.Get(r.PathValue("id"))
 	if err != nil {
 		return err
+	}
+	// Include the linked leg so the editor can show transfer details for
+	// existing transfers too (the fields previously vanished on edit).
+	// t.TransferID references the transfers row; resolve the other leg.
+	if t.TransferID != nil {
+		if cp, err := a.Transfers.CounterpartOf(t.ID); err == nil && cp != nil {
+			m := map[string]any{
+				"id": cp.ID, "date": cp.Date, "description": cp.Description,
+				"amount_minor": cp.AmountMinor, "type": cp.Type,
+			}
+			if cp.Account != nil {
+				m["account_name"] = cp.Account.Name
+			}
+			resp := struct {
+				*core.Transaction
+				Counterpart *map[string]any `json:"counterpart_tx,omitempty"`
+			}{t, &m}
+			writeJSON(w, resp)
+			return nil
+		}
 	}
 	writeJSON(w, t)
 	return nil

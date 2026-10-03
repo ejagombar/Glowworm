@@ -145,16 +145,22 @@ function sendChat(text) {
   const conversationID = convEl ? convEl.dataset.conversationId : "";
 
   // User bubble + pending assistant with worm loader (prototype choreography).
-  const day = document.createElement("div");
-  day.className = "msg-day";
-  day.textContent = "Today";
+  // The day badge shows only when the day changes (page load sets the marker).
   const user = document.createElement("div");
   user.className = "msg user msg-in";
   user.innerHTML = `<div class="msg-content"><div class="msg-bubble">${esc(text)}</div></div>`;
   const pending = document.createElement("div");
   pending.className = "msg assistant msg-in";
   pending.innerHTML = `<div class="msg-content">${wormLoaderHTML()}</div>`;
-  box.appendChild(day); box.appendChild(user); box.appendChild(pending);
+  const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  if (box.dataset.lastDay !== today) {
+    const day = document.createElement("div");
+    day.className = "msg-day";
+    day.textContent = "Today";
+    box.appendChild(day);
+    box.dataset.lastDay = today;
+  }
+  box.appendChild(user); box.appendChild(pending);
   box.scrollTop = box.scrollHeight;
 
   fetch("/api/v1/query/stream", {
@@ -163,12 +169,12 @@ function sendChat(text) {
     body: JSON.stringify({ text, conversation_id: conversationID }),
   }).then(async (resp) => {
     if (!resp.ok || !resp.body) {
-      finishAssistant(pending, "Sorry — the query engine is unavailable right now.", [], null);
+      finishAssistant(pending, "Sorry — the query engine is unavailable right now.", [], null, true);
       return;
     }
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
-    let buf = "", textOut = "", steps = [], widget = null;
+    let buf = "", textOut = "", steps = [], widget = null, isError = false;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -183,12 +189,12 @@ function sendChat(text) {
         if (ev.event === "steps") { steps = steps.concat(ev.items || []); renderSteps(pending, steps); }
         else if (ev.event === "text") { textOut = ev.text || textOut; }
         else if (ev.event === "widget" && ev.widget) { widget = ev.widget; }
-        else if (ev.event === "error") { textOut = ev.message || "Query failed."; }
+        else if (ev.event === "error") { textOut = ev.message || "Query failed."; isError = true; steps = []; }
       }
     }
-    finishAssistant(pending, textOut, steps, widget);
+    finishAssistant(pending, textOut, steps, widget, isError);
   }).catch(() => {
-    finishAssistant(pending, "Sorry — the query engine is unavailable right now.", [], null);
+    finishAssistant(pending, "Sorry — the query engine is unavailable right now.", [], null, true);
   });
 }
 
@@ -200,13 +206,14 @@ function renderSteps(pending, steps) {
     .join("");
 }
 
-function finishAssistant(pending, text, steps, widget) {
+function finishAssistant(pending, text, steps, widget, isError) {
   const loader = pending.querySelector(".glowworm-loader");
   const reveal = () => {
     let content = "";
-    if (text) content += `<div class="msg-text">${esc(text)}</div>`;
-    if (steps && steps.length) content += msgReasonHTML(steps);
-    if (widget) content += widgetCardHTML(widget);
+    if (text) content += `<div class="msg-text${isError ? " msg-error" : ""}">${esc(text)}</div>`;
+    // Errors never get a thinking section — nothing was analysed.
+    if (!isError && steps && steps.length) content += msgReasonHTML(steps);
+    if (!isError && widget) content += widgetCardHTML(widget);
     pending.innerHTML = `<div class="msg-content">${content}</div>`;
     if (widget) {
       const host = pending.querySelector(".chart-host[data-chart-type]");
@@ -528,6 +535,16 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-chat-suggest]").forEach((chip) =>
       chip.addEventListener("click", () => sendChat(chip.dataset.chatSuggest)));
 
+    // Seed the day-badge marker so live messages don't duplicate the badge
+    // the server already rendered for today.
+    const qbox = document.getElementById("queryMessages");
+    if (qbox) {
+      const badges = qbox.querySelectorAll(".msg-day");
+      const last = badges.length ? badges[badges.length - 1].textContent.trim() : "";
+      if (last === "Today") {
+        qbox.dataset.lastDay = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+      }
+    }
     // Conversation sidebar collapse.
     const sidebar = document.getElementById("queriesSidebar");
     document.getElementById("queriesSidebarToggle")?.addEventListener("click", () => {
@@ -739,7 +756,7 @@ function fmtMoneyMinor(minor, cc) {
   return sym + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtMoneySigned(minor, cc) {
-  const sign = minor < 0 ? "\\u2212" : minor > 0 ? "+" : "";
+  const sign = minor < 0 ? "\u2212" : minor > 0 ? "+" : "";
   return sign + fmtMoneyMinor(minor, cc);
 }
 function initialOf(s) {
@@ -867,6 +884,29 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Appearance save.
+  // Account: change password (doc 14: >=10 chars, current verified).
+  const pwSave = document.getElementById("passwordSave");
+  if (pwSave) {
+    pwSave.addEventListener("click", async () => {
+      const cur = document.getElementById("pwCurrent").value;
+      const nw = document.getElementById("pwNew").value;
+      const cf = document.getElementById("pwConfirm").value;
+      if (!cur || !nw) { toast("Fill in both password fields"); return; }
+      if (nw !== cf) { toast("New passwords do not match"); return; }
+      const r = await fetch("/api/v1/account/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ current_password: cur, new_password: nw }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) { toast((b.error && b.error.message) || "Could not change password"); return; }
+      document.getElementById("pwCurrent").value = "";
+      document.getElementById("pwNew").value = "";
+      document.getElementById("pwConfirm").value = "";
+      toast("Password changed");
+    });
+  }
+
   document.getElementById("appearanceSave")?.addEventListener("click", () => {
     const theme = document.getElementById("themeSelect").value;
     const currency = document.getElementById("currencySelect").value;
@@ -1121,21 +1161,16 @@ document.addEventListener("DOMContentLoaded", () => {
           <label class="tx-field grow">Description
             <input class="field" type="text" id="txeDescription" value="${esc(t.description)}" placeholder="e.g. Tesco Express" />
           </label>
-          <label class="tx-field">Type
-            <select class="field" id="txeType" ${linked ? "disabled" : ""}>
-              <option value="expense"${t.type === "expense" ? " selected" : ""}>Expense</option>
-              <option value="income"${t.type === "income" ? " selected" : ""}>Income</option>
-              <option value="transfer"${t.type === "transfer" ? " selected" : ""}>Transfer</option>
-            </select>
-          </label>
           <label class="tx-field">Category
             <select class="field" id="txeCategory" ${linked ? "disabled" : ""}>
               ${linked ? `<option selected>Internal transfer</option>` : `<option value="">Select category…</option>` + cats.map((c) => `<option value="${esc(c.id)}"${t.category && t.category.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
             </select>
           </label>
-          ${!linked ? `<label class="tx-field" id="txeCounterpartyField" style="display:none">Counterpart transaction
-            <select class="field" id="txeCounterpart"><option value="">Loading…</option></select>
-          </label>` : ""}
+          <label class="tx-field grow" id="txeTransferField">Transfer link
+            ${linked
+              ? `<select class="field" id="txeCounterpart" disabled><option selected>Linked: ${esc(t.counterpart_tx ? t.counterpart_tx.description + " · " + (t.counterpart_tx.account_name || "") : "transfer leg")}</option></select>`
+              : `<select class="field" id="txeCounterpart"><option value="">Not a transfer</option></select>`}
+          </label>
           <label class="tx-field">Amount
             <input class="field" type="number" step="0.01" id="txeAmount" value="${(t.amount_minor / 100).toFixed(2)}" />
           </label>
@@ -1149,32 +1184,45 @@ document.addEventListener("DOMContentLoaded", () => {
       tr.after(editor);
       document.getElementById("txeDescription").focus();
 
-      const typeSel = document.getElementById("txeType");
-      const cpField = document.getElementById("txeCounterpartyField");
-      if (typeSel && cpField) {
-        typeSel.addEventListener("change", async () => {
-          const isTransfer = typeSel.value === "transfer";
-          cpField.style.display = isTransfer ? "" : "none";
-          if (!isTransfer) return;
-          document.getElementById("txeCategory").value = "";
-          document.getElementById("txeCategory").disabled = true;
-          try {
-            const resp = await fetch(`/api/v1/transactions/${id}/transfer-suggestions`);
-            const body = await resp.json();
-            const items = body.items || [];
-            const sel = document.getElementById("txeCounterpart");
-            if (!items.length) {
-              sel.innerHTML = `<option value="">No candidates — import the other statement first</option>`;
-              return;
-            }
-            sel.innerHTML = `<option value="">Choose the counterpart…</option>` + items.map((s) => {
-              const tx = s.tx;
-              return `<option value="${esc(tx.id)}">${esc(tx.date)} · ${esc(tx.description)} · ${fmtMoneyMinor(tx.amount_minor, tx.currency || "GBP")} (${esc(tx.account ? tx.account.name : "")})</option>`;
-            }).join("");
-          } catch (e2) {
-            toast("Could not load suggestions");
+      // Populate the transfer-link select (always visible; the type is
+      // derived server-side from the link/category).
+      const cpField = document.getElementById("txeCounterpartField") || document.getElementById("txeTransferField");
+      const catSel = document.getElementById("txeCategory");
+      const loadTransferSuggestions = async () => {
+        const sel = document.getElementById("txeCounterpart");
+        if (!sel) return;
+        try {
+          const resp = await fetch(`/api/v1/transactions/${id}/transfer-suggestions`);
+          const body = await resp.json();
+          const items = body.items || [];
+          if (!items.length) {
+            sel.innerHTML = `<option value="">No candidates — import the other statement first</option>`;
+            return;
           }
-        });
+          sel.innerHTML = `<option value="">Not a transfer — choose a counterpart…</option>` + items.map((s) => {
+            const tx = s.tx;
+            return `<option value="${esc(tx.id)}">${esc(tx.date)} · ${esc(tx.description)} · ${fmtMoneyMinor(tx.amount_minor, tx.currency || "GBP")} (${esc(tx.account ? tx.account.name : "")})</option>`;
+          }).join("");
+        } catch (e2) {
+          toast("Could not load transfer suggestions");
+        }
+      };
+      if (!linked) {
+        loadTransferSuggestions();
+        const cpSel = document.getElementById("txeCounterpart");
+        if (cpSel) {
+          cpSel.addEventListener("change", () => {
+            // Picking a counterpart means this becomes a transfer: force the
+            // Internal transfer category (the link endpoint does too).
+            if (cpSel.value) {
+              const internal = (window.__CAT_OPTIONS__ || []).find((c) => c.internal);
+              if (internal) catSel.value = internal.id;
+              catSel.disabled = true;
+            } else {
+              catSel.disabled = false;
+            }
+          });
+        }
       }
       document.getElementById("txeCancel").addEventListener("click", () => { editor.remove(); tr.classList.remove("editing"); });
       document.getElementById("txeSave").addEventListener("click", () => {
@@ -1185,7 +1233,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!description) { toast("Description is required"); return; }
         if (isNaN(amount)) { toast("Amount is required"); return; }
         const cpSel = document.getElementById("txeCounterpart");
-        if (cpSel && typeSel && typeSel.value === "transfer" && cpSel.value) {
+        if (cpSel && !linked && cpSel.value) {
           fetch(`/api/v1/transactions/${id}/link`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -1204,8 +1252,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const body = {
           date, description,
           amount_minor: Math.round(amount * 100),
-          type: typeSel ? typeSel.value : t.type,
-          category_id: (typeSel && typeSel.value === "transfer") ? null : (document.getElementById("txeCategory").value || null),
+          category_id: (!linked && document.getElementById("txeCategory").value) || null,
         };
         fetch(`/api/v1/transactions/${id}`, {
           method: "PATCH",
@@ -1457,6 +1504,39 @@ document.addEventListener("DOMContentLoaded", () => {
       function normaliseForSimilar(s) {
         return s.toLowerCase().replace(/[0-9]/g, "#").replace(/\s+/g, " ").trim();
       }
+      const d2 = (row) => row.querySelector(".cell-merchant").textContent.trim();
+      document.getElementById("reviewRows").addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-apply-similar]");
+        if (!btn) return;
+        const tr = btn.closest("tr");
+        const sel = tr.querySelector("[data-cat-select]");
+        const catID = sel.value || null;
+        const desc = d2(tr);
+        const similar = Array.from(document.querySelectorAll("#reviewRows tr")).filter((r2) =>
+          r2 !== tr && normaliseForSimilar(d2(r2)) === normaliseForSimilar(desc));
+        if (!similar.length) { toast("No similar rows found"); return; }
+        const apply = () => {
+          const patch = { set_category: { row_ids: [tr.dataset.rowId, ...similar.map((r) => r.dataset.rowId)], category_id: catID } };
+          fetch(`/api/v1/imports/${batchID}/review`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+            body: JSON.stringify(patch),
+          }).then(async (r) => {
+            if (!r.ok) {
+              const b = await r.json().catch(() => ({}));
+              toast((b.error && b.error.message) || "Could not apply");
+              return;
+            }
+            similar.forEach((r2) => { const s2 = r2.querySelector("[data-cat-select]"); if (s2) s2.value = catID || ""; });
+            toast(`Category applied to ${similar.length + 1} rows`);
+          });
+        };
+        if (similar.length > 4) {
+          showConfirm(`Apply to ${similar.length} similar rows?`, "Rows with a matching description (ignoring digits) will receive the same category.", "Apply", apply);
+        } else {
+          apply();
+        }
+      });
       document.getElementById("reviewConfirm").addEventListener("click", () => {
         const accountID = document.getElementById("reviewAccount").value;
         if (!accountID) { toast("Choose the account to import into"); return; }

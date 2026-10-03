@@ -104,13 +104,12 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	send("steps", map[string]any{"items": []string{"Analysing your question"}})
-
+	// No opening "Analysing your question" step: reasoning steps are sent
+	// with the answer. Errors get no thinking section (nothing was analysed).
 	ans, convID, err := a.askQuery(in.Text, in.ConversationID)
 	if err != nil {
 		var ce *query.ClarifyError
 		if errors.As(err, &ce) {
-			send("text", map[string]any{"text": ce.Message})
 			send("error", map[string]any{"message": ce.Message, "suggestions": ce.Suggestions})
 			send("done", map[string]any{"conversation_id": convID})
 			return nil
@@ -119,8 +118,8 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 		send("done", map[string]any{})
 		return nil
 	}
-	if len(ans.Steps) > 1 {
-		send("steps", map[string]any{"items": ans.Steps[:len(ans.Steps)-1]})
+	if len(ans.Steps) > 0 {
+		send("steps", map[string]any{"items": ans.Steps})
 	}
 	send("text", map[string]any{"text": ans.Text})
 	if ans.Widget != nil {
