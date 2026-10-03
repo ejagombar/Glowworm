@@ -66,7 +66,8 @@ type Detection struct {
 	Sample       [][]string        `json:"sample,omitempty"`
 }
 
-// Upload stores the file and creates the batch (doc 06 §1).
+// Upload stores the file and creates the batch (doc 06 §1). The original
+// bytes are retained in import_files so the fix-mapping stage can re-parse.
 func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batch, error) {
 	if len(data) == 0 {
 		return nil, &ValidationError{Message: "That file is empty."}
@@ -94,6 +95,9 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 			VALUES (?,?,?,?,?,?,?,?)`,
 			batch.ID, batch.Filename, batch.SizeBytes, batch.SHA256, batch.Mime,
 			nullStr(accountID), batch.Status, batch.CreatedAt); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO import_files (batch_id, content) VALUES (?,?)`, batch.ID, data); err != nil {
 			return err
 		}
 		_, err := s.Audit.Write(tx, audit.Input{
@@ -375,7 +379,7 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 				ID: stagingID, Date: r.Date, Description: r.Description,
 				AmountMinor: r.AmountMinor, Currency: r.Currency,
 				SourceText: r.SourceText, DestinationText: r.DestinationText,
-				DedupeHash: hash,
+				DedupeHash: hash, CategorySource: core.CategorySourceNone,
 			}
 			if r.AmountMinor >= 0 {
 				t.Type = core.TypeIncome
@@ -526,6 +530,12 @@ func (s *Service) markAwaitingSchema(id string, det *Detection) error {
 	return err
 }
 
+// ApplySchemaPublic re-parses the stored upload with a corrected mapping
+// (doc 06 §5 fix-mapping stage).
+func (s *Service) ApplySchemaPublic(batchID string, m *importer.Mapping, data []byte) (*Batch, error) {
+	return s.applyMapping(batchID, m, data, nil)
+}
+
 func sampleTable(table [][]string, n int) [][]string {
 	if len(table) > n {
 		return table[:n]
@@ -595,7 +605,7 @@ type StagedRow struct {
 // Review returns staged rows + aggregates (doc 03 §7).
 func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsReview, duplicates int, err error) {
 	brows, e := s.DB.Query(`SELECT st.id, st.line_no, st.date, st.description, st.amount_minor, st.currency,
-		st.proposed_category_id, c.name, st.category_source, st.category_confidence, st.needs_review, st.duplicate_of
+		st.proposed_category_id, COALESCE(c.name,''), st.category_source, st.category_confidence, st.needs_review, st.duplicate_of
 		FROM import_staging st LEFT JOIN categories c ON c.id = st.proposed_category_id
 		WHERE st.batch_id = ? ORDER BY st.line_no ASC`, batchID)
 	if e != nil {

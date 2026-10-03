@@ -1,20 +1,31 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
-	"glowworm/internal/core/audit"
+	"glowworm/internal/ai"
+	"glowworm/internal/core"
 	"glowworm/internal/core/accounts"
+	"glowworm/internal/core/audit"
 	"glowworm/internal/core/categories"
+	"glowworm/internal/core/imports"
 	"glowworm/internal/core/setup"
 	"glowworm/internal/core/transactions"
+	"glowworm/internal/crypto"
+	"glowworm/internal/importer"
 	"glowworm/internal/store/repos"
 )
+
+func timeNow() time.Time { return time.Now() }
 
 // repos_ListFilter aliases the repo filter type for handlers.
 type repos_ListFilter = repos.ListFilter
@@ -126,6 +137,40 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 
 	// Dashboard summary (doc 03 §3).
 	mux.HandleFunc("GET /api/v1/dashboard/summary", j(a.apiDashboardSummary))
+
+	// Imports (doc 03 §7).
+	mux.HandleFunc("POST /api/v1/imports", j(a.apiImportUpload))
+	mux.HandleFunc("GET /api/v1/imports/{id}", j(a.apiImportGet))
+	mux.HandleFunc("POST /api/v1/imports/{id}/schema", j(a.apiImportApplySchema))
+	mux.HandleFunc("POST /api/v1/imports/{id}/schema/save", j(a.apiImportSaveSchema))
+	mux.HandleFunc("GET /api/v1/imports/{id}/review", j(a.apiImportReview))
+	mux.HandleFunc("PATCH /api/v1/imports/{id}/review", j(a.apiImportReviewPatch))
+	mux.HandleFunc("POST /api/v1/imports/{id}/confirm", j(a.apiImportConfirm))
+	mux.HandleFunc("POST /api/v1/imports/{id}/cancel", j(a.apiImportCancel))
+	mux.HandleFunc("GET /api/v1/schemas", j(a.apiSchemasList))
+	mux.HandleFunc("DELETE /api/v1/schemas/{id}", j(a.apiSchemaDelete))
+
+	// Transfers (doc 03 §5.2).
+	mux.HandleFunc("POST /api/v1/transactions/{id}/link", j(a.apiTransferLink))
+	mux.HandleFunc("POST /api/v1/transactions/{id}/unlink", j(a.apiTransferUnlink))
+	mux.HandleFunc("GET /api/v1/transactions/{id}/transfer-suggestions", j(a.apiTransferSuggestions))
+	mux.HandleFunc("POST /api/v1/transfers/detect", j(a.apiTransferDetect))
+
+	// Recurring (doc 03 §12).
+	mux.HandleFunc("GET /api/v1/recurring", j(a.apiRecurringList))
+	mux.HandleFunc("GET /api/v1/recurring/{key}/transactions", j(a.apiRecurringSeries))
+	mux.HandleFunc("POST /api/v1/recurring/refresh", j(a.apiRecurringRefresh))
+
+	// Categoriser (doc 03 §11).
+	mux.HandleFunc("GET /api/v1/categoriser/status", j(a.apiCategoriserStatus))
+	mux.HandleFunc("POST /api/v1/categoriser/retrain", j(a.apiCategoriserRetrain))
+	mux.HandleFunc("POST /api/v1/transactions/{id}/categorise", j(a.apiCategoriseTx))
+	mux.HandleFunc("POST /api/v1/transactions/{id}/set-category", j(a.apiSetCategory))
+
+	// AI settings (doc 03 §13).
+	mux.HandleFunc("GET /api/v1/settings/ai", j(a.apiAIGet))
+	mux.HandleFunc("PUT /api/v1/settings/ai", j(a.apiAISet))
+	mux.HandleFunc("POST /api/v1/settings/ai/test", j(a.apiAITest))
 }
 
 // --- accounts ---
@@ -534,5 +579,488 @@ func (a *App) apiDashboardSummary(w http.ResponseWriter, r *http.Request) error 
 		"currency":        a.Settings.Get().Currency,
 		"income_month_minor": income, "spend_month_minor": spend,
 	})
+	return nil
+}
+// --- imports (doc 06 pipeline) ---
+
+func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
+	r.Body = http.MaxBytesReader(w, r.Body, int64(a.Cfg.UploadMaxMB)<<20)
+	if err := r.ParseMultipartForm(int64(a.Cfg.UploadMaxMB) << 20); err != nil {
+		apiError(w, http.StatusBadRequest, "file_too_large", fmt.Sprintf("That file is larger than %d MB.", a.Cfg.UploadMaxMB))
+		return nil
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		apiError(w, http.StatusBadRequest, "validation_failed", "No file provided")
+		return nil
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	var accountID *string
+	if v := r.FormValue("account_id"); v != "" {
+		accountID = &v
+	}
+	batch, err := a.Imports.Upload(header.Filename, data, accountID)
+	if errors.Is(err, imports.ErrDuplicateFile) {
+		apiError(w, http.StatusConflict, "duplicate_file", "This exact file was already imported.")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, batch)
+	return nil
+}
+
+func (a *App) apiImportGet(w http.ResponseWriter, r *http.Request) error {
+	batch, err := a.Imports.Get(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, batch)
+	return nil
+}
+
+func (a *App) apiImportApplySchema(w http.ResponseWriter, r *http.Request) error {
+	batchID := r.PathValue("id")
+	var in struct {
+		Mapping json.RawMessage `json:"mapping"`
+		Save    bool            `json:"save_schema"`
+		Name    string          `json:"name"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	if _, err := a.Imports.Get(batchID); err != nil {
+		return err
+	}
+	data, err := a.importFileBytes(batchID)
+	if err != nil {
+		return err
+	}
+	var m importer.Mapping
+	if err := json.Unmarshal(in.Mapping, &m); err != nil {
+		apiError(w, http.StatusBadRequest, "validation_failed", "Bad mapping JSON")
+		return nil
+	}
+	b, err := a.Imports.ApplySchemaPublic(batchID, &m, data)
+	if err != nil {
+		if serviceError(w, err) {
+			return nil
+		}
+		return err
+	}
+	if in.Save {
+		var header []string
+		if b.Detection != nil && len(b.Detection.Sample) > 0 {
+			header = b.Detection.Sample[0]
+		}
+		name := in.Name
+		if name == "" && b.Detection != nil {
+			name = b.Detection.ProposedName
+		}
+		bank := ""
+		if b.Detection != nil {
+			bank = b.Detection.BankHint
+		}
+		if _, err := a.Imports.SaveSchema(name, bank, &m, header, m.Confidence); err != nil {
+			return err
+		}
+	}
+	writeJSON(w, b)
+	return nil
+}
+
+func (a *App) apiImportSaveSchema(w http.ResponseWriter, r *http.Request) error {
+	batchID := r.PathValue("id")
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	batch, err := a.Imports.Get(batchID)
+	if err != nil {
+		return err
+	}
+	if batch.Detection == nil {
+		apiError(w, http.StatusConflict, "import_state", "No detection available")
+		return nil
+	}
+	m := importer.Mapping{
+		Kind: importer.Kind(batch.Detection.Kind), Sheet: batch.Detection.Sheet,
+		HasHeader: batch.Detection.HasHeader, Delimiter: batch.Detection.Delimiter,
+		Columns: batch.Detection.Columns, BankHint: batch.Detection.BankHint,
+		Confidence: batch.Detection.Confidence,
+	}
+	var header []string
+	if len(batch.Detection.Sample) > 0 {
+		header = batch.Detection.Sample[0]
+	}
+	schema, err := a.Imports.SaveSchema(in.Name, batch.Detection.BankHint, &m, header, batch.Detection.Confidence)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, schema)
+	return nil
+}
+
+func (a *App) apiImportReview(w http.ResponseWriter, r *http.Request) error {
+	batchID := r.PathValue("id")
+	rows, confident, needsReview, duplicates, err := a.Imports.Review(batchID)
+	if err != nil {
+		return err
+	}
+	batch, err := a.Imports.Get(batchID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{
+		"batch": batch, "rows": rows,
+		"confident": confident, "needs_review": needsReview, "duplicates": duplicates,
+	})
+	return nil
+}
+
+func (a *App) apiImportReviewPatch(w http.ResponseWriter, r *http.Request) error {
+	var p imports.ReviewPatch
+	if err := decodeBody(r, &p); err != nil {
+		return err
+	}
+	if err := a.Imports.ApplyReview(r.PathValue("id"), p); err != nil {
+		return err
+	}
+	rows, confident, needsReview, duplicates, err := a.Imports.Review(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"rows": rows, "confident": confident, "needs_review": needsReview, "duplicates": duplicates})
+	return nil
+}
+
+func (a *App) apiImportConfirm(w http.ResponseWriter, r *http.Request) error {
+	batchID := r.PathValue("id")
+	var in struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	batch, err := a.Imports.Get(batchID)
+	if err != nil {
+		return err
+	}
+	accountID := in.AccountID
+	if accountID == "" && batch.AccountID != nil {
+		accountID = *batch.AccountID
+	}
+	if accountID == "" {
+		apiError(w, http.StatusBadRequest, "validation_failed", "Choose the account to import into")
+		return nil
+	}
+	b, err := a.Imports.Confirm(batchID, accountID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, b)
+	return nil
+}
+
+func (a *App) apiImportCancel(w http.ResponseWriter, r *http.Request) error {
+	if err := a.Imports.Cancel(r.PathValue("id")); err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+func (a *App) apiSchemasList(w http.ResponseWriter, r *http.Request) error {
+	schemas, err := a.Imports.ListSchemas()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"items": schemas})
+	return nil
+}
+
+func (a *App) apiSchemaDelete(w http.ResponseWriter, r *http.Request) error {
+	if err := a.Imports.DeleteSchema(r.PathValue("id")); err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+// importFileBytes reads the stored upload from import_files.
+func (a *App) importFileBytes(batchID string) ([]byte, error) {
+	var data []byte
+	err := a.DB.QueryRow(`SELECT content FROM import_files WHERE batch_id = ?`, batchID).Scan(&data)
+	if err != nil {
+		return nil, fmt.Errorf("original file not retained for this batch (re-upload to fix the mapping)")
+	}
+	return data, nil
+}
+
+// --- transfers ---
+
+func (a *App) apiTransferLink(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		CounterpartID string `json:"counterpart_id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	tr, err := a.Transfers.Link(r.PathValue("id"), in.CounterpartID, "user")
+	if err != nil {
+		return err
+	}
+	writeJSON(w, tr)
+	return nil
+}
+
+func (a *App) apiTransferUnlink(w http.ResponseWriter, r *http.Request) error {
+	if err := a.Transfers.Unlink(r.PathValue("id"), "user"); err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+func (a *App) apiTransferSuggestions(w http.ResponseWriter, r *http.Request) error {
+	sugs, err := a.Transfers.Suggestions(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"items": sugs})
+	return nil
+}
+
+func (a *App) apiTransferDetect(w http.ResponseWriter, r *http.Request) error {
+	n, err := a.Transfers.Detect()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"linked": n})
+	return nil
+}
+
+// --- recurring ---
+
+func (a *App) apiRecurringList(w http.ResponseWriter, r *http.Request) error {
+	keys, err := a.Repos.Transactions.RecurringKeys()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"items": keys})
+	return nil
+}
+
+func (a *App) apiRecurringSeries(w http.ResponseWriter, r *http.Request) error {
+	key := r.PathValue("key")
+	meta, rows, err := a.Recurring.Series(key)
+	if err != nil {
+		return err
+	}
+	txs := make([]*core.Transaction, 0, len(rows))
+	for _, row := range rows {
+		if row.Kind == "linked" {
+			txs = append(txs, row.Members...)
+		} else {
+			txs = append(txs, row.Tx)
+		}
+	}
+	writeJSON(w, map[string]any{"series": meta, "transactions": txs, "currency": a.Settings.Get().Currency})
+	return nil
+}
+
+func (a *App) apiRecurringRefresh(w http.ResponseWriter, r *http.Request) error {
+	n, err := a.Recurring.Detect()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"series": n})
+	return nil
+}
+
+// --- categoriser ---
+
+func (a *App) apiCategoriserStatus(w http.ResponseWriter, r *http.Request) error {
+	s := a.Settings.Get()
+	var version int
+	var trainedAt string
+	var trainingCount int
+	_ = a.DB.QueryRow(`SELECT version, trained_at, training_count FROM classifier_models ORDER BY version DESC LIMIT 1`).
+		Scan(&version, &trainedAt, &trainingCount)
+	var rules int
+	_ = a.DB.QueryRow(`SELECT COUNT(*) FROM category_rules`).Scan(&rules)
+	writeJSON(w, map[string]any{
+		"model_version": version, "trained_at": trainedAt, "training_count": trainingCount,
+		"rules_count": rules,
+		"thresholds": map[string]any{
+			"local": s.CatLocalThresh, "ai": s.CatAIThresh, "min_examples": s.CatMinExamples,
+		},
+	})
+	return nil
+}
+
+func (a *App) apiCategoriserRetrain(w http.ResponseWriter, r *http.Request) error {
+	model, err := a.Cat.Retrain()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"version": model.Version, "training_count": model.TrainingCount})
+	return nil
+}
+
+func (a *App) apiCategoriseTx(w http.ResponseWriter, r *http.Request) error {
+	t, err := a.Repos.Transactions.Get(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	res, err := a.Cat.Categorise(nil, []*core.Transaction{t})
+	if err != nil {
+		return err
+	}
+	writeJSON(w, res)
+	return nil
+}
+
+func (a *App) apiSetCategory(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		CategoryID *string `json:"category_id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	if err := a.Transactions.SetCategory(r.PathValue("id"), in.CategoryID); err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+// --- AI settings (doc 09 §4) ---
+
+func (a *App) apiAIGet(w http.ResponseWriter, r *http.Request) error {
+	row, err := a.Repos.AIConfig.Get()
+	if err != nil {
+		return err
+	}
+	masked := ""
+	if row.KeyCipher != "" {
+		masked = "sk-••••••••••••••••"
+	}
+	writeJSON(w, map[string]any{
+		"provider": row.Provider, "models": row.Models,
+		"base_url": row.BaseURL, "key_masked": masked, "has_key": row.KeyCipher != "",
+	})
+	return nil
+}
+
+func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		Provider string            `json:"provider"`
+		APIKey   string            `json:"api_key"`
+		BaseURL  string            `json:"base_url"`
+		Models   map[string]string `json:"models"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	row, err := a.Repos.AIConfig.Get()
+	if err != nil {
+		return err
+	}
+	keyCipher := row.KeyCipher
+	if in.APIKey != "" {
+		cipher, err := a.Secret.Encrypt([]byte(in.APIKey))
+		if err != nil {
+			return err
+		}
+		keyCipher = cipher
+	}
+	if in.Provider == "ollama" || in.Provider == "" {
+		keyCipher = keyCipher // local providers need no key
+	}
+	if in.Provider == "" {
+		keyCipher = ""
+	}
+	models := row.Models
+	if in.Models != nil {
+		models = in.Models
+	}
+	if err := a.Repos.AIConfig.Set(nil, in.Provider, models, in.BaseURL, keyCipher); err != nil {
+		return err
+	}
+	if err := a.DB.WithTx(func(tx *sql.Tx) error {
+		_, err := a.AuditWriter.Write(tx, audit.Input{
+			Actor: "user", Action: "settings.ai.updated",
+			EntityType: "ai_provider_config", EntityID: "1",
+			Title: "Updated AI provider",
+			Sub:   maskedProvider(in.Provider),
+			After: map[string]any{"provider": in.Provider, "models": models, "base_url": in.BaseURL, "has_key": in.APIKey != ""},
+			Revert: map[string]any{"provider": row.Provider, "models": row.Models, "base_url": row.BaseURL, "key_cipher": row.KeyCipher},
+		})
+		return err
+	}); err != nil {
+		return err
+	}
+	// Re-resolve the live provider.
+	a.Cat.Provider, _ = ai.New(in.Provider, models["default"], in.BaseURL, decodeKey(a.Secret, keyCipher))
+	if a.Cat.Provider != nil {
+		a.Imports.Provider = a.Cat.Provider
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+func maskedProvider(p string) string {
+	if p == "" {
+		return "AI disabled"
+	}
+	return p
+}
+
+func decodeKey(secret *crypto.Secret, cipher string) string {
+	if cipher == "" {
+		return ""
+	}
+	plain, err := secret.Decrypt(cipher)
+	if err != nil {
+		return ""
+	}
+	return string(plain)
+}
+
+func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
+	row, err := a.Repos.AIConfig.Get()
+	if err != nil {
+		return err
+	}
+	if row.Provider == "" {
+		writeJSON(w, map[string]any{"ok": false, "error": "No provider configured"})
+		return nil
+	}
+	p, err := ai.New(row.Provider, row.Models["default"], row.BaseURL, decodeKey(a.Secret, row.KeyCipher))
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return nil
+	}
+	start := timeNow()
+	_, _, err = p.CompleteStructured(&ai.StructuredRequest{
+		Capability: "schema_naming",
+		PromptJSON: map[string]any{"columns": []string{"Date", "Description", "Amount"}, "bank_hint": "Test"},
+	})
+	latency := int(timeNow().Sub(start).Milliseconds())
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return nil
+	}
+	a.Repos.AIConfig.LogCall("schema_naming", row.Provider, row.Models["default"], 0, 0, latency, true, "")
+	writeJSON(w, map[string]any{"ok": true, "latency_ms": latency})
 	return nil
 }

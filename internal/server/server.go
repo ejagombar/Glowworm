@@ -4,24 +4,29 @@ package server
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	"database/sql"
-
 	"glowworm/internal/clock"
 	"glowworm/internal/config"
+	"glowworm/internal/ai"
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/auditexec"
 	"glowworm/internal/core/categories"
+	"glowworm/internal/core/categoriser"
+	"glowworm/internal/core/imports"
+	"glowworm/internal/core/recurring"
 	"glowworm/internal/core/settings"
 	"glowworm/internal/core/setup"
 	"glowworm/internal/core/transactions"
+	"glowworm/internal/core/transfers"
 	"glowworm/internal/crypto"
 	"glowworm/internal/render"
 	"glowworm/internal/store"
@@ -47,6 +52,10 @@ type App struct {
 	Settings  *settings.Service
 	Setup     *setup.Service
 	Audit     *audit.Engine
+	Cat       *categoriser.Service
+	Imports   *imports.Service
+	Transfers *transfers.Service
+	Recurring *recurring.Service
 
 	AuditWriter *audit.Writer
 	Exec        *auditexec.Executor
@@ -91,6 +100,50 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.Transactions = &transactions.Service{DB: db, Repos: rp.Transactions, Categories: rp.Categories, Audit: writer, Clock: clk}
 	app.Settings = &settings.Service{DB: db, Repos: rp.Settings, Audit: writer}
 	app.Setup = &setup.Service{DB: db, Users: rp.Users, Settings: rp.Settings, Audit: writer}
+
+	// AI provider from encrypted config (doc 09 §4).
+	provider := a_resolveProvider(db, secret, log)
+	app.Cat = &categoriser.Service{
+		DB: db, Txs: rp.Transactions, Categories: rp.Categories, Settings: rp.Settings,
+		Audit: writer, Provider: provider,
+	}
+	if model, err := app.Cat.LoadLatestModel(); err == nil {
+		app.Cat.Model = model
+	}
+	displayCC := rp.Settings.GetString("currency")
+	if displayCC == "" {
+		displayCC = "GBP"
+	}
+	app.Imports = &imports.Service{
+		DB: db, Accounts: rp.Accounts, Txs: rp.Transactions, Audit: writer,
+		Cat: app.Cat, Provider: provider, DisplayCC: displayCC,
+	}
+	app.Imports.AfterCommit = func(batchID string) {
+		if n, err := app.Transfers.Detect(); err == nil && n > 0 {
+			log.Info("transfer detection", "linked", n)
+		}
+		if n, err := app.Recurring.Detect(); err == nil && n > 0 {
+			log.Info("recurring detection", "series", n)
+		}
+		if err := app.Cat.RefreshRules(); err != nil {
+			log.Error("rules refresh", "err", err)
+		}
+		if _, err := app.Cat.Retrain(); err != nil {
+			log.Info("retrain skipped", "reason", err.Error())
+		}
+	}
+	app.Transfers = &transfers.Service{
+		DB: db, Txs: rp.Transactions, Accounts: rp.Accounts, Audit: writer,
+		Settings: rp.Settings, Clock: clk,
+		InternalCat: func() (string, error) {
+			c, err := rp.Categories.ByName("Internal transfer")
+			if err != nil {
+				return "", err
+			}
+			return c.ID, nil
+		},
+	}
+	app.Recurring = &recurring.Service{DB: db, Txs: rp.Transactions, Audit: writer}
 	app.Exec = &auditexec.Executor{
 		DB: db, Accounts: rp.Accounts, Categories: rp.Categories, Txs: rp.Transactions,
 		InternalCat: func(tx *sql.Tx) (string, error) {
@@ -107,6 +160,32 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 // applyEntry adapts the audit engine's hook to the executor.
 func (a *App) applyEntry(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	return a.Exec.Apply(tx, ent, reapply)
+}
+
+// a_resolveProvider builds the AI provider from the encrypted config row.
+func a_resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai.Provider {
+	var provider, models, baseURL, keyCipher string
+	err := db.QueryRow(`SELECT provider, models, base_url, key_cipher FROM ai_provider_config WHERE id = 1`).
+		Scan(&provider, &models, &baseURL, &keyCipher)
+	if err != nil || provider == "" {
+		return nil
+	}
+	modelMap := map[string]string{}
+	_ = json.Unmarshal([]byte(models), &modelMap)
+	apiKey := ""
+	if keyCipher != "" {
+		if plain, err := secret.Decrypt(keyCipher); err == nil {
+			apiKey = string(plain)
+		} else {
+			log.Error("ai key decryption failed", "err", err)
+		}
+	}
+	p, err := ai.New(provider, modelMap["default"], baseURL, apiKey)
+	if err != nil {
+		log.Error("ai provider", "err", err)
+		return nil
+	}
+	return p
 }
 
 // Router builds the full route table (doc 01 §5.1, doc 03).

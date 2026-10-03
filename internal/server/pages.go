@@ -502,11 +502,20 @@ func (a *App) handleImport(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	cats, err := a.Repos.Categories.List()
+	if err != nil {
+		return err
+	}
+	schemas, err := a.Imports.ListSchemas()
+	if err != nil {
+		return err
+	}
 	data := struct {
 		*viewBase
-		Accounts []*accountCard
-		Schemas  []*core.ImportSchema
-	}{viewBase: base, Accounts: cards}
+		Accounts  []*accountCard
+		Schemas   []*core.ImportSchema
+		Categories []*core.Category
+	}{viewBase: base, Accounts: cards, Schemas: schemas, Categories: cats}
 	return a.Render.Render(w, "import", data)
 }
 

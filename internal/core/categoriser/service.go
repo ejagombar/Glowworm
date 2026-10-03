@@ -116,8 +116,7 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 
 	for _, t := range txs {
 		if t.Type == core.TypeTransfer {
-			conf := 1.0
-			if err := updateCategory(tx, t.ID, internalCat, core.CategorySourceLocal, conf); err != nil {
+			if err := assign(tx, t, internalCat, core.CategorySourceLocal, 1.0); err != nil {
 				return nil, err
 			}
 			res.Local++
@@ -136,7 +135,7 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 
 		// Tier 1: rules.
 		if catID, ok := rules[key]; ok && allowedIDs[catID] {
-			if err := updateCategory(tx, t.ID, catID, core.CategorySourceLocal, 1.0); err != nil {
+			if err := assign(tx, t, catID, core.CategorySourceLocal, 1.0); err != nil {
 				return nil, err
 			}
 			res.Rules++
@@ -148,7 +147,7 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 		if s.Model != nil {
 			preds := s.Model.Predict(key, allowedIDs)
 			if len(preds) > 0 && examples[preds[0].CategoryID] >= minExamples && preds[0].Confidence >= localThresh {
-				if err := updateCategory(tx, t.ID, preds[0].CategoryID, core.CategorySourceLocal, preds[0].Confidence); err != nil {
+				if err := assign(tx, t, preds[0].CategoryID, core.CategorySourceLocal, preds[0].Confidence); err != nil {
 					return nil, err
 				}
 				res.Local++
@@ -164,7 +163,7 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 		}
 
 		// Tier 4: review.
-		if err := updateCategory(tx, t.ID, "", core.CategorySourceNone, 0); err != nil {
+		if err := assign(tx, t, "", core.CategorySourceNone, 0); err != nil {
 			return nil, err
 		}
 		res.Review++
@@ -257,8 +256,13 @@ func (s *Service) aiBatch(tx *sql.Tx, txs []*core.Transaction, aiThresh float64)
 			if !ok {
 				continue
 			}
-			if err := updateCategory(tx, txID, catID, core.CategorySourceAI, it.Confidence); err != nil {
-				return nil, err
+			for _, t := range txs {
+				if t.ID == txID {
+					if err := assign(tx, t, catID, core.CategorySourceAI, it.Confidence); err != nil {
+						return nil, err
+					}
+					break
+				}
 			}
 			assigned = append(assigned, Assignment{TxID: txID, CategoryID: catID, Category: it.Category, Source: "ai"})
 		}
@@ -266,6 +270,8 @@ func (s *Service) aiBatch(tx *sql.Tx, txs []*core.Transaction, aiThresh float64)
 	return assigned, nil
 }
 
+// updateCategory writes the DB row AND the in-memory struct (the staging
+// flow re-reads the struct after the cascade, doc 06 §6).
 func updateCategory(tx *sql.Tx, txID, categoryID, source string, confidence float64) error {
 	var catID any
 	if categoryID != "" {
@@ -278,6 +284,26 @@ func updateCategory(tx *sql.Tx, txID, categoryID, source string, confidence floa
 	_, err := tx.Exec(`UPDATE transactions SET category_id = ?, category_source = ?, category_confidence = ?, updated_at = ?
 		WHERE id = ?`, catID, source, conf, utilNow(), txID)
 	return err
+}
+
+// assign updates a transaction's category in the DB and memory.
+func assign(tx *sql.Tx, t *core.Transaction, categoryID, source string, confidence float64) error {
+	if err := updateCategory(tx, t.ID, categoryID, source, confidence); err != nil {
+		return err
+	}
+	if categoryID != "" {
+		c := categoryID
+		t.CategoryID = &c
+	} else {
+		t.CategoryID = nil
+	}
+	t.CategorySource = source
+	if confidence > 0 && categoryID != "" {
+		t.CategoryConfidence = &confidence
+	} else {
+		t.CategoryConfidence = nil
+	}
+	return nil
 }
 
 func (s *Service) internalCategoryID(tx *sql.Tx) (string, error) {

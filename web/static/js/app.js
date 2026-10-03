@@ -1117,3 +1117,215 @@ document.addEventListener("DOMContentLoaded", () => {
     }).catch(() => toast("Could not load transaction"));
   }
 });
+
+
+/* ---------- Import flow (doc 06 §7) ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("fileInput");
+  const flowBox = document.getElementById("importFlow");
+  if (!dropzone || !flowBox) return;
+
+  const upload = (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const accSel = document.getElementById("importAccount");
+    if (accSel && accSel.value) fd.append("account_id", accSel.value);
+    flowBox.hidden = false;
+    flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">
+      <span class="spinner"></span> Reading ${esc(file.name)}…</div></div>`;
+    fetch("/api/v1/imports", {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrfToken() },
+      body: fd,
+    }).then(async (r) => {
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">${esc((b.error && b.error.message) || "Upload failed")}</div></div>`;
+        return;
+      }
+      renderBatch(b);
+    }).catch(() => {
+      flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">Upload failed</div></div>`;
+    });
+  };
+
+  dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("drag"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault(); dropzone.classList.remove("drag");
+    if (e.dataTransfer.files.length) upload(e.dataTransfer.files[0]);
+  });
+  document.getElementById("dropzoneBrowse")?.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length) upload(fileInput.files[0]);
+  });
+
+  const renderBatch = (b) => {
+    if (b.status === "failed") {
+      flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">${esc(b.parse_error || "Import failed")}</div></div>`;
+      return;
+    }
+    if (b.status === "awaiting_review") {
+      loadReview(b.id);
+      return;
+    }
+    // awaiting_schema: show the detected schema + sample + mapping editor.
+    const d = b.detection || {};
+    const sheets = (d.sheets || []).map((s) => `<option value="${esc(s)}"${s === d.sheet ? " selected" : ""}>${esc(s)}</option>`).join("");
+    const cols = (d.columns || []).map((c) => mappingRowHTML(c)).join("");
+    const sample = (d.sample || []).slice(0, 4).map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("");
+    const roles = ["date","description","amount","amount_in","amount_out","currency","balance","type_hint","memo","source","destination","ignore"];
+    flowBox.innerHTML = `
+      <div class="panel category-form">
+        <h3 class="category-form-title">${d.matched_schema ? "Matched saved schema “" + esc(d.matched_schema) + "”" : "Detected schema"}${d.confidence ? ` <span class="schema-conf">· ${Math.round(d.confidence * 100)}% match</span>` : ""}</h3>
+        ${b.parse_error ? `<p class="login-error">${esc(b.parse_error)}</p>` : ""}
+        <div class="tx-table-wrap" style="overflow-x:auto">
+        <table class="tx-table"><thead><tr><th>Column</th><th>Role</th></tr></thead>
+        <tbody id="mappingRows">${cols}</tbody></table></div>
+        <div class="field-row" style="margin-top:10px">
+          <label>Date format</label>
+          <input class="field" id="mapDateFormat" value="${esc(d.date_format || "")}" placeholder="e.g. 02/01/2006 (auto-detected)" />
+        </div>
+        ${sheets ? `<div class="field-row"><label>Sheet</label><select class="field select" id="mapSheet">${sheets}</select></div>` : ""}
+        <div class="section-head"><h2>Sample rows</h2></div>
+        <table class="tx-table"><tbody>${sample}</tbody></table>
+        <div class="field-row" style="margin-top:12px">
+          <label>Import into</label>
+          <select class="field select" id="reviewAccount">
+            ${(window.__IMPORT_ACCOUNTS__ || []).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="category-form-actions">
+          <span class="spacer"></span>
+          <button class="btn btn-ghost" id="mapCancel">Cancel</button>
+          <button class="btn btn-primary" id="mapApply">Re-parse &amp; review</button>
+        </div>
+      </div>`;
+    document.getElementById("mapCancel").addEventListener("click", () => { flowBox.hidden = true; flowBox.innerHTML = ""; });
+    document.getElementById("mapApply").addEventListener("click", () => {
+      const rows = Array.from(document.querySelectorAll("#mappingRows tr")).map((tr) => ({
+        source: tr.dataset.source,
+        role: tr.querySelector("select").value,
+        date_format: document.getElementById("mapDateFormat").value.trim(),
+      }));
+      const m = {
+        kind: d.kind || "csv", has_header: d.has_header !== false, delimiter: d.delimiter || ",",
+        columns: rows, date_format: document.getElementById("mapDateFormat").value.trim(),
+        sheet: document.getElementById("mapSheet") ? document.getElementById("mapSheet").value : undefined,
+        confidence: d.confidence || 0.5,
+      };
+      fetch(`/api/v1/imports/${b.id}/schema`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ mapping: m }),
+      }).then(async (r) => {
+        const nb = await r.json().catch(() => ({}));
+        if (!r.ok) { toast((nb.error && nb.error.message) || "Re-parse failed"); return; }
+        renderBatch(nb);
+      });
+    });
+  };
+
+  const loadReview = (batchID) => {
+    flowBox.innerHTML = `<div class="thinking-card panel"><div class="head"><span class="spinner"></span> Loading review…</div></div>`;
+    fetch(`/api/v1/imports/${batchID}/review`).then((r) => r.json()).then((body) => {
+      const rows = body.rows || [];
+      const needsReview = body.needs_review || 0;
+      const confident = body.confident || 0;
+      const duplicates = body.duplicates || 0;
+      const rowHTML = rows.map((row) => {
+        const status = row.duplicate_of ? "dup" : (row.needs_review ? "review" : "ok");
+        const badge = status === "dup" ? `<span class="badge badge-stale">duplicate</span>`
+          : status === "review" ? `<span class="badge badge-needsreview">needs review</span>`
+          : `<span class="badge badge-income">${esc(row.category_source || "")}</span>`;
+        const catName = row.category_name || "Uncategorised";
+        return `<tr data-row-id="${esc(row.id)}" data-status="${status}">
+          <td class="cell-sub">${esc(row.date)}</td>
+          <td><div class="cell-merchant">${esc(row.description)} ${badge}</div></td>
+          <td class="num tx-amount ${row.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(row.amount_minor, row.currency || "GBP")}</td>
+          <td>
+            <select class="field select" data-cat-select style="min-width:150px">
+              <option value="">Uncategorised</option>
+              ${(window.__IMPORT_CATS__ || []).map((c) => `<option value="${esc(c.id)}"${c.id === row.category_id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
+            </select>
+          </td>
+          <td><button class="btn btn-ghost btn-xs" data-apply-similar>Apply to similar</button></td>
+        </tr>`;
+      }).join("");
+      flowBox.innerHTML = `
+        <div class="panel category-form">
+          <h3 class="category-form-title">Review import</h3>
+          <p class="muted">${rows.length} rows · ${confident} confident · ${needsReview} need review · ${duplicates} duplicates</p>
+          <div style="overflow-x:auto"><table class="tx-table">
+            <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Category</th><th></th></tr></thead>
+            <tbody id="reviewRows">${rowHTML}</tbody>
+          </table></div>
+          <div class="field-row" style="margin-top:12px">
+            <label>Import into</label>
+            <select class="field select" id="reviewAccount">
+              ${(window.__IMPORT_ACCOUNTS__ || []).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="category-form-actions">
+            <button class="btn btn-ghost" id="reviewAccept" type="button">Accept ${confident} confident</button>
+            <span class="spacer"></span>
+            <button class="btn btn-ghost" id="reviewCancel" type="button">Cancel</button>
+            <button class="btn btn-primary" id="reviewConfirm" type="button">Import ${rows.length - duplicates} transactions</button>
+          </div>
+        </div>`;
+      document.getElementById("reviewCancel").addEventListener("click", () => {
+        fetch(`/api/v1/imports/${batchID}/cancel`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } });
+        flowBox.hidden = true; flowBox.innerHTML = "";
+      });
+      const acceptBtn = document.getElementById("reviewAccept");
+      if (acceptBtn && confident > 0) {
+        acceptBtn.addEventListener("click", () => {
+          fetch(`/api/v1/imports/${batchID}/review`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+            body: JSON.stringify({ accept_confident: true }),
+          }).then(() => loadReview(batchID));
+        });
+      }
+      // Per-row category change + apply-to-similar.
+      document.getElementById("reviewRows").addEventListener("change", (e) => {
+        const sel = e.target.closest("[data-cat-select]");
+        if (!sel) return;
+        const tr = sel.closest("tr");
+        const rowID = tr.dataset.rowId;
+        const catID = sel.value || null;
+        const desc = tr.querySelector(".cell-merchant").textContent.trim();
+        const similar = Array.from(document.querySelectorAll("#reviewRows tr")).filter((r2) => {
+          const r2desc = r2.querySelector(".cell-merchant").textContent.trim();
+          return r2 !== tr && normaliseForSimilar(r2desc) === normaliseForSimilar(desc);
+        });
+        const patch = { set_category: { row_ids: [rowID, ...similar.map((r2) => r2.dataset.rowId)], category_id: catID } };
+        fetch(`/api/v1/imports/${batchID}/review`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+          body: JSON.stringify(patch),
+        }).then(() => toast(similar.length ? `Applied to ${similar.length + 1} rows` : "Category set"));
+      });
+      function normaliseForSimilar(s) {
+        return s.toLowerCase().replace(/[0-9]/g, "#").replace(/\s+/g, " ").trim();
+      }
+      document.getElementById("reviewConfirm").addEventListener("click", () => {
+        const accountID = document.getElementById("reviewAccount").value;
+        if (!accountID) { toast("Choose the account to import into"); return; }
+        fetch(`/api/v1/imports/${batchID}/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+          body: JSON.stringify({ account_id: accountID }),
+        }).then(async (r) => {
+          const b = await r.json().catch(() => ({}));
+          if (!r.ok) { toast((b.error && b.error.message) || "Import failed"); return; }
+          flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">
+            <svg class="icon" style="color:var(--income)"><use href="#i-check"/></svg>
+            Imported ${b.rows || 0} transactions — see the <a href="/transactions">transactions</a> and <a href="/history?mode=audit">audit log</a>.</div></div>`;
+          toast("Import complete");
+        });
+      });
+    });
+  };
+});

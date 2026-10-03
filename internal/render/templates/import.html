@@ -14,6 +14,16 @@
     <input type="file" id="fileInput" hidden multiple />
   </div>
 
+  <div class="field-row" style="max-width:320px">
+    <label>Default account for imports</label>
+    <select class="field select" id="importAccount">
+      {{range .Accounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+    </select>
+  </div>
+  <script>
+    window.__IMPORT_ACCOUNTS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];
+    window.__IMPORT_CATS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];
+  </script>
   <div class="two-col">
     <div>
       <div class="section-head">
