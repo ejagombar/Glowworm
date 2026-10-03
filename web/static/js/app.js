@@ -1007,24 +1007,12 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }));
   document.querySelectorAll("[data-audit-menu]").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.auditMenu;
-      const caps = await fetch(`/api/v1/audit/${id}/capabilities`).then((r) => r.json()).catch(() => null);
-      if (!caps) { toast("Could not load capabilities"); return; }
-      const actions = [];
-      if (caps.revert) actions.push(["Revert change", () => auditAction(id, `/api/v1/audit/${id}/revert`)]);
-      if (caps.forget) actions.push(["Keep effect, remove record", () => auditAction(id, `/api/v1/audit/${id}?mode=forget`, "DELETE")]);
-      if (caps.delete) actions.push(["Delete from history", () => auditAction(id, `/api/v1/audit/${id}`, "DELETE")]);
-      if (!actions.length) { toast(caps.reason || "No actions available"); return; }
-      // Simple action prompt (native menu keeps the UI dependency-free).
-      const pick = actions.map((a, i) => `${i + 1}. ${a[0]}`).join("\n");
-      const choice = window.prompt(pick + "\n\nNumber?");
-      const idx = Number(choice) - 1;
-      if (choice && actions[idx]) actions[idx][1]();
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openAuditMenu(btn);
     }));
-  function auditAction(id, url, method) {
-    method = method || "POST";
-    showConfirm("Apply to history?", "This will modify the audit history.", "Apply", () => {
+  function auditAction(id, url, method, title, body, confirmLabel, okMsg) {
+    showConfirm(title, body, confirmLabel, () => {
       fetch(url, { method, headers: { "X-CSRF-Token": csrfToken() } })
         .then(async (r) => {
           if (!r.ok) {
@@ -1032,11 +1020,71 @@ document.addEventListener("DOMContentLoaded", () => {
             toast((b.error && b.error.message) || "Action failed");
             return;
           }
-          toast("History updated");
+          toast(okMsg);
           location.reload();
         });
     });
   }
+  function openAuditMenu(btn) {
+    closeAuditMenu();
+    const id = btn.dataset.auditMenu;
+    const menu = document.createElement("div");
+    menu.className = "audit-menu";
+    menu.id = "auditMenu";
+    menu.innerHTML = '<div class="audit-menu-head">History actions</div>';
+    menu.addEventListener("click", (e) => e.stopPropagation());
+    fetch(`/api/v1/audit/${id}/capabilities`).then((r) => r.json()).then((caps) => {
+      if (!caps || caps.error) { toast("Could not load actions"); return; }
+      const items = [
+        ["revert", "Revert change", "Undoes this change and records the revert in the history.", "Revert",
+          () => auditAction(id, `/api/v1/audit/${id}/revert`, "POST",
+            "Revert this change?", "The change is undone now; later entries stay collapsed in the timeline and remain restorable.", "Revert", "Change reverted")],
+        ["forget", "Keep effect, remove record", "The result stays; this entry disappears from the history.", "Remove record",
+          () => auditAction(id, `/api/v1/audit/${id}?mode=forget`, "DELETE",
+            "Keep effect, remove record?", "The effect of this change stays in place, but the record is scrubbed from the history.", "Remove record", "Record removed")],
+        ["delete", "Delete from history", "Undoes the change and scrubs the record; a tombstone notes the deletion.", "Delete",
+          () => auditAction(id, `/api/v1/audit/${id}`, "DELETE",
+            "Delete from history?", "The change is undone and its record scrubbed. A tombstone entry notes that a change was deleted here.", "Delete", "Deleted from history")],
+      ];
+      let any = false;
+      for (const [cap, label, desc, cLabel, fn] of items) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "audit-menu-item" + (cap === "delete" ? " danger" : "");
+        if (caps[cap]) {
+          row.innerHTML = `<span class="audit-menu-label">${esc(label)}</span><span class="audit-menu-desc">${esc(desc)}</span>`;
+          row.addEventListener("click", () => { closeAuditMenu(); fn(); });
+          any = true;
+        } else {
+          row.disabled = true;
+          row.innerHTML = `<span class="audit-menu-label">${esc(label)}</span><span class="audit-menu-desc">${esc(caps.reason || "Not available for this entry")}</span>`;
+        }
+        menu.appendChild(row);
+      }
+      if (!any) {
+        const none = document.createElement("div");
+        none.className = "audit-menu-desc";
+        none.style.padding = "4px 14px 10px";
+        none.textContent = caps.reason || "No actions available for this entry.";
+        menu.appendChild(none);
+      }
+      document.body.appendChild(menu);
+      const r = btn.getBoundingClientRect();
+      const mw = menu.offsetWidth, mh = menu.offsetHeight;
+      let left = Math.min(r.left, window.innerWidth - mw - 12);
+      let top = r.bottom + 6;
+      if (top + mh > window.innerHeight - 12) top = Math.max(12, r.top - mh - 6);
+      menu.style.left = left + "px";
+      menu.style.top = top + "px";
+      requestAnimationFrame(() => menu.classList.add("open"));
+    }).catch(() => toast("Could not load actions"));
+  }
+  function closeAuditMenu() {
+    const m = document.getElementById("auditMenu");
+    if (m) m.remove();
+  }
+  document.addEventListener("click", closeAuditMenu);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAuditMenu(); });
 });
 
 
@@ -1239,7 +1287,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const renderBatch = (b) => {
     if (b.status === "failed") {
-      flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">${esc(b.parse_error || "Import failed")}</div></div>`;
+      const why = b.parse_error || "The file could not be read.";
+      const kind = (b.mime || "").toLowerCase();
+      const pdfHint = kind.includes("pdf")
+        ? '<p class="login-error" style="margin-top:8px">Scanned PDFs have no text layer — the optional AI vision path (Settings → AI) can read them, or export a CSV from your bank.</p>'
+        : "";
+      flowBox.innerHTML = `
+        <div class="panel category-form">
+          <h3 class="category-form-title">Import failed</h3>
+          <p class="login-error">${esc(why)}</p>
+          ${pdfHint}
+          <p class="login-error" style="color:var(--muted)">Nothing was imported, and this attempt does not appear in your history.</p>
+          <button class="btn btn-primary" id="importRetry">Try another file</button>
+        </div>`;
+      const retry = document.getElementById("importRetry");
+      if (retry) retry.addEventListener("click", () => location.reload());
       return;
     }
     if (b.status === "awaiting_review") {

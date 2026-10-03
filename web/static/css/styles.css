@@ -1532,3 +1532,18 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .logout-form { display: inline-flex; align-items: center; }
 .logout-form .icon-btn { align-self: center; }
 /* v1 additions: standalone pages (login) drop the content padding */
+/* v1 additions: audit entry action menu (popover, replaces native prompt) */
+.audit-menu {
+  position: fixed; z-index: 60; min-width: 300px; max-width: 340px;
+  background: var(--panel-bg, #fff); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.16);
+  padding: 6px; opacity: 0; transform: translateY(-4px); transition: opacity .12s, transform .12s;
+}
+.audit-menu.open { opacity: 1; transform: translateY(0); }
+.audit-menu-head { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 4px; }
+.audit-menu-item { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 8px 10px; cursor: pointer; font: inherit; color: inherit; }
+.audit-menu-item:hover:not(:disabled) { background: rgba(44,197,122,.08); }
+.audit-menu-item:disabled { cursor: default; opacity: .55; }
+.audit-menu-item .audit-menu-label { display: block; font-size: 13.5px; font-weight: 600; }
+.audit-menu-item .audit-menu-desc { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.audit-menu-item.danger .audit-menu-label { color: var(--red, #c0392b); }

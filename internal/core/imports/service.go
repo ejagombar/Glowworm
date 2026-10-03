@@ -48,6 +48,9 @@ type Batch struct {
 	SchemaName string     `json:"schema_name,omitempty"`
 	Sheets     []string   `json:"sheets,omitempty"`
 	Detection  *Detection `json:"detection,omitempty"`
+	// ParseError is surfaced to the UI (the embedded core type hides it from
+	// JSON via its own tag; this copy is what the import endpoints return).
+	ParseError *string `json:"parse_error,omitempty"`
 }
 
 // Detection is the detector output shown in the schema preview (doc 06 §5).
@@ -97,14 +100,10 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 			nullStr(accountID), batch.Status, batch.CreatedAt); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO import_files (batch_id, content) VALUES (?,?)`, batch.ID, data); err != nil {
-			return err
-		}
-		_, err := s.Audit.Write(tx, audit.Input{
-			Actor: core.ActorUser, Action: "import.created",
-			EntityType: "import_batch", EntityID: batch.ID,
-			Title: "Uploaded statement", Sub: filename,
-		})
+		// The upload itself is not a data mutation: no audit entry here.
+		// Failed uploads therefore never appear in the audit log; the
+		// completed import is logged once, on confirm (doc 11 §3 catalogue).
+		_, err := tx.Exec(`INSERT INTO import_files (batch_id, content) VALUES (?,?)`, batch.ID, data)
 		return err
 	})
 	if err != nil {
@@ -170,12 +169,15 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 				det.Confidence = m.Confidence
 				det.BankHint = m.BankHint
 				det.DateFormat = m.DateFormat
+				s.auditSchemaDetected(batchID, filename, det)
 				b, err := s.applyMapping(batchID, m, data, nil, det)
 				if err != nil {
 					return nil, err
 				}
 				return b, nil
 			}
+			// AI failed: fall through to manual mapping (doc 09 §9) — the
+			// failure is logged, not audited (failed actions don't appear).
 		}
 		// Manual-ready auto mapping (doc 06 §5.1 step 3).
 		if len(table) > 0 {
@@ -451,7 +453,7 @@ func (s *Service) Get(batchID string) (*Batch, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := &Batch{ImportBatch: batch}
+	b := &Batch{ImportBatch: batch, ParseError: batch.ParseError}
 	var rows int
 	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM import_staging WHERE batch_id = ?`, batchID).Scan(&rows)
 	b.Rows = rows
@@ -557,6 +559,26 @@ func sampleLines(lines []string, n int) [][]string {
 		out = append(out, strings.Split(l, ","))
 	}
 	return out
+}
+
+// auditSchemaDetected records a successful AI detection (doc 11 §3: actor ai;
+// prototype History parity: "Detected schema “Monzo CSV” · confidence 98% ·
+// 4 columns"). Only written on success — failures never appear.
+func (s *Service) auditSchemaDetected(batchID, filename string, det *Detection) {
+	err := s.DB.WithTx(func(tx *sql.Tx) error {
+		_, err := s.Audit.Write(tx, audit.Input{
+			Actor: core.ActorAI, Action: "import.schema_detected",
+			EntityType: "import_batch", EntityID: batchID,
+			Title: fmt.Sprintf("Detected schema %s", det.ProposedName),
+			Sub:   fmt.Sprintf("%s · %.0f%% confidence · %d columns", filename, det.Confidence*100, len(det.Columns)),
+			After: map[string]any{"kind": det.Kind, "columns": det.Columns, "confidence": det.Confidence},
+		})
+		return err
+	})
+	if err != nil {
+		// Non-fatal: detection itself already succeeded.
+		return
+	}
 }
 
 // matchSavedSchema finds a saved schema by fingerprint (doc 06 §5.1).
