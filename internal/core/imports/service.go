@@ -44,26 +44,26 @@ var ErrDuplicateFile = errors.New("this exact file was already imported")
 // Batch is a view-model of import_batches (+ staged row count).
 type Batch struct {
 	*core.ImportBatch
-	Rows        int                    `json:"rows"`
-	SchemaName  string                 `json:"schema_name,omitempty"`
-	Sheets      []string               `json:"sheets,omitempty"`
-	Detection   *Detection             `json:"detection,omitempty"`
+	Rows       int        `json:"rows"`
+	SchemaName string     `json:"schema_name,omitempty"`
+	Sheets     []string   `json:"sheets,omitempty"`
+	Detection  *Detection `json:"detection,omitempty"`
 }
 
 // Detection is the detector output shown in the schema preview (doc 06 §5).
 type Detection struct {
-	Kind         string            `json:"kind"`
-	Sheet        string            `json:"sheet,omitempty"`
-	Sheets       []string          `json:"sheets,omitempty"`
-	HasHeader    bool              `json:"has_header"`
-	Delimiter    string            `json:"delimiter,omitempty"`
-	Columns      []importer.ColumnMap `json:"columns"`
-	DateFormat   string            `json:"date_format,omitempty"`
-	BankHint     string            `json:"bank_hint,omitempty"`
-	ProposedName string            `json:"proposed_name,omitempty"`
-	Confidence   float64           `json:"confidence"`
-	MatchedSchema string           `json:"matched_schema,omitempty"`
-	Sample       [][]string        `json:"sample,omitempty"`
+	Kind          string               `json:"kind"`
+	Sheet         string               `json:"sheet,omitempty"`
+	Sheets        []string             `json:"sheets,omitempty"`
+	HasHeader     bool                 `json:"has_header"`
+	Delimiter     string               `json:"delimiter,omitempty"`
+	Columns       []importer.ColumnMap `json:"columns"`
+	DateFormat    string               `json:"date_format,omitempty"`
+	BankHint      string               `json:"bank_hint,omitempty"`
+	ProposedName  string               `json:"proposed_name,omitempty"`
+	Confidence    float64              `json:"confidence"`
+	MatchedSchema string               `json:"matched_schema,omitempty"`
+	Sample        [][]string           `json:"sample,omitempty"`
 }
 
 // Upload stores the file and creates the batch (doc 06 §1). The original
@@ -148,7 +148,7 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			det.MatchedSchema = schema.Name
 			det.BankHint = schema.BankHint
 			det.DateFormat = m.DateFormat
-				det.Columns = m.Columns
+			det.Columns = m.Columns
 			det.Confidence = 1.0
 			det.ProposedName = schema.Name
 			det.MatchedSchema = schema.Name
@@ -250,8 +250,8 @@ func (s *Service) detectWithAI(kind importer.Kind, table [][]string) (*importer.
 	resp, _, err := s.Provider.CompleteStructured(&ai.StructuredRequest{
 		Capability: "schema_detection",
 		PromptJSON: map[string]any{
-			"format": string(kind),
-			"columns": headers,
+			"format":      string(kind),
+			"columns":     headers,
 			"sample_rows": sample,
 		},
 	})
@@ -593,18 +593,18 @@ func normHeaders(header []string) []string {
 
 // StagedRow is the review-table projection (doc 06 §7).
 type StagedRow struct {
-	ID             string  `json:"id"`
-	Line           int     `json:"line_no"`
-	Date           string  `json:"date"`
-	Description    string  `json:"description"`
-	AmountMinor    int64   `json:"amount_minor"`
-	Currency       string  `json:"currency"`
-	CategoryID     *string `json:"category_id"`
-	CategoryName   string  `json:"category_name"`
-	CategorySource string  `json:"category_source"`
+	ID             string   `json:"id"`
+	Line           int      `json:"line_no"`
+	Date           string   `json:"date"`
+	Description    string   `json:"description"`
+	AmountMinor    int64    `json:"amount_minor"`
+	Currency       string   `json:"currency"`
+	CategoryID     *string  `json:"category_id"`
+	CategoryName   string   `json:"category_name"`
+	CategorySource string   `json:"category_source"`
 	Confidence     *float64 `json:"category_confidence"`
-	NeedsReview    bool    `json:"needs_review"`
-	DuplicateOf    *string `json:"duplicate_of,omitempty"`
+	NeedsReview    bool     `json:"needs_review"`
+	DuplicateOf    *string  `json:"duplicate_of,omitempty"`
 }
 
 // Review returns staged rows + aggregates (doc 03 §7).
@@ -652,11 +652,11 @@ func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsRev
 
 // ReviewPatch applies bulk ops (doc 03 §7).
 type ReviewPatch struct {
-	SetCategory     *struct {
+	SetCategory *struct {
 		RowIDs     []string `json:"row_ids"`
 		CategoryID string   `json:"category_id"`
 	} `json:"set_category,omitempty"`
-	AcceptConfident bool `json:"accept_confident"`
+	AcceptConfident bool     `json:"accept_confident"`
 	ForceImport     []string `json:"force_import,omitempty"`
 }
 
@@ -700,14 +700,14 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 			return err
 		}
 		type stagedRow struct {
-			id string
-			line int
-			date, desc string
-			amount int64
+			id                             string
+			line                           int
+			date, desc                     string
+			amount                         int64
 			currency, sourceText, destText string
-			categoryID *string
-			duplicateOf *string
-			raw string
+			categoryID                     *string
+			duplicateOf                    *string
+			raw                            string
 		}
 		var rowsData []stagedRow
 		for rows.Next() {
@@ -741,7 +741,7 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 				AmountMinor: r.amount, Currency: r.currency,
 				Type: typeFor(r.amount), CategoryID: r.categoryID,
 				CategorySource: core.CategorySourceUser,
-				SourceText: r.sourceText, DestinationText: r.destText,
+				SourceText:     r.sourceText, DestinationText: r.destText,
 				ImportBatchID: &batchID, DedupeHash: repos.DedupeHash(accountID, r.date, r.amount, r.desc),
 			}
 			if r.categoryID == nil {
@@ -778,10 +778,10 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 		_, err = s.Audit.Write(tx, audit.Input{
 			Actor: core.ActorUser, Action: "import.confirmed",
 			EntityType: "import_batch", EntityID: batchID,
-			Title: fmt.Sprintf("Imported %d transactions", imported),
-			Sub:   fmt.Sprintf("%s · %s → %s", batch.Filename, firstDate, lastDate),
-			Diff:  diff,
-			After: map[string]any{"batch_id": batchID, "imported": imported},
+			Title:  fmt.Sprintf("Imported %d transactions", imported),
+			Sub:    fmt.Sprintf("%s · %s → %s", batch.Filename, firstDate, lastDate),
+			Diff:   diff,
+			After:  map[string]any{"batch_id": batchID, "imported": imported},
 			Revert: map[string]any{"batch_id": batchID},
 		})
 		return err

@@ -80,17 +80,17 @@ func (s *Service) Get(id string) (*core.Account, error) {
 
 // Input is the create/update payload.
 type Input struct {
-	Name                string  `json:"name"`
-	Type                string  `json:"type"`
-	Currency            string  `json:"currency"`
-	OpeningBalanceMinor int64   `json:"opening_balance_minor"`
-	OpeningBalanceDate  string  `json:"opening_balance_date"`
-	AccountNumber       string  `json:"account_number"`
-	SortCode            string  `json:"sort_code"`
-	IBAN                string  `json:"iban"`
-	BIC                 string  `json:"bic"`
-	Notes               string  `json:"notes"`
-	Color               string  `json:"color"`
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	Currency            string `json:"currency"`
+	OpeningBalanceMinor int64  `json:"opening_balance_minor"`
+	OpeningBalanceDate  string `json:"opening_balance_date"`
+	AccountNumber       string `json:"account_number"`
+	SortCode            string `json:"sort_code"`
+	IBAN                string `json:"iban"`
+	BIC                 string `json:"bic"`
+	Notes               string `json:"notes"`
+	Color               string `json:"color"`
 }
 
 // Validate checks create/update input (doc 02 §3.1).
@@ -143,7 +143,7 @@ func (s *Service) Create(in Input) (*core.Account, error) {
 			Actor: core.ActorUser, Action: "account.created",
 			EntityType: "account", EntityID: a.ID,
 			Title: "Added account", Sub: fmt.Sprintf("%s · %s", a.Name, sub),
-			After: accountSnapshot(a),
+			After:  accountSnapshot(a),
 			Revert: map[string]any{"account_id": a.ID},
 		})
 		if err != nil {

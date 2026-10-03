@@ -13,19 +13,19 @@ import (
 
 // Config holds the resolved runtime configuration.
 type Config struct {
-	Addr         string // GLOWWORM_ADDR
-	DataDir      string // GLOWWORM_DATA_DIR
-	DBDialect    string // GLOWWORM_DB: sqlite|postgres
-	DBDSN        string // GLOWWORM_DB_DSN (postgres)
-	Timezone     string // GLOWWORM_TIMEZONE (IANA name)
-	SecretKey    string // GLOWWORM_SECRET_KEY (hex or base64, 32 bytes)
-	AuthMode     string // GLOWWORM_AUTH_MODE: password|none
-	LogFormat    string // GLOWWORM_LOG_FORMAT: text|json
-	LogLevel     string // GLOWWORM_LOG_LEVEL
-	UploadMaxMB  int    // GLOWWORM_UPLOAD_MAX_MB
+	Addr           string // GLOWWORM_ADDR
+	DataDir        string // GLOWWORM_DATA_DIR
+	DBDialect      string // GLOWWORM_DB: sqlite|postgres
+	DBDSN          string // GLOWWORM_DB_DSN (postgres)
+	Timezone       string // GLOWWORM_TIMEZONE (IANA name)
+	SecretKey      string // GLOWWORM_SECRET_KEY (hex or base64, 32 bytes)
+	AuthMode       string // GLOWWORM_AUTH_MODE: password|none
+	LogFormat      string // GLOWWORM_LOG_FORMAT: text|json
+	LogLevel       string // GLOWWORM_LOG_LEVEL
+	UploadMaxMB    int    // GLOWWORM_UPLOAD_MAX_MB
 	TrustedProxies string // GLOWWORM_TRUSTED_PROXIES (CIDR list, comma separated)
-	SetupToken   string // GLOWWORM_SETUP_TOKEN (gates first-run setup page)
-	ConfigFile   string // path of the config file that was read ("" = none)
+	SetupToken     string // GLOWWORM_SETUP_TOKEN (gates first-run setup page)
+	ConfigFile     string // path of the config file that was read ("" = none)
 }
 
 // Defaults per doc 13 §3.

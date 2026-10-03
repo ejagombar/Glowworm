@@ -373,6 +373,7 @@ func fieldDiffs(before, after TxSnapshot) []audit.DiffLine {
 
 // IsNotFound maps driver errors.
 func IsNotFound(err error) bool { return errors.Is(err, sql.ErrNoRows) }
+
 // Get returns one enriched transaction.
 func (s *Service) Get(id string) (*core.Transaction, error) {
 	return s.Repos.Get(id)

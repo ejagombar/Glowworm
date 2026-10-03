@@ -1,0 +1,23 @@
+# Glowworm — docker compose deployment (doc 13 §5)
+services:
+  glowworm:
+    build: ..
+    # image: ghcr.io/<owner>/glowworm:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - glowworm-data:/data
+    environment:
+      GLOWWORM_TIMEZONE: "Europe/London"
+      GLOWWORM_UPLOAD_MAX_MB: "25"
+      GLOWWORM_LOG_FORMAT: "json"
+      # GLOWWORM_SETUP_TOKEN: "print-a-secret-here"   # optional gate for first-run setup
+    healthcheck:
+      test: ["CMD", "/glowworm", "healthcheck", "--url", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  glowworm-data: {}

@@ -18,11 +18,11 @@ import (
 
 // Executor owns the action handlers.
 type Executor struct {
-	DB           *store.DB
-	Accounts     *repos.Accounts
-	Categories   *repos.Categories
-	Txs          *repos.Transactions
-	InternalCat  func(tx *sql.Tx) (string, error) // resolves system "Internal transfer" id
+	DB          *store.DB
+	Accounts    *repos.Accounts
+	Categories  *repos.Categories
+	Txs         *repos.Transactions
+	InternalCat func(tx *sql.Tx) (string, error) // resolves system "Internal transfer" id
 }
 
 // Apply dispatches an entry: revert semantics are driven by entry.Action and

@@ -55,11 +55,11 @@ type Plan struct {
 
 // Answer is the full query response (doc 10 §2).
 type Answer struct {
-	Text       string          `json:"text"`
-	Steps      []string        `json:"steps"`
-	Widget     *widgets.Widget `json:"widget"`
-	Plan       *Plan           `json:"plan"`
-	Dataset    *widgets.Dataset `json:"dataset"`
+	Text    string           `json:"text"`
+	Steps   []string         `json:"steps"`
+	Widget  *widgets.Widget  `json:"widget"`
+	Plan    *Plan            `json:"plan"`
+	Dataset *widgets.Dataset `json:"dataset"`
 }
 
 // CompilePublic executes an already-validated plan (pinned widget refresh,
@@ -158,7 +158,7 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 
 // ClarifyError asks the user to disambiguate (doc 10 §9).
 type ClarifyError struct {
-	Message    string   `json:"message"`
+	Message     string   `json:"message"`
 	Suggestions []string `json:"suggestions"`
 }
 
@@ -173,10 +173,10 @@ func (s *Service) plan(question string) (*Plan, error) {
 	resp, _, err := s.Provider.CompleteStructured(&ai.StructuredRequest{
 		Capability: "query_planning",
 		PromptJSON: map[string]any{
-			"question":       question,
-			"today":          s.Clock.Today(),
-			"categories":     cats,
-			"accounts":       accounts,
+			"question":        question,
+			"today":           s.Clock.Today(),
+			"categories":      cats,
+			"accounts":        accounts,
 			"known_merchants": merchants,
 		},
 	})
@@ -377,7 +377,7 @@ func (s *Service) compileMoney(p *Plan) (*widgets.Dataset, string, error) {
 		sqlDisplay := fmt.Sprintf("SELECT %s(amount_minor) FROM tx WHERE %s", sumExpr(p.Metric), where)
 		var total any
 		err := s.DB.QueryRow(`SELECT COALESCE(SUM(`+sign+`amount_minor),0) FROM transactions t
-			WHERE t.deleted_at IS NULL` + where, args...).Scan(&total)
+			WHERE t.deleted_at IS NULL`+where, args...).Scan(&total)
 		if err != nil {
 			return nil, sqlDisplay, err
 		}

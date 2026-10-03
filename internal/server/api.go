@@ -600,11 +600,12 @@ func (a *App) apiDashboardSummary(w http.ResponseWriter, r *http.Request) error 
 	income, spend := a.monthTotals()
 	writeJSON(w, map[string]any{
 		"available_minor": available, "savings_minor": savings,
-		"currency":        a.Settings.Get().Currency,
+		"currency":           a.Settings.Get().Currency,
 		"income_month_minor": income, "spend_month_minor": spend,
 	})
 	return nil
 }
+
 // --- imports (doc 06 pipeline) ---
 
 func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
@@ -1021,9 +1022,9 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 		_, err := a.AuditWriter.Write(tx, audit.Input{
 			Actor: "user", Action: "settings.ai.updated",
 			EntityType: "ai_provider_config", EntityID: "1",
-			Title: "Updated AI provider",
-			Sub:   maskedProvider(in.Provider),
-			After: map[string]any{"provider": in.Provider, "models": models, "base_url": in.BaseURL, "has_key": in.APIKey != ""},
+			Title:  "Updated AI provider",
+			Sub:    maskedProvider(in.Provider),
+			After:  map[string]any{"provider": in.Provider, "models": models, "base_url": in.BaseURL, "has_key": in.APIKey != ""},
 			Revert: map[string]any{"provider": row.Provider, "models": row.Models, "base_url": row.BaseURL, "key_cipher": row.KeyCipher},
 		})
 		return err
@@ -1086,7 +1087,6 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-
 // --- snapshot / timeline / reconcile (doc 03 §10) ---
 
 // apiSnapshot reconstructs per-account balances at a date (doc 11 §5.3).
@@ -1104,11 +1104,11 @@ func (a *App) apiSnapshot(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	type accBal struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Type     string `json:"type"`
-		Color    string `json:"color"`
-		Balance  int64  `json:"balance_minor"`
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Type    string `json:"type"`
+		Color   string `json:"color"`
+		Balance int64  `json:"balance_minor"`
 	}
 	items := []accBal{}
 	var total int64

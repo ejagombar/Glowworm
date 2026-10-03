@@ -290,7 +290,7 @@ func (e *Engine) JumpBack(entryID int64, apply ApplyFunc) (JumpResult, error) {
 
 // JumpResult summarises a jump-back.
 type JumpResult struct {
-	Deactivated []int64         `json:"deactivated"`
+	Deactivated []int64          `json:"deactivated"`
 	Failed      []map[string]any `json:"failed,omitempty"`
 }
 
@@ -392,7 +392,7 @@ func (e *Engine) activeOutsideChain(tx *sql.Tx, pathID string) ([]AuditRow, erro
 	// the chain-union; entries beyond the fork (or on non-ancestor branches)
 	// are outside.
 	var chain []struct {
-		id  string
+		id   string
 		fork *int64
 	}
 	p := pathID
@@ -505,12 +505,12 @@ func (e *Engine) removeRecord(tx *sql.Tx, entryID int64, mode string, ent *Audit
 
 // ListOptions filters the audit list (doc 03 §10).
 type ListOptions struct {
-	Actor     string
-	Action    string
+	Actor      string
+	Action     string
 	EntityType string
-	EntityID  string
-	Limit     int
-	Cursor    int64 // exclusive
+	EntityID   string
+	Limit      int
+	Cursor     int64 // exclusive
 }
 
 // List returns entries (newest first) with parsed diff lines.

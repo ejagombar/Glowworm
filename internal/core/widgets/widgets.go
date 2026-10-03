@@ -13,9 +13,9 @@ import (
 
 // Dataset is the canonical tabular result behind a widget (doc 05 §3).
 type Dataset struct {
-	Columns []Column   `json:"columns"`
-	Rows    [][]any    `json:"rows"`
-	Meta    Meta       `json:"meta"`
+	Columns []Column `json:"columns"`
+	Rows    [][]any  `json:"rows"`
+	Meta    Meta     `json:"meta"`
 }
 
 // Column describes one dataset column.
@@ -40,12 +40,12 @@ type Meta struct {
 
 // Widget is the frontend-agnostic JSON widget (doc 05 §2).
 type Widget struct {
-	ID      string          `json:"id,omitempty"`
-	Type    string          `json:"type"`
-	Title   string          `json:"title"`
-	Data    any             `json:"data"`
-	Dataset *Dataset        `json:"dataset,omitempty"`
-	Plan    any             `json:"plan,omitempty"`
+	ID      string   `json:"id,omitempty"`
+	Type    string   `json:"type"`
+	Title   string   `json:"title"`
+	Data    any      `json:"data"`
+	Dataset *Dataset `json:"dataset,omitempty"`
+	Plan    any      `json:"plan,omitempty"`
 }
 
 // palette matches WIDGET_COLORS (doc 05 §3).

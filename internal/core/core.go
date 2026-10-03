@@ -34,7 +34,7 @@ const (
 
 // Category sources (who assigned the category).
 const (
-	CategorySourceUser = "user"
+	CategorySourceUser  = "user"
 	CategorySourceLocal = "local"
 	CategorySourceAI    = "ai"
 	CategorySourceNone  = "none"
@@ -48,44 +48,44 @@ var Palette = []string{
 
 // Account is a user-owned financial account (doc 02 §3.1).
 type Account struct {
-	ID                 string     `json:"id"`
-	Name               string     `json:"name"`
-	Type               string     `json:"type"`
-	Color              string     `json:"color"`
-	Currency           string     `json:"currency"`
-	OpeningBalanceMinor int64     `json:"opening_balance_minor"`
-	OpeningBalanceDate string     `json:"opening_balance_date"` // "" = not set
-	AccountNumber      string     `json:"-"`
-	SortCode           string     `json:"-"`
-	IBAN               string     `json:"-"`
-	BIC                string     `json:"-"`
-	Notes              string     `json:"notes"`
-	CreatedAt          string     `json:"created_at"`
-	UpdatedAt          string     `json:"updated_at"`
-	DeletedAt          *string    `json:"-"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Type                string  `json:"type"`
+	Color               string  `json:"color"`
+	Currency            string  `json:"currency"`
+	OpeningBalanceMinor int64   `json:"opening_balance_minor"`
+	OpeningBalanceDate  string  `json:"opening_balance_date"` // "" = not set
+	AccountNumber       string  `json:"-"`
+	SortCode            string  `json:"-"`
+	IBAN                string  `json:"-"`
+	BIC                 string  `json:"-"`
+	Notes               string  `json:"notes"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
+	DeletedAt           *string `json:"-"`
 	// Computed (list/detail views):
-	CurrentBalanceMinor int64      `json:"current_balance_minor"`
-	RefLast4            string     `json:"ref_last4"`
-	HasNumber           bool       `json:"has_account_number"`
-	HasIBAN             bool       `json:"has_iban"`
-	HasBIC              bool       `json:"has_bic"`
-	TxCount             int        `json:"tx_count"`
-	CorrectionsCount    int        `json:"corrections_count"`
+	CurrentBalanceMinor int64  `json:"current_balance_minor"`
+	RefLast4            string `json:"ref_last4"`
+	HasNumber           bool   `json:"has_account_number"`
+	HasIBAN             bool   `json:"has_iban"`
+	HasBIC              bool   `json:"has_bic"`
+	TxCount             int    `json:"tx_count"`
+	CorrectionsCount    int    `json:"corrections_count"`
 }
 
 // Valuation is a point-in-time correction (doc 02 §3.2).
 type Valuation struct {
-	ID          string  `json:"id"`
-	AccountID   string  `json:"account_id"`
-	ValueMinor  int64   `json:"value_minor"`
-	Date        string  `json:"date"`
-	Note        string  `json:"note"`
-	Source      string  `json:"source"`
-	DriftMinor  *int64  `json:"drift_minor"`
-	AuditLogID  *int64  `json:"audit_log_id"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
-	DeletedAt   *string `json:"-"`
+	ID         string  `json:"id"`
+	AccountID  string  `json:"account_id"`
+	ValueMinor int64   `json:"value_minor"`
+	Date       string  `json:"date"`
+	Note       string  `json:"note"`
+	Source     string  `json:"source"`
+	DriftMinor *int64  `json:"drift_minor"`
+	AuditLogID *int64  `json:"audit_log_id"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
+	DeletedAt  *string `json:"-"`
 }
 
 // Category (doc 02 §4).
@@ -138,30 +138,30 @@ type Transaction struct {
 
 // Transfer links two legs (doc 02 §5.2).
 type Transfer struct {
-	ID             string   `json:"id"`
-	SourceTxID     string   `json:"source_transaction_id"`      // outbound (amount < 0)
-	DestinationTxID string  `json:"destination_transaction_id"` // inbound (amount > 0)
-	Detected       string   `json:"detected"` // auto | manual
-	Method         string   `json:"method"`   // identifier | description | amount-date | manual
-	Confidence     *float64 `json:"confidence"`
-	CreatedAt      string   `json:"created_at"`
-	DeletedAt      *string  `json:"-"`
+	ID              string   `json:"id"`
+	SourceTxID      string   `json:"source_transaction_id"`      // outbound (amount < 0)
+	DestinationTxID string   `json:"destination_transaction_id"` // inbound (amount > 0)
+	Detected        string   `json:"detected"`                   // auto | manual
+	Method          string   `json:"method"`                     // identifier | description | amount-date | manual
+	Confidence      *float64 `json:"confidence"`
+	CreatedAt       string   `json:"created_at"`
+	DeletedAt       *string  `json:"-"`
 }
 
 // RecurringKey metadata (doc 02 §6.1).
 type RecurringKey struct {
-	Key          string   `json:"key"`
-	Label        string   `json:"label"`
-	Cadence      string   `json:"cadence"`
-	IntervalDays *int     `json:"interval_days"`
-	AmountMinor  *int64   `json:"amount_minor"`
-	Direction    string   `json:"direction"`
-	FirstSeen    string   `json:"first_seen"`
-	LastSeen     string   `json:"last_seen"`
-	NextExpected *string  `json:"next_expected"`
-	Confidence   float64  `json:"confidence"`
-	Active       bool     `json:"active"`
-	UpdatedAt    string   `json:"updated_at"`
+	Key          string  `json:"key"`
+	Label        string  `json:"label"`
+	Cadence      string  `json:"cadence"`
+	IntervalDays *int    `json:"interval_days"`
+	AmountMinor  *int64  `json:"amount_minor"`
+	Direction    string  `json:"direction"`
+	FirstSeen    string  `json:"first_seen"`
+	LastSeen     string  `json:"last_seen"`
+	NextExpected *string `json:"next_expected"`
+	Confidence   float64 `json:"confidence"`
+	Active       bool    `json:"active"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 // ImportBatch (doc 02 §7.1).
@@ -182,32 +182,32 @@ type ImportBatch struct {
 
 // ImportSchema (doc 02 §7.3).
 type ImportSchema struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	BankHint    string   `json:"bank_hint"`
-	Kind        string   `json:"kind"`
-	Mapping     string   `json:"mapping"`  // JSON column mapping (doc 06 §5.2)
-	Columns     []string `json:"columns"`  // ordered source column names
-	SampleHash  string   `json:"-"`
-	Confidence  float64  `json:"confidence"`
-	UseCount    int      `json:"use_count"`
-	LastUsedAt  *string  `json:"last_used_at"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	BankHint   string   `json:"bank_hint"`
+	Kind       string   `json:"kind"`
+	Mapping    string   `json:"mapping"` // JSON column mapping (doc 06 §5.2)
+	Columns    []string `json:"columns"` // ordered source column names
+	SampleHash string   `json:"-"`
+	Confidence float64  `json:"confidence"`
+	UseCount   int      `json:"use_count"`
+	LastUsedAt *string  `json:"last_used_at"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
 }
 
 // PinnedWidget (doc 02 §8.1).
 type PinnedWidget struct {
-	ID        string `json:"id"`
-	Position  int    `json:"position"`
-	Col       int    `json:"col"`
-	Rows      int    `json:"rows"`
-	Title     string `json:"title"`
-	Type      string `json:"type"`
-	Dataset   string `json:"dataset"` // JSON canonical dataset
-	Plan      *string `json:"plan"`   // JSON query plan (re-executed on dashboard render)
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string  `json:"id"`
+	Position  int     `json:"position"`
+	Col       int     `json:"col"`
+	Rows      int     `json:"rows"`
+	Title     string  `json:"title"`
+	Type      string  `json:"type"`
+	Dataset   string  `json:"dataset"` // JSON canonical dataset
+	Plan      *string `json:"plan"`    // JSON query plan (re-executed on dashboard render)
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 // User (doc 02 §2.2).
@@ -233,7 +233,7 @@ type AuditEntry struct {
 	Sub         string `json:"sub"`
 	Diff        string `json:"diff"`
 	Before      string `json:"before"`
-	After       string  `json:"after"`
+	After       string `json:"after"`
 	Revert      string `json:"revert"`
 	PathID      string `json:"path_id"`
 	State       string `json:"state"`
@@ -250,7 +250,7 @@ type DiffLine struct {
 
 // AuditPath (doc 02 §8.3 / doc 11 §4.1).
 type AuditPath struct {
-	ID          string `json:"id"`
+	ID           string  `json:"id"`
 	ParentPathID *string `json:"parent_path_id"`
 	ForkEntryID  *int64  `json:"fork_entry_id"`
 	Label        string  `json:"label"`
@@ -267,15 +267,15 @@ type Conversation struct {
 }
 
 type Message struct {
-	ID             string  `json:"id"`
-	ConversationID string  `json:"conversation_id"`
-	Role           string  `json:"role"`
-	Text           string  `json:"text"`
+	ID             string   `json:"id"`
+	ConversationID string   `json:"conversation_id"`
+	Role           string   `json:"role"`
+	Text           string   `json:"text"`
 	Steps          []string `json:"steps"`
-	Widget         *string `json:"widget"` // JSON widget (with dataset)
-	Dataset        *string `json:"dataset"`
-	Plan           *string `json:"plan"`
-	CreatedAt      string  `json:"created_at"`
+	Widget         *string  `json:"widget"` // JSON widget (with dataset)
+	Dataset        *string  `json:"dataset"`
+	Plan           *string  `json:"plan"`
+	CreatedAt      string   `json:"created_at"`
 }
 
 // AccountName resolves via the enriched Account (repos enrich rows).

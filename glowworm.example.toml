@@ -1,0 +1,15 @@
+# Glowworm configuration (doc 13 §3) — env vars take precedence.
+# Copy to glowworm.toml or /etc/glowworm/glowworm.toml.
+
+addr = "127.0.0.1:8080"
+data_dir = "./data"
+db = "sqlite"            # sqlite | postgres
+# db_dsn = "postgres://glowworm:secret@localhost:5432/glowworm"
+timezone = "Europe/London"
+# secret_key = "64 hex chars — auto-generated into data/secret.key when unset"
+auth_mode = "password"   # password | none (none: trusted networks only)
+log_format = "text"      # text | json
+log_level = "info"
+upload_max_mb = 25
+# trusted_proxies = "127.0.0.1"  # behind NGINX
+# setup_token = "..."           # optional gate for the first-run setup page

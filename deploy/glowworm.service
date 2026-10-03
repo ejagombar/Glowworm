@@ -1,0 +1,20 @@
+# Glowworm — systemd unit (doc 13 §7)
+[Unit]
+Description=Glowworm finance tracker
+After=network-online.target
+
+[Service]
+User=glowworm
+StateDirectory=glowworm
+Environment=GLOWWORM_DATA_DIR=/var/lib/glowworm
+Environment=GLOWWORM_ADDR=127.0.0.1:8080
+Environment=GLOWWORM_LOG_FORMAT=json
+ExecStart=/usr/local/bin/glowworm serve
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

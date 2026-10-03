@@ -34,12 +34,12 @@ func New() (*Renderer, error) {
 				return "badge-income"
 			}
 		},
-		"money":      func(minor int64, cc string) string { return money.Format(minor, cc) },
-		"moneySigned": func(minor int64, cc string) string { return money.FormatSigned(minor, cc) },
-		"symbol":     money.Symbol,
-		"dayMonth":   func(iso string) string { return fmtDate(iso, "2 Jan") },
+		"money":        func(minor int64, cc string) string { return money.Format(minor, cc) },
+		"moneySigned":  func(minor int64, cc string) string { return money.FormatSigned(minor, cc) },
+		"symbol":       money.Symbol,
+		"dayMonth":     func(iso string) string { return fmtDate(iso, "2 Jan") },
 		"dayMonthYear": func(iso string) string { return fmtDate(iso, "2 Jan 2006") },
-		"monthName":  func(mm string) string {
+		"monthName": func(mm string) string {
 			months := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 			i := 0
 			if len(mm) == 2 {
@@ -50,9 +50,9 @@ func New() (*Renderer, error) {
 			}
 			return months[i-1]
 		},
-		"initial":     func(s string) string { return strings.ToUpper(firstRune(s)) },
-		"safeHTML":    func(s template.HTML) template.HTML { return s },
-		"dict":       func(pairs ...any) map[string]any {
+		"initial":  func(s string) string { return strings.ToUpper(firstRune(s)) },
+		"safeHTML": func(s template.HTML) template.HTML { return s },
+		"dict": func(pairs ...any) map[string]any {
 			m := map[string]any{}
 			for i := 0; i+1 < len(pairs); i += 2 {
 				k, _ := pairs[i].(string)
@@ -60,16 +60,16 @@ func New() (*Renderer, error) {
 			}
 			return m
 		},
-		"mul":        func(a, b int64) int64 { return a * b },
-		"sub":        func(a, b int) int { return a - b },
-		"add":        func(a, b int64) int64 { return a + b },
-		"json":        func(v any) template.JS {
+		"mul": func(a, b int64) int64 { return a * b },
+		"sub": func(a, b int) int { return a - b },
+		"add": func(a, b int64) int64 { return a + b },
+		"json": func(v any) template.JS {
 			b, _ := jsonMarshal(v)
 			return template.JS(b)
 		},
 		// jsonAttr renders pre-serialised JSON into an attribute; html/template
 		// escapes quotes (&quot;) which the browser decodes back.
-		"jsonAttr":    func(v any) template.HTMLAttr {
+		"jsonAttr": func(v any) template.HTMLAttr {
 			if s, ok := v.(string); ok {
 				return template.HTMLAttr(s)
 			}
@@ -77,7 +77,7 @@ func New() (*Renderer, error) {
 			return template.HTMLAttr(b)
 		},
 		"weekdayGreeting": func() string { return "" },
-		"prefix":        func(s, p string) bool { return strings.HasPrefix(s, p) },
+		"prefix":          func(s, p string) bool { return strings.HasPrefix(s, p) },
 	}
 	entries, err := templatesFS.ReadDir("templates")
 	if err != nil {

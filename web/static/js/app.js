@@ -1329,3 +1329,69 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 });
+
+
+/* ---------- Timeline slider (doc 04 §5.7) ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  const slider = document.getElementById("timelineSlider");
+  if (!slider) return;
+  const months = (window.__TIMELINE_MONTHS__ || []);
+  let timer = null;
+  const render = (idx) => {
+    const m = months[idx];
+    if (!m) return;
+    const dateInput = m + "-28";
+    // Fetch the snapshot for the selected month end.
+    const end = monthEndOf(m);
+    document.getElementById("timelineDate").textContent = humanDate(end);
+    const chip = document.getElementById("timelineChip");
+    const monthsBack = months.length - 1 - idx;
+    chip.textContent = monthsBack === 0 ? "Latest" : monthsBack === 1 ? "1 month back" : monthsBack + " months back";
+    slider.style.setProperty("--fill", (months.length > 1 ? (idx / (months.length - 1)) * 100 : 0) + "%");
+    fetch(`/api/v1/snapshot?date=${end}`).then((r) => r.json()).then((b) => {
+      const bal = document.getElementById("timelineBalance");
+      if (bal) bal.textContent = fmtMoneyMinor(b.total_minor, b.currency);
+      const count = document.getElementById("timelineTxCount");
+      if (count) count.textContent = b.tx_count;
+      const wrap = document.getElementById("timelineAccounts");
+      if (wrap) {
+        wrap.innerHTML = (b.accounts || []).map((a) => `
+          <div class="timeline-account">
+            <span class="account-dot" style="background:${esc(a.color)}"></span>
+            <span class="account-name">${esc(a.name)}</span>
+            <span class="account-balance ${a.balance_minor < 0 ? "neg" : ""}">${fmtMoneyMinor(a.balance_minor, b.currency)}</span>
+          </div>`).join("");
+      }
+    }).catch(() => {});
+  };
+  slider.addEventListener("input", (e) => {
+    const idx = Number(e.target.value);
+    clearTimeout(timer);
+    timer = setTimeout(() => render(idx), 80);
+  });
+  // Ticks (≤7 evenly spread, prototype logic).
+  const ticks = document.getElementById("timelineTicks");
+  if (ticks && months.length) {
+    const count = Math.min(months.length, 7);
+    const denom = count > 1 ? count - 1 : 1;
+    let html = "";
+    for (let i = 0; i < count; i++) {
+      const tIdx = Math.round((i * (months.length - 1)) / denom);
+      const pos = months.length > 1 ? (tIdx / (months.length - 1)) * 100 : 0;
+      const cls = i === 0 ? " first" : i === count - 1 ? " last" : "";
+      html += `<div class="timeline-tick${cls}" style="left:${pos}%"><span>${esc(shortMonthLabel(months[tIdx]))}</span></div>`;
+    }
+    ticks.innerHTML = html;
+  }
+  render(Number(slider.value));
+});
+
+function shortMonthLabel(m) {
+  const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const mm = Number(m.slice(5, 7));
+  return (names[mm - 1] || m) + " " + m.slice(2, 4);
+}
+function humanDate(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}

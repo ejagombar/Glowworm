@@ -43,10 +43,10 @@ func (p *OpenAI) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}
 	return retry(func(feedback string) (string, *Usage, error) {
 		body := map[string]any{
-			"model":       model,
-			"messages":    []map[string]string{{"role": "user", "content": user + feedback}},
-			"temperature": 0,
-			"max_tokens":  req.MaxTokens,
+			"model":           model,
+			"messages":        []map[string]string{{"role": "user", "content": user + feedback}},
+			"temperature":     0,
+			"max_tokens":      req.MaxTokens,
 			"response_format": map[string]string{"type": "json_object"},
 		}
 		var resp struct {
@@ -110,10 +110,10 @@ func (p *Anthropic) CompleteStructured(req *StructuredRequest) (string, *Usage, 
 	}
 	return retry(func(feedback string) (string, *Usage, error) {
 		body := map[string]any{
-			"model":      model,
-			"max_tokens": req.MaxTokens,
+			"model":       model,
+			"max_tokens":  req.MaxTokens,
 			"temperature": 0,
-			"messages":   []map[string]string{{"role": "user", "content": user + feedback}},
+			"messages":    []map[string]string{{"role": "user", "content": user + feedback}},
 		}
 		var resp struct {
 			Content []struct {
@@ -178,8 +178,8 @@ func (p *Gemini) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 				"parts": []map[string]string{{"text": user + feedback}},
 			}},
 			"generationConfig": map[string]any{
-				"temperature":     0,
-				"maxOutputTokens": req.MaxTokens,
+				"temperature":      0,
+				"maxOutputTokens":  req.MaxTokens,
 				"responseMimeType": "application/json",
 			},
 		}
@@ -242,10 +242,10 @@ func (p *Ollama) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	user := capabilityPrompt(req.Capability, req.PromptJSON)
 	return retry(func(feedback string) (string, *Usage, error) {
 		body := map[string]any{
-			"model":  model,
-			"prompt": user + feedback,
-			"stream": false,
-			"format": "json",
+			"model":   model,
+			"prompt":  user + feedback,
+			"stream":  false,
+			"format":  "json",
 			"options": map[string]any{"temperature": 0},
 		}
 		var resp struct {

@@ -179,9 +179,9 @@ func timeParseQIF(s string) (t timeT, err error) {
 
 // ReadOFX parses OFX v1/v2 STMTTRN blocks (doc 06 §2).
 var (
-	reTag  = regexp.MustCompile(`<(DTPOSTED|TRNAMT|NAME|PAYEE|MEMO|FITID|TRNTYPE)>([^<\r\n]*)`)
+	reTag   = regexp.MustCompile(`<(DTPOSTED|TRNAMT|NAME|PAYEE|MEMO|FITID|TRNTYPE)>([^<\r\n]*)`)
 	reBlock = regexp.MustCompile(`(?s)<STMTTRN>(.*?)</STMTTRN>`)
-	reDT   = regexp.MustCompile(`^(\d{4})(\d{2})(\d{2})`)
+	reDT    = regexp.MustCompile(`^(\d{4})(\d{2})(\d{2})`)
 )
 
 func ReadOFX(data []byte, currency string) ([]Row, error) {

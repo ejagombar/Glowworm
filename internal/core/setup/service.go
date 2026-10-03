@@ -30,12 +30,12 @@ func (e *ValidationError) Error() string { return e.Message }
 
 // Status reports the wizard state (doc 03 §13).
 type Status struct {
-	Completed      bool `json:"completed"`
-	HasCategories  bool `json:"has_categories"`
-	HasAccounts    bool `json:"has_accounts"`
+	Completed       bool `json:"completed"`
+	HasCategories   bool `json:"has_categories"`
+	HasAccounts     bool `json:"has_accounts"`
 	HasTransactions bool `json:"has_transactions"`
-	AIConfigured   bool `json:"ai_configured"`
-	HasUser        bool `json:"has_user"`
+	AIConfigured    bool `json:"ai_configured"`
+	HasUser         bool `json:"has_user"`
 }
 
 // Status computes the current state.

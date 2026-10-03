@@ -10,40 +10,40 @@ import (
 
 // Column mapping roles (doc 06 §5.2).
 const (
-	RoleDate     = "date"
-	RoleDesc     = "description"
-	RoleAmount   = "amount"
-	RoleAmountIn = "amount_in"
-	RoleAmountOut = "amount_out"
-	RoleCurrency = "currency"
-	RoleBalance  = "balance"
-	RoleTypeHint = "type_hint"
-	RoleMemo     = "memo"
-	RoleSource   = "source"
+	RoleDate        = "date"
+	RoleDesc        = "description"
+	RoleAmount      = "amount"
+	RoleAmountIn    = "amount_in"
+	RoleAmountOut   = "amount_out"
+	RoleCurrency    = "currency"
+	RoleBalance     = "balance"
+	RoleTypeHint    = "type_hint"
+	RoleMemo        = "memo"
+	RoleSource      = "source"
 	RoleDestination = "destination"
-	RoleIgnore   = "ignore"
+	RoleIgnore      = "ignore"
 )
 
 // ColumnMap maps one source column to a role.
 type ColumnMap struct {
-	Source      string `json:"source"`
-	Role        string `json:"role"`
-	DateFormat  string `json:"date_format,omitempty"`
-	DecimalSep  string `json:"decimal_separator,omitempty"`
-	Negatives   string `json:"negatives,omitempty"` // signed|paren|dr_cr
+	Source     string `json:"source"`
+	Role       string `json:"role"`
+	DateFormat string `json:"date_format,omitempty"`
+	DecimalSep string `json:"decimal_separator,omitempty"`
+	Negatives  string `json:"negatives,omitempty"` // signed|paren|dr_cr
 }
 
 // Mapping is the full column mapping (doc 06 §5.2).
 type Mapping struct {
-	Kind        Kind        `json:"kind"`
-	Sheet       string      `json:"sheet,omitempty"` // xlsx only
-	HasHeader   bool        `json:"has_header"`
-	Delimiter   string      `json:"delimiter,omitempty"`
-	Columns     []ColumnMap `json:"columns"`
-	BankHint    string      `json:"bank_hint,omitempty"`
-	ProposedName string     `json:"proposed_name,omitempty"`
-	Confidence  float64     `json:"confidence"`
-	DateFormat  string      `json:"date_format,omitempty"`
+	Kind         Kind        `json:"kind"`
+	Sheet        string      `json:"sheet,omitempty"` // xlsx only
+	HasHeader    bool        `json:"has_header"`
+	Delimiter    string      `json:"delimiter,omitempty"`
+	Columns      []ColumnMap `json:"columns"`
+	BankHint     string      `json:"bank_hint,omitempty"`
+	ProposedName string      `json:"proposed_name,omitempty"`
+	Confidence   float64     `json:"confidence"`
+	DateFormat   string      `json:"date_format,omitempty"`
 }
 
 // ParseRows applies a mapping to tabular input and returns parsed rows.

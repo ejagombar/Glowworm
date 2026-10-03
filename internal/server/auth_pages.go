@@ -11,14 +11,14 @@ import (
 var _ = core.ActorUser
 
 type auditEntryView struct {
-	ID        int64
-	Timestamp string
-	Actor     string
-	Kind      string // you | ai | import
-	Title     string
-	Sub       string
-	DiffLines []core.DiffLine
-	State     string
+	ID          int64
+	Timestamp   string
+	Actor       string
+	Kind        string // you | ai | import
+	Title       string
+	Sub         string
+	DiffLines   []core.DiffLine
+	State       string
 	Revertible  bool
 	Jumpable    bool
 	Forgettable bool
@@ -88,9 +88,9 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		errMsg = "Incorrect username or password."
 	}
 	data := struct {
-		Title     string
-		CSRFToken string
-		Error     string
+		Title      string
+		CSRFToken  string
+		Error      string
 		Standalone bool
 	}{Title: "Sign in", CSRFToken: token, Error: errMsg, Standalone: true}
 	if err := a.Render.Render(w, "login", data); err != nil {

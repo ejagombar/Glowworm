@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"glowworm/internal/ai"
 	"glowworm/internal/clock"
 	"glowworm/internal/config"
-	"glowworm/internal/ai"
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/auditexec"
@@ -34,8 +34,8 @@ import (
 	"glowworm/internal/store"
 	"glowworm/internal/store/repos"
 
-	staticFS "glowworm/web/static"
 	htmxFS "glowworm/web/htmx"
+	staticFS "glowworm/web/static"
 )
 
 // App wires every layer together.
@@ -47,31 +47,31 @@ type App struct {
 	Render *render.Renderer
 	Log    *slog.Logger
 
-	Repos     *Repos
-	Accounts  *accounts.Service
-	Categories *categories.Service
+	Repos        *Repos
+	Accounts     *accounts.Service
+	Categories   *categories.Service
 	Transactions *transactions.Service
-	Settings  *settings.Service
-	Setup     *setup.Service
-	Audit     *audit.Engine
-	Cat       *categoriser.Service
-	Imports   *imports.Service
-	Transfers *transfers.Service
-	Recurring *recurring.Service
-	Query     *query.Service
+	Settings     *settings.Service
+	Setup        *setup.Service
+	Audit        *audit.Engine
+	Cat          *categoriser.Service
+	Imports      *imports.Service
+	Transfers    *transfers.Service
+	Recurring    *recurring.Service
+	Query        *query.Service
 
-	AuditWriter *audit.Writer
-	Exec        *auditexec.Executor
+	AuditWriter  *audit.Writer
+	Exec         *auditexec.Executor
 	loginLimiter *limiter
 }
 
 // Repos bundles the repo structs.
 type Repos struct {
-	Users       *repos.Users
-	Settings    *repos.Settings
-	AIConfig    *repos.AIConfig
-	Accounts    *repos.Accounts
-	Categories  *repos.Categories
+	Users        *repos.Users
+	Settings     *repos.Settings
+	AIConfig     *repos.AIConfig
+	Accounts     *repos.Accounts
+	Categories   *repos.Categories
 	Transactions *repos.Transactions
 }
 
@@ -93,9 +93,9 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	writer := &audit.Writer{DB: db}
 	app := &App{
 		Cfg: cfg, Clock: clk, Secret: secret, DB: db, Render: r, Log: log,
-		Repos: rp,
-		AuditWriter: writer,
-		Audit:       audit.NewEngine(db, writer),
+		Repos:        rp,
+		AuditWriter:  writer,
+		Audit:        audit.NewEngine(db, writer),
 		loginLimiter: newLimiter(5, 15*time.Minute),
 	}
 	app.Accounts = &accounts.Service{DB: db, Repos: rp.Accounts, Txs: rp.Transactions, Audit: writer, Clock: clk}

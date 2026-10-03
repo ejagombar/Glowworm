@@ -13,14 +13,14 @@ import (
 
 // Model is the persisted model (doc 02 §6.2 payload JSON).
 type Model struct {
-	Version   int                `json:"version"`
-	Vocab     map[string]int     `json:"vocab"`       // term → feature index
-	IDF       []float64          `json:"idf"`         // per feature
-	Weights   [][]float64        `json:"weights"`     // class → feature
-	Bias      []float64          `json:"bias"`        // per class
-	Categories []string          `json:"categories"`  // class index → category id
-	TrainedAt string             `json:"trained_at"`
-	TrainingCount int             `json:"training_count"`
+	Version       int            `json:"version"`
+	Vocab         map[string]int `json:"vocab"`      // term → feature index
+	IDF           []float64      `json:"idf"`        // per feature
+	Weights       [][]float64    `json:"weights"`    // class → feature
+	Bias          []float64      `json:"bias"`       // per class
+	Categories    []string       `json:"categories"` // class index → category id
+	TrainedAt     string         `json:"trained_at"`
+	TrainingCount int            `json:"training_count"`
 }
 
 // Sample is one training example.
@@ -102,32 +102,47 @@ func Train(samples []Sample, version int, trainedAt string) (*Model, error) {
 	bias := make([]float64, K)
 
 	// Adam state.
-	mW := make([][]float64, K); vW := make([][]float64, K)
-	for k := range W { mW[k] = make([]float64, V); vW[k] = make([]float64, V) }
-	mB := make([]float64, K); vB := make([]float64, K)
+	mW := make([][]float64, K)
+	vW := make([][]float64, K)
+	for k := range W {
+		mW[k] = make([]float64, V)
+		vW[k] = make([]float64, V)
+	}
+	mB := make([]float64, K)
+	vB := make([]float64, K)
 	lr, b1, b2, eps, lambda := 0.05, 0.9, 0.999, 1e-8, 1e-4
 	epochs := 30
 	batch := 32
 	t := 0
 	idxs := make([]int, len(samples))
-	for i := range idxs { idxs[i] = i }
+	for i := range idxs {
+		idxs[i] = i
+	}
 	seedShuffle(idxs)
 
 	for epoch := 0; epoch < epochs; epoch++ {
 		seedShuffle(idxs)
 		for start := 0; start < len(idxs); start += batch {
 			end := start + batch
-			if end > len(idxs) { end = len(idxs) }
+			if end > len(idxs) {
+				end = len(idxs)
+			}
 			gW := make([][]float64, K)
-			for k := range gW { gW[k] = make([]float64, V) }
+			for k := range gW {
+				gW[k] = make([]float64, V)
+			}
 			gB := make([]float64, K)
 			for _, i := range idxs[start:end] {
 				probs := softmax(feats[i], W, bias)
 				y := labels[i]
 				for k := 0; k < K; k++ {
 					d := probs[k]
-					if k == y { d -= 1 }
-					if d == 0 { continue }
+					if k == y {
+						d -= 1
+					}
+					if d == 0 {
+						continue
+					}
 					gB[k] += d
 					for _, f := range feats[i] {
 						gW[k][f.i] += d * f.v
@@ -158,7 +173,10 @@ func Train(samples []Sample, version int, trainedAt string) (*Model, error) {
 	}, nil
 }
 
-type feature struct{ i int; v float64 }
+type feature struct {
+	i int
+	v float64
+}
 
 // nz returns the non-zero entries of a dense gradient slice.
 func nz(vec []float64) []feature {
@@ -186,7 +204,9 @@ func featurizeSparse(tf map[string]int, vocab map[string]int, idf []float64) []f
 	}
 	norm = math.Sqrt(norm)
 	if norm > 0 {
-		for i := range pairs { pairs[i].v /= norm }
+		for i := range pairs {
+			pairs[i].v /= norm
+		}
 	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].i < pairs[j].i })
 	return pairs
@@ -202,15 +222,21 @@ func softmax(x []feature, W [][]float64, bias []float64) []float64 {
 			z += W[k][f.i] * f.v
 		}
 		out[k] = z
-		if z > max { max = z }
+		if z > max {
+			max = z
+		}
 	}
 	sum := 0.0
 	for k := range out {
 		out[k] = math.Exp(out[k] - max)
 		sum += out[k]
 	}
-	if sum == 0 { sum = 1 }
-	for k := range out { out[k] /= sum }
+	if sum == 0 {
+		sum = 1
+	}
+	for k := range out {
+		out[k] /= sum
+	}
 	return out
 }
 
@@ -241,8 +267,12 @@ func (m *Model) Predict(text string, allowed map[string]bool) []Prediction {
 	// Softmax restricted to candidates: compute full logits then renormalise.
 	all := softmax(x, m.Weights, m.Bias)
 	var sum float64
-	for _, k := range candIdx { sum += all[k] }
-	if sum <= 0 { return nil }
+	for _, k := range candIdx {
+		sum += all[k]
+	}
+	if sum <= 0 {
+		return nil
+	}
 	out := make([]Prediction, 0, len(candIdx))
 	for _, k := range candIdx {
 		out = append(out, Prediction{CategoryID: m.Categories[k], Confidence: all[k] / sum})

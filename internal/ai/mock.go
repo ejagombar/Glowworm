@@ -17,7 +17,7 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 	switch req.Capability {
 	case "categorisation":
 		var payload struct {
-			Transactions       []struct {
+			Transactions []struct {
 				Index       int    `json:"index"`
 				Description string `json:"description"`
 			} `json:"transactions"`
@@ -53,7 +53,7 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 		q := strings.ToLower(payload.Question)
 		plan := map[string]any{
 			"v": 1, "metric": "spend", "breakdown": "month",
-			"time": map[string]any{"preset": "last-12m", "from": nil, "to": nil},
+			"time":          map[string]any{"preset": "last-12m", "from": nil, "to": nil},
 			"account_scope": "all", "sort": "date_asc", "limit": 12,
 			"chart_hint": "bar", "title": "Spend over time",
 		}

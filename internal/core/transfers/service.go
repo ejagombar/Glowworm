@@ -18,12 +18,12 @@ import (
 
 // Service owns transfer detection and linking.
 type Service struct {
-	DB         *store.DB
-	Txs        *repos.Transactions
-	Accounts   *repos.Accounts
-	Audit      *audit.Writer
-	Settings   *repos.Settings
-	Clock      *clock.Clock
+	DB          *store.DB
+	Txs         *repos.Transactions
+	Accounts    *repos.Accounts
+	Audit       *audit.Writer
+	Settings    *repos.Settings
+	Clock       *clock.Clock
 	InternalCat func() (string, error) // system "Internal transfer" id
 }
 
@@ -358,9 +358,9 @@ func (s *Service) Unlink(txID string, actor string) error {
 
 // Suggestion is one candidate counterpart (doc 08 §4.3).
 type Suggestion struct {
-	Tx       *core.Transaction `json:"tx"`
-	Score    float64           `json:"score"`
-	Days     int               `json:"days"`
+	Tx    *core.Transaction `json:"tx"`
+	Score float64           `json:"score"`
+	Days  int               `json:"days"`
 }
 
 // Suggestions returns candidate counterparts ordered by (amount match,

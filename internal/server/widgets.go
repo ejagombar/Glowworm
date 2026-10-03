@@ -39,19 +39,19 @@ func defaultSpanRows(t string) int {
 
 // WidgetView is the template projection of a pinned widget (doc 05 §2).
 type WidgetView struct {
-	ID            string   `json:"id"`
-	Type          string   `json:"type"`
-	Title         string   `json:"title"`
-	Col           int      `json:"col"`
-	Rows          int      `json:"rows"`
-	DataJSON      string   `json:"data"`
-	DatasetJSON   string   `json:"dataset"`
-	NumberValue   string   `json:"number_value,omitempty"`
-	NumberCaption string   `json:"number_caption,omitempty"`
-	TextBody      string   `json:"text_body,omitempty"`
-	TableColumns  []string `json:"table_columns,omitempty"`
+	ID            string     `json:"id"`
+	Type          string     `json:"type"`
+	Title         string     `json:"title"`
+	Col           int        `json:"col"`
+	Rows          int        `json:"rows"`
+	DataJSON      string     `json:"data"`
+	DatasetJSON   string     `json:"dataset"`
+	NumberValue   string     `json:"number_value,omitempty"`
+	NumberCaption string     `json:"number_caption,omitempty"`
+	TextBody      string     `json:"text_body,omitempty"`
+	TableColumns  []string   `json:"table_columns,omitempty"`
 	TableRows     [][]string `json:"table_rows,omitempty"`
-	Stale         bool     `json:"stale"`
+	Stale         bool       `json:"stale"`
 }
 
 // WidgetsList returns dashboard widgets with fresh data (plans re-executed).
@@ -267,7 +267,7 @@ func seedPlan(metric, breakdown, from, to string) string {
 	b, _ := json.Marshal(query_Plan{
 		V: 1, Metric: metric, Breakdown: breakdown, From: from, To: to,
 		AccountScope: "all", Limit: 8,
-		Title:        "Spending by category — this month",
+		Title: "Spending by category — this month",
 	})
 	return string(b)
 }

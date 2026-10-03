@@ -429,7 +429,7 @@ func (r *Transactions) UnlinkedCandidates(accountID string, from, to string) ([]
 
 // UnlinkedTxs returns all unlinked transactions (detection sweeps).
 func (r *Transactions) UnlinkedTxs() ([]*core.Transaction, error) {
-	rows, err := r.query(`SELECT `+txCols+` FROM transactions t
+	rows, err := r.query(`SELECT ` + txCols + ` FROM transactions t
 		WHERE t.deleted_at IS NULL AND t.type != 'transfer' AND t.transfer_id IS NULL
 		ORDER BY t.date DESC LIMIT 5000`)
 	if err != nil {
@@ -764,5 +764,3 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
-
-

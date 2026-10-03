@@ -19,31 +19,31 @@ import (
 
 // queryMessageView renders one chat message server-side (M5 will populate).
 type queryMessageView struct {
-	Role      string
-	Text      string
-	DayLabel  string
-	Steps     []string
+	Role       string
+	Text       string
+	DayLabel   string
+	Steps      []string
 	WidgetHTML template.HTML
 }
 
 // viewBase is the data every view shares (masthead, settings, period).
 type viewBase struct {
-	Title        string
-	View         string // dashboard|queries|transactions|categories|import|history|settings
-	Period       string
-	PeriodLabel  string
-	PeriodFrom   string
-	PeriodTo     string
-	Currency     string
-	Theme        string
-	UserName     string
-	Privacy      bool
-	CSRFToken    string
-	SetupOpen    bool // open the wizard on load
-	SetupDone    bool
-	AuthMode     string
-	Palette      []string
-	Standalone   bool
+	Title       string
+	View        string // dashboard|queries|transactions|categories|import|history|settings
+	Period      string
+	PeriodLabel string
+	PeriodFrom  string
+	PeriodTo    string
+	Currency    string
+	Theme       string
+	UserName    string
+	Privacy     bool
+	CSRFToken   string
+	SetupOpen   bool // open the wizard on load
+	SetupDone   bool
+	AuthMode    string
+	Palette     []string
+	Standalone  bool
 }
 
 func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (*viewBase, error) {
@@ -71,18 +71,18 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 
 // accountCard is the template projection of an account (doc 04 §5.2).
 type accountCard struct {
-	ID            string
-	Name          string
-	Type          string
-	TypeLabel     string
-	Color         string
-	BalanceMinor  int64
-	BalanceNeg    bool
-	RefLast4      string
-	TxCount       int
-	Corrections   int
-	OpeningMinor  int64
-	OpeningDate   string
+	ID           string
+	Name         string
+	Type         string
+	TypeLabel    string
+	Color        string
+	BalanceMinor int64
+	BalanceNeg   bool
+	RefLast4     string
+	TxCount      int
+	Corrections  int
+	OpeningMinor int64
+	OpeningDate  string
 }
 
 func (a *App) accountCards(counts map[string]int) ([]*accountCard, error) {
@@ -175,17 +175,17 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		Recent          []*repos.DisplayRow
 		Widgets         []*WidgetView
 	}{
-		viewBase: base,
-		Greeting: a.Clock.Greeting(),
-		Accounts: cards,
+		viewBase:       base,
+		Greeting:       a.Clock.Greeting(),
+		Accounts:       cards,
 		AvailableMinor: available, SavingsMinor: savings,
 		IncomeMinor: incomeMinor,
 		IncomeTrend: incomeTrendLabel, IncomeTrendDate: incomeTrendDate,
 		SpendMinor: spendMinor, SpendPct: spendPct, SpendDir: spendDir,
-		HeroChart: seriesData,
+		HeroChart:      seriesData,
 		HeroRangeLabel: "All accounts · " + lowerFirst(base.PeriodLabel),
-		Recent: recent,
-		Widgets: widgetViews,
+		Recent:         recent,
+		Widgets:        widgetViews,
 	}
 	return a.Render.Render(w, "dashboard", data)
 }
@@ -449,15 +449,15 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	}
 	data := struct {
 		*viewBase
-		Accounts      []*accountCard
-		Rows          []*repos.DisplayRow
-		Categories    []*core.Category
-		SelectedAcc   string
-		SelectedName  string
-		Sub           string
-		FiltersQ      string
-		FiltersCat    string
-		FiltersType   string
+		Accounts     []*accountCard
+		Rows         []*repos.DisplayRow
+		Categories   []*core.Category
+		SelectedAcc  string
+		SelectedName string
+		Sub          string
+		FiltersQ     string
+		FiltersCat   string
+		FiltersType  string
 	}{
 		viewBase: base, Accounts: cards, Rows: rows, Categories: filterSpendCats(cats),
 		SelectedAcc: accountID, SelectedName: selectedName, Sub: sub,
@@ -519,8 +519,8 @@ func (a *App) handleImport(w http.ResponseWriter, r *http.Request) error {
 	}
 	data := struct {
 		*viewBase
-		Accounts  []*accountCard
-		Schemas   []*core.ImportSchema
+		Accounts   []*accountCard
+		Schemas    []*core.ImportSchema
 		Categories []*core.Category
 	}{viewBase: base, Accounts: cards, Schemas: schemas, Categories: cats}
 	return a.Render.Render(w, "import", data)
@@ -607,8 +607,8 @@ func (a *App) handleHistory(w http.ResponseWriter, r *http.Request) error {
 		viewBase: base, Mode: mode, AuditFilter: filter, Months: months,
 		LatestDate: a.Clock.Today(), LatestBalance: latestBalance,
 		TxCountToDate: txCount, Accounts: cards,
-		Series: seriesJSON(labels, values),
-		Entries: entryViews,
+		Series:          seriesJSON(labels, values),
+		Entries:         entryViews,
 		ReconcileStatus: reconStatus, ReconcileLabel: reconLabel, ReconcileHint: reconHint,
 	}
 	return a.Render.Render(w, "history", data)

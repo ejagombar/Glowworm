@@ -31,7 +31,7 @@ func (e *ValidationError) Error() string { return e.Message }
 
 // cadence windows (doc 08 §6.1).
 var cadenceWindows = []struct {
-	name  string
+	name   string
 	lo, hi float64
 }{
 	{"weekly", 6, 8}, {"fortnightly", 12, 16}, {"monthly", 27, 33},
@@ -168,9 +168,9 @@ func (s *Service) Detect() (int, error) {
 			if _, err := s.Audit.Write(tx, audit.Input{
 				Actor: core.ActorSystem, Action: "recurring.detected",
 				EntityType: "recurring", EntityID: "sweep",
-				Title: fmt.Sprintf("Detected %d recurring series", len(keysDetected)),
-				Sub:   "Bills, subscriptions and salaries are labelled automatically",
-				After: map[string]any{"keys": keysDetected},
+				Title:  fmt.Sprintf("Detected %d recurring series", len(keysDetected)),
+				Sub:    "Bills, subscriptions and salaries are labelled automatically",
+				After:  map[string]any{"keys": keysDetected},
 				Revert: map[string]any{"keys": keysDetected},
 			}); err != nil {
 				return err

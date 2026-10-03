@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"glowworm/internal/config"
 	"glowworm/internal/crypto"
@@ -17,6 +18,20 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		url := "http://127.0.0.1:8080/healthz"
+		if len(os.Args) > 3 && os.Args[2] == "--url" {
+			url = os.Args[3]
+		}
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get(url)
+		if err != nil || resp.StatusCode != 200 {
+			fmt.Println("unhealthy")
+			os.Exit(1)
+		}
+		fmt.Println("ok")
+		return
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config:", err)
@@ -63,5 +78,4 @@ func main() {
 		log.Error("listen", "err", err)
 		os.Exit(1)
 	}
-	_ = filepath.Join
 }

@@ -16,6 +16,7 @@
     </a>
   </div>
 
+  <script>window.__TIMELINE_MONTHS__ = [{{range .Months}}"{{.}}",{{end}}];</script>
   {{if eq .Mode "audit"}}
   <!-- Audit log -->
   <div class="history-pane" id="historyAuditPane">
