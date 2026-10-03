@@ -113,13 +113,16 @@ func loadMigrations() ([]mig, error) {
 		if err != nil {
 			return nil, fmt.Errorf("store: bad migration name %q", e)
 		}
+		name := parts[1]
+		name = strings.TrimSuffix(name, ".up")
+		name = strings.TrimSuffix(name, ".down")
 		body, err := migrationsFS.ReadFile(e)
 		if err != nil {
 			return nil, err
 		}
 		m := byVersion[v]
 		if m == nil {
-			m = &mig{version: v, name: parts[1]}
+			m = &mig{version: v, name: name}
 			byVersion[v] = m
 		}
 		if strings.HasSuffix(e, ".up.sql") {
