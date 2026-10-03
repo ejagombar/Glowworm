@@ -204,9 +204,10 @@ func a_resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai
 func (a *App) Router() http.Handler {
 	mux := http.NewServeMux()
 
-	// Static + vendored assets.
-	mux.Handle("GET /static/{path...}", a.staticHandler())
-	mux.Handle("GET /htmx/{path...}", a.staticHandlerFS(htmxFS.FS, "htmx/"))
+	// Static + vendored assets (strip the URL mount prefix, then read from
+	// the embedded FS root).
+	mux.Handle("GET /static/{path...}", a.staticHandlerFS(staticFS.FS, "/static/"))
+	mux.Handle("GET /htmx/{path...}", a.staticHandlerFS(htmxFS.FS, "/htmx/"))
 
 	// Health.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -295,21 +296,15 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 	})
 }
 
-// hashFS serves embedded assets with immutable caching + ETags (doc 04 §12).
-func (a *App) staticHandler() http.Handler {
-	return a.staticHandlerFS(staticFS.FS, "")
-}
-
-func (a *App) staticHandlerFS(fsys fs.FS, prefix string) http.Handler {
+// staticHandlerFS serves embedded assets with immutable caching + ETags
+// (doc 04 §12). strip is the URL mount prefix to remove before the FS lookup.
+func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 	etags := map[string]string{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, prefix)
+		path := strings.TrimPrefix(r.URL.Path, strip)
 		if path == "" || strings.Contains(path, "..") {
 			http.NotFound(w, r)
 			return
-		}
-		if prefix != "" && !strings.HasPrefix(path, prefix) {
-			path = prefix + path
 		}
 		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
