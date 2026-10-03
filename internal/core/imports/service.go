@@ -789,11 +789,83 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Post-commit hooks (doc 06 §9): detections + retrain.
+	// Post-commit hooks (doc 06 §9): detections + retrain + merchant
+	// enrichment (doc 09 §6.4).
 	if s.AfterCommit != nil {
 		s.AfterCommit(batchID)
 	}
+	s.enrichMerchants(batchID)
 	return s.Get(batchID)
+}
+
+// enrichMerchants calls the optional merchant_extraction capability for
+// imported transactions without a merchant (doc 09 §6.4). Best-effort.
+func (s *Service) enrichMerchants(batchID string) {
+	if s.Provider == nil {
+		return
+	}
+	rows, err := s.DB.Query(`SELECT id, description FROM transactions
+		WHERE import_batch_id = ? AND deleted_at IS NULL AND (merchant IS NULL OR merchant = '') LIMIT 20`, batchID)
+	if err != nil {
+		return
+	}
+	type item struct {
+		Index       int    `json:"index"`
+		Description string `json:"description"`
+	}
+	var items []item
+	ids := []string{}
+	for rows.Next() {
+		var id, desc string
+		if err := rows.Scan(&id, &desc); err != nil {
+			break
+		}
+		items = append(items, item{Index: len(items), Description: desc})
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if len(items) == 0 {
+		return
+	}
+	resp, _, err := s.Provider.CompleteStructured(&ai.StructuredRequest{
+		Capability: "merchant_extraction",
+		PromptJSON: map[string]any{"descriptions": items},
+	})
+	if err != nil {
+		return // degrade silently (doc 09 §9)
+	}
+	var parsed struct {
+		Items []struct {
+			Index      int     `json:"index"`
+			Merchant   string  `json:"merchant"`
+			Confidence float64 `json:"confidence"`
+		} `json:"items"`
+	}
+	if json.Unmarshal([]byte(resp), &parsed) != nil {
+		return
+	}
+	_ = s.DB.WithTx(func(tx *sql.Tx) error {
+		diff := []audit.DiffLine{}
+		for _, it := range parsed.Items {
+			if it.Index < 0 || it.Index >= len(ids) || strings.TrimSpace(it.Merchant) == "" || it.Confidence < 0.7 {
+				continue
+			}
+			if _, err := tx.Exec(`UPDATE transactions SET merchant = ? WHERE id = ?`, it.Merchant, ids[it.Index]); err != nil {
+				return err
+			}
+			diff = append(diff, audit.Add(items[it.Index].Description+" → "+it.Merchant))
+		}
+		if len(diff) > 0 {
+			_, err := s.Audit.Write(tx, audit.Input{
+				Actor: core.ActorAI, Action: "merchant.enriched",
+				EntityType: "import_batch", EntityID: batchID,
+				Title: "Detected merchants", Sub: fmt.Sprintf("%d enriched", len(diff)),
+				Diff: diff,
+			})
+			return err
+		}
+		return nil
+	})
 }
 
 func typeFor(amount int64) string {
