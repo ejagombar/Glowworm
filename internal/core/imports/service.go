@@ -111,9 +111,19 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 	}
 	b, err = s.Detect(batch.ID, kind, filename, data)
 	if err != nil {
-		return b, err
+		// Read/decode problems become failed batches with a human reason so
+		// the UI can say why (a bare 500 would just say "failed").
+		if b == nil {
+			var mb *Batch
+			mb, err2 := s.markFailed(batch.ID, fmt.Sprintf("Couldn't read that file: %v", err))
+			if err2 != nil {
+				return nil, err
+			}
+			b = mb
+			err = nil
+		}
 	}
-	return b, nil
+	return b, err
 }
 
 // DetectionRows caps the sample lines sent to the LLM (doc 09 §10).
