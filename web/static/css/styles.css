@@ -278,6 +278,9 @@ body.privacy .stat-trend,
 body.privacy .account-row p,
 body.privacy .settings-account-balance,
 body.privacy .table-widget td.num { filter: blur(5px); }
+/* Exempt non-monetary stats (reconciliation status, counts) from blurring */
+body.privacy .stat-value.no-blur,
+body.privacy .stat-trend.no-blur { filter: none; }
 body.privacy .chart-y-label,
 body.privacy .pie-total { filter: blur(4px); }
 
@@ -1550,3 +1553,8 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 /* v1 additions: when the history sidebar is collapsed, the floating expand
    button sits over the message area — reserve space for it. */
 .queries-sidebar.collapsed ~ .queries-main .queries-messages { padding-top: 46px; }
+/* v1 additions: chart hosts need an intrinsic height for client-side
+   drawing (redrawChartHost bails below 80px — hosts were 0px tall). */
+.overview-chart .chart-host { height: 240px; }
+.queries-messages .chart-host { height: 260px; }
+.msg-error .msg-text, .msg-text.msg-error { color: var(--danger); }

@@ -34,7 +34,6 @@ import (
 	"glowworm/internal/store"
 	"glowworm/internal/store/repos"
 
-	htmxFS "glowworm/web/htmx"
 	staticFS "glowworm/web/static"
 )
 
@@ -207,7 +206,6 @@ func (a *App) Router() http.Handler {
 	// Static + vendored assets (strip the URL mount prefix, then read from
 	// the embedded FS root).
 	mux.Handle("GET /static/{path...}", a.staticHandlerFS(staticFS.FS, "/static/"))
-	mux.Handle("GET /htmx/{path...}", a.staticHandlerFS(htmxFS.FS, "/htmx/"))
 
 	// Health.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +253,7 @@ func (a *App) page(fn func(http.ResponseWriter, *http.Request) error) http.Handl
 func (a *App) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/login" || strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/htmx/") || path == "/healthz" {
+		if path == "/login" || strings.HasPrefix(path, "/static/") || path == "/healthz" {
 			next.ServeHTTP(w, r)
 			return
 		}
