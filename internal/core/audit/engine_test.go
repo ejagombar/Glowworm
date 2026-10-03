@@ -55,7 +55,7 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 			entryID, e2 = w.Write(tx, Input{
 				Actor: "user", Action: "transaction.created",
 				EntityType: "transaction", EntityID: name,
-				Title: "Added " + name,
+				Title:  "Added " + name,
 				Revert: map[string]any{"transaction_id": name},
 			})
 			return e2
