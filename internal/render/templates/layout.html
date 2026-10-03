@@ -129,8 +129,8 @@
           {{if ne .AuthMode "none"}}
           <form method="post" action="/logout" class="logout-form">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
-            <button class="tabnav-item tabnav-icon" title="Sign out" aria-label="Sign out" type="submit">
-              <svg class="icon"><use href="#i-arrow-right"/></svg>
+            <button class="icon-btn" title="Sign out" aria-label="Sign out" type="submit">
+              <svg class="icon"><use href="#i-logout"/></svg>
             </button>
           </form>
           {{end}}
@@ -142,9 +142,7 @@
       </main>
     </div>
 {{else}}
-      <main class="content" id="content">
-        {{template "content" .}}
-      </main>
+      {{template "content" .}}
 {{end}}
   </div>
 

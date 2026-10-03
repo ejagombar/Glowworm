@@ -82,17 +82,23 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/setup", http.StatusFound)
 		return
 	}
-	token := CSRFToken(w, r, a.Secret)
 	errMsg := ""
 	if r.URL.Query().Get("e") == "1" {
 		errMsg = "Incorrect username or password."
 	}
+	// The layout needs the shared viewBase fields; Standalone drops the
+	// masthead/content wrapper so the login card fills the viewport.
+	base, err := a.base(w, r, "login", "Sign in")
+	if err != nil {
+		a.Log.Error("login page", "err", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	base.Standalone = true
 	data := struct {
-		Title      string
-		CSRFToken  string
-		Error      string
-		Standalone bool
-	}{Title: "Sign in", CSRFToken: token, Error: errMsg, Standalone: true}
+		*viewBase
+		Error string
+	}{viewBase: base, Error: errMsg}
 	if err := a.Render.Render(w, "login", data); err != nil {
 		a.Log.Error("login page", "err", err)
 	}
