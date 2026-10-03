@@ -631,6 +631,22 @@ document.addEventListener("DOMContentLoaded", () => {
     render();
     wizardNext.addEventListener("click", async () => {
       if (step === 0) { step++; render(); return; }
+      if (step === 2) {
+        // Persist the remaining category chips (doc 12 §3 step 2).
+        const chips = Array.from(document.querySelectorAll("#wizardCategories .wizard-cat"))
+          .map((chip) => chip.textContent.replace(/[\u2715\u2717]|✕/g, "").trim())
+          .filter((n) => n.length > 0);
+        for (const name of chips) {
+          try {
+            await fetch("/api/v1/categories", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+              body: JSON.stringify({ name, type: "spend" }),
+            });
+          } catch (e2) {}
+        }
+        step++; render(); return;
+      }
       if (step === 1) {
         // Create the owner account (setup claim, doc 12 §3).
         const u = document.getElementById("wizUsername").value.trim();
@@ -666,6 +682,19 @@ document.addEventListener("DOMContentLoaded", () => {
         step++; render(); return;
       }
       window.location = "/";
+    });
+    document.querySelectorAll("#wizardCategories .wizard-cat .remove").forEach((b) =>
+      b.addEventListener("click", () => { b.closest(".wizard-cat").remove(); }));
+    document.getElementById("wizardAddCategory")?.addEventListener("click", () => {
+      const name = window.prompt("New category name");
+      if (name && name.trim()) {
+        const wrap = document.getElementById("wizardCategories");
+        const chip = document.createElement("span");
+        chip.className = "wizard-cat";
+        chip.innerHTML = `<span class="category-dot" style="background:var(--primary)"></span>${esc(name.trim())}<button class="remove" type="button" title="Remove">✕</button>`;
+        wrap.appendChild(chip);
+        chip.querySelector(".remove").addEventListener("click", () => chip.remove());
+      }
     });
     document.getElementById("wizardBack")?.addEventListener("click", () => { if (step > 0) { step--; render(); } });
     document.getElementById("wizardSkip")?.addEventListener("click", () => { window.location = "/"; });
@@ -1056,6 +1085,9 @@ document.addEventListener("DOMContentLoaded", () => {
               ${linked ? `<option selected>Internal transfer</option>` : `<option value="">Select category…</option>` + cats.map((c) => `<option value="${esc(c.id)}"${t.category && t.category.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
             </select>
           </label>
+          ${!linked ? `<label class="tx-field" id="txeCounterpartyField" style="display:none">Counterpart transaction
+            <select class="field" id="txeCounterpart"><option value="">Loading…</option></select>
+          </label>` : ""}
           <label class="tx-field">Amount
             <input class="field" type="number" step="0.01" id="txeAmount" value="${(t.amount_minor / 100).toFixed(2)}" />
           </label>
@@ -1069,6 +1101,33 @@ document.addEventListener("DOMContentLoaded", () => {
       tr.after(editor);
       document.getElementById("txeDescription").focus();
 
+      const typeSel = document.getElementById("txeType");
+      const cpField = document.getElementById("txeCounterpartyField");
+      if (typeSel && cpField) {
+        typeSel.addEventListener("change", async () => {
+          const isTransfer = typeSel.value === "transfer";
+          cpField.style.display = isTransfer ? "" : "none";
+          if (!isTransfer) return;
+          document.getElementById("txeCategory").value = "";
+          document.getElementById("txeCategory").disabled = true;
+          try {
+            const resp = await fetch(`/api/v1/transactions/${id}/transfer-suggestions`);
+            const body = await resp.json();
+            const items = body.items || [];
+            const sel = document.getElementById("txeCounterpart");
+            if (!items.length) {
+              sel.innerHTML = `<option value="">No candidates — import the other statement first</option>`;
+              return;
+            }
+            sel.innerHTML = `<option value="">Choose the counterpart…</option>` + items.map((s) => {
+              const tx = s.tx;
+              return `<option value="${esc(tx.id)}">${esc(tx.date)} · ${esc(tx.description)} · ${fmtMoneyMinor(tx.amount_minor, tx.currency || "GBP")} (${esc(tx.account ? tx.account.name : "")})</option>`;
+            }).join("");
+          } catch (e2) {
+            toast("Could not load suggestions");
+          }
+        });
+      }
       document.getElementById("txeCancel").addEventListener("click", () => { editor.remove(); tr.classList.remove("editing"); });
       document.getElementById("txeSave").addEventListener("click", () => {
         const date = document.getElementById("txeDate").value;
@@ -1077,11 +1136,28 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!date) { toast("Date is required"); return; }
         if (!description) { toast("Description is required"); return; }
         if (isNaN(amount)) { toast("Amount is required"); return; }
+        const cpSel = document.getElementById("txeCounterpart");
+        if (cpSel && typeSel && typeSel.value === "transfer" && cpSel.value) {
+          fetch(`/api/v1/transactions/${id}/link`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+            body: JSON.stringify({ counterpart_id: cpSel.value }),
+          }).then(async (r) => {
+            if (!r.ok) {
+              const b = await r.json().catch(() => ({}));
+              toast((b.error && b.error.message) || "Could not link");
+              return;
+            }
+            toast("Transfer linked");
+            location.reload();
+          });
+          return;
+        }
         const body = {
           date, description,
           amount_minor: Math.round(amount * 100),
-          type: document.getElementById("txeType") ? document.getElementById("txeType").value : t.type,
-          category_id: document.getElementById("txeCategory").value || null,
+          type: typeSel ? typeSel.value : t.type,
+          category_id: (typeSel && typeSel.value === "transfer") ? null : (document.getElementById("txeCategory").value || null),
         };
         fetch(`/api/v1/transactions/${id}`, {
           method: "PATCH",
