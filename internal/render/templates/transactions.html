@@ -56,6 +56,7 @@
     </form>
   </div>
 
+  <script>window.__CAT_OPTIONS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];</script>
   <div class="panel table-panel">
     <table class="tx-table{{if .SelectedAcc}} account-view{{end}}" id="transactionsTable">
       <thead id="transactionsHead">{{template "tx-head" .}}</thead>

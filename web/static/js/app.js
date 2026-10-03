@@ -734,3 +734,386 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
 document.addEventListener("glowworm-toast", (e) => {
   if (e.detail && e.detail.value) toast(e.detail.value);
 });
+
+/* ---------- Accounts modal (doc 04 §5.8) ---------- */
+function accountPayload() {
+  const opening = parseFloat(document.getElementById("accOpening").value);
+  return {
+    name: document.getElementById("accName").value.trim(),
+    type: document.getElementById("accType").value,
+    opening_balance_minor: isNaN(opening) ? 0 : Math.round(opening * 100),
+    opening_balance_date: document.getElementById("accOpeningDate").value || "",
+    account_number: document.getElementById("accNumber").value.trim(),
+    sort_code: document.getElementById("accSortCode").value.trim(),
+    iban: document.getElementById("accIban").value.trim(),
+    bic: document.getElementById("accBic").value.trim(),
+  };
+}
+
+function openAccountForm(id) {
+  const modal = document.getElementById("accountModal");
+  const form = document.getElementById("accountForm");
+  form.dataset.accountId = id || "";
+  document.getElementById("accSaveBtn").textContent = id ? "Save changes" : "Add account";
+  document.getElementById("accountModalTitle").textContent = id ? "Account settings" : "Add account";
+  document.getElementById("accDeleteBtn").hidden = !id;
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById("accValuationDate").value = today;
+  if (id) {
+    fetch(`/api/v1/accounts/${id}`).then((r) => r.json()).then((a) => {
+      document.getElementById("accName").value = a.name || "";
+      document.getElementById("accType").value = a.type || "debit";
+      document.getElementById("accOpening").value = a.opening_balance_minor != null ? (a.opening_balance_minor / 100).toFixed(2) : "";
+      document.getElementById("accOpeningDate").value = a.opening_balance_date || "";
+      document.getElementById("accNumber").value = a.account_number || "";
+      document.getElementById("accSortCode").value = a.sort_code || "";
+      document.getElementById("accIban").value = a.iban || "";
+      document.getElementById("accBic").value = a.bic || "";
+      document.getElementById("accValuation").value = a.current_balance_minor != null ? (a.current_balance_minor / 100).toFixed(2) : "";
+    }).catch(() => toast("Could not load account"));
+  } else {
+    ["accName","accOpening","accNumber","accSortCode","accIban","accBic","accValuation"].forEach((x) => (document.getElementById(x).value = ""));
+    document.getElementById("accType").value = "debit";
+  }
+  modal.hidden = false;
+  document.getElementById("accName").focus();
+}
+
+function saveAccount() {
+  const form = document.getElementById("accountForm");
+  const id = form.dataset.accountId;
+  const body = accountPayload();
+  const val = parseFloat(document.getElementById("accValuation").value);
+  const valDate = document.getElementById("accValuationDate").value;
+  const url = id ? `/api/v1/accounts/${id}` : "/api/v1/accounts";
+  fetch(url, {
+    method: id ? "PATCH" : "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: JSON.stringify(body),
+  }).then(async (r) => {
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      toast((b.error && b.error.message) || "Could not save the account");
+      return null;
+    }
+    return r.json();
+  }).then((acct) => {
+    if (!acct) return;
+    if (id && !isNaN(val) && document.getElementById("accValuation").value !== "") {
+      return fetch(`/api/v1/accounts/${id}/valuations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ value_minor: Math.round(val * 100), date: valDate, note: "Manual valuation" }),
+      });
+    }
+    if (!id && !isNaN(val) && document.getElementById("accValuation").value !== "") {
+      return fetch(`/api/v1/accounts/${acct.id}/valuations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ value_minor: Math.round(val * 100), date: valDate, note: "Manual valuation" }),
+      });
+    }
+  }).then(() => {
+    closeModal("accountModal");
+    toast("Account saved");
+    location.reload();
+  }).catch(() => toast("Could not save the account"));
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("settingsAddAccountBtn")?.addEventListener("click", () => openAccountForm(null));
+  document.querySelectorAll("[data-account-form]").forEach((card) =>
+    card.addEventListener("click", () => openAccountForm(card.dataset.accountForm)));
+  document.getElementById("accSaveBtn")?.addEventListener("click", (e) => { e.preventDefault(); saveAccount(); });
+  document.getElementById("accCancelBtn")?.addEventListener("click", () => closeModal("accountModal"));
+  document.querySelectorAll("[data-action='close-account']").forEach((b) => b.addEventListener("click", () => closeModal("accountModal")));
+  document.getElementById("accDeleteBtn")?.addEventListener("click", () => {
+    const form = document.getElementById("accountForm");
+    const id = form.dataset.accountId;
+    if (!id) return;
+    showConfirm("Delete account?", "Delete this account and all of its transactions? This can't be undone.", "Delete account", () => {
+      fetch(`/api/v1/accounts/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
+        .then((r) => { if (!r.ok) { toast("Could not delete"); return; } closeModal("accountModal"); toast("Account deleted"); location.reload(); });
+    });
+  });
+
+  // Appearance save.
+  document.getElementById("appearanceSave")?.addEventListener("click", () => {
+    const theme = document.getElementById("themeSelect").value;
+    const currency = document.getElementById("currencySelect").value;
+    const name = document.getElementById("userNameInput").value.trim();
+    fetch("/api/v1/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ theme, currency, user_name: name }),
+    }).then((r) => {
+      if (!r.ok) { toast("Could not save settings"); return; }
+      try { localStorage.setItem("glowworm-theme", theme); } catch (e) {}
+      applyTheme(theme);
+      toast("Appearance updated");
+    }).catch(() => toast("Could not save settings"));
+  });
+
+  // AI provider save + test.
+  document.getElementById("aiSave")?.addEventListener("click", () => {
+    const provider = document.getElementById("aiProvider").value;
+    const key = document.getElementById("aiKey").value.trim();
+    fetch("/api/v1/settings/ai", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ provider, api_key: key || undefined }),
+    }).then(async (r) => {
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) { toast((b.error && b.error.message) || "Could not save"); return; }
+      toast("AI provider updated");
+    }).catch(() => toast("Could not save"));
+  });
+  document.getElementById("aiTest")?.addEventListener("click", () => {
+    fetch("/api/v1/settings/ai/test", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
+      .then((r) => r.json())
+      .then((b) => toast(b.ok ? `Connection OK (${b.latency_ms}ms)` : `Failed: ${b.error || "unknown error"}`))
+      .catch(() => toast("Test failed"));
+  });
+
+  // Re-run setup walkthrough.
+  document.getElementById("runSetupBtn")?.addEventListener("click", () => {
+    fetch("/api/v1/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ setup_completed: false }),
+    }).then((r) => { if (r.ok) window.location = "/setup"; });
+  });
+
+  // Category form (create / edit / delete).
+  const catForm = document.getElementById("categoryForm");
+  const catGrid = document.getElementById("categoriesGrid");
+  const catColors = document.getElementById("catColors");
+  let selectedColor = null;
+  if (catColors) {
+    catColors.addEventListener("click", (e) => {
+      const sw = e.target.closest("[data-cat-color]");
+      if (!sw) return;
+      selectedColor = sw.dataset.catColor;
+      document.getElementById("catColorInput").value = selectedColor;
+      catColors.querySelectorAll(".cat-color").forEach((el) => el.classList.toggle("selected", el === sw));
+    });
+  }
+  const openCatForm = (editing) => {
+    catForm.hidden = false;
+    document.getElementById("catFormTitle").textContent = editing ? "Edit category" : "New category";
+    document.getElementById("catSaveBtn").textContent = editing ? "Save changes" : "Add category";
+    document.getElementById("catDeleteBtn").hidden = !editing;
+    document.getElementById("catTypeRow").hidden = !!editing;
+    document.getElementById("catName").focus();
+  };
+  document.getElementById("addCategoryBtn")?.addEventListener("click", () => {
+    catForm.dataset.categoryId = "";
+    document.getElementById("catName").value = "";
+    document.getElementById("catColorInput").value = "";
+    selectedColor = null;
+    catColors?.querySelectorAll(".cat-color").forEach((el) => el.classList.remove("selected"));
+    document.getElementById("catType").value = "spend";
+    openCatForm(false);
+  });
+  if (window.__EDIT_CATEGORY__) {
+    catForm.dataset.categoryId = window.__EDIT_CATEGORY__.id;
+    document.getElementById("catName").value = window.__EDIT_CATEGORY__.name;
+    document.getElementById("catType").value = window.__EDIT_CATEGORY__.type;
+    selectedColor = window.__EDIT_CATEGORY__.color;
+    document.getElementById("catColorInput").value = selectedColor;
+    catForm.hidden = false;
+    openCatForm(true);
+    catColors?.querySelectorAll(".cat-color").forEach((el) => {
+      el.classList.toggle("selected", el.dataset.catColor === selectedColor);
+    });
+  }
+  document.getElementById("catCancelBtn")?.addEventListener("click", () => { catForm.hidden = true; });
+  catForm?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = catForm.dataset.categoryId;
+    const body = {
+      name: document.getElementById("catName").value.trim(),
+      color: document.getElementById("catColorInput").value,
+      type: document.getElementById("catType").value || "spend",
+    };
+    if (!body.name) { toast("Category name is required"); return; }
+    fetch(id ? `/api/v1/categories/${id}` : "/api/v1/categories", {
+      method: id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        toast((b.error && b.error.message) || "Could not save the category");
+        return;
+      }
+      toast(id ? "Category updated" : "Category added");
+      location.href = "/categories?period=" + new URLSearchParams(location.search).get("period") || "/categories";
+    }).catch(() => toast("Could not save the category"));
+  });
+  document.getElementById("catDeleteBtn")?.addEventListener("click", () => {
+    const id = catForm.dataset.categoryId;
+    if (!id) return;
+    showConfirm("Delete category?", "Its transactions will be marked as Uncategorised.", "Delete category", () => {
+      fetch(`/api/v1/categories/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
+        .then((r) => { if (!r.ok) { toast("Could not delete"); return; } toast("Category deleted"); location.href = "/categories"; });
+    });
+  });
+
+  // Audit entry actions (jump back / revert / forget / delete).
+  document.querySelectorAll("[data-jump-back]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.jumpBack;
+      showConfirm("Jump back?", "Everything after this point will be undone but kept collapsed in the history — restorable at any time.", "Jump back", () => {
+        fetch(`/api/v1/audit/${id}/jump-back`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
+          .then(async (r) => {
+            if (!r.ok) {
+              const b = await r.json().catch(() => ({}));
+              toast((b.error && b.error.message) || "Jump back failed");
+              return;
+            }
+            toast("State restored to this point");
+            location.reload();
+          });
+      });
+    }));
+  document.querySelectorAll("[data-audit-menu]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.auditMenu;
+      const caps = await fetch(`/api/v1/audit/${id}/capabilities`).then((r) => r.json()).catch(() => null);
+      if (!caps) { toast("Could not load capabilities"); return; }
+      const actions = [];
+      if (caps.revert) actions.push(["Revert change", () => auditAction(id, `/api/v1/audit/${id}/revert`)]);
+      if (caps.forget) actions.push(["Keep effect, remove record", () => auditAction(id, `/api/v1/audit/${id}?mode=forget`, "DELETE")]);
+      if (caps.delete) actions.push(["Delete from history", () => auditAction(id, `/api/v1/audit/${id}`, "DELETE")]);
+      if (!actions.length) { toast(caps.reason || "No actions available"); return; }
+      // Simple action prompt (native menu keeps the UI dependency-free).
+      const pick = actions.map((a, i) => `${i + 1}. ${a[0]}`).join("\n");
+      const choice = window.prompt(pick + "\n\nNumber?");
+      const idx = Number(choice) - 1;
+      if (choice && actions[idx]) actions[idx][1]();
+    }));
+  function auditAction(id, url, method) {
+    method = method || "POST";
+    showConfirm("Apply to history?", "This will modify the audit history.", "Apply", () => {
+      fetch(url, { method, headers: { "X-CSRF-Token": csrfToken() } })
+        .then(async (r) => {
+          if (!r.ok) {
+            const b = await r.json().catch(() => ({}));
+            toast((b.error && b.error.message) || "Action failed");
+            return;
+          }
+          toast("History updated");
+          location.reload();
+        });
+    });
+  }
+});
+
+
+/* ---------- Inline transaction editor (doc 04 §5.2.4) ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  const body = document.getElementById("transactionsBody");
+  if (!body) return;
+
+  body.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-edit-tx]");
+    if (!btn) return;
+    const tr = btn.closest("tr");
+    const id = btn.dataset.editTx;
+    const open = document.getElementById("txEditorRow");
+    if (open && open.dataset.txId === id) { open.remove(); tr.classList.remove("editing"); return; }
+    if (open) open.remove();
+    document.querySelectorAll("#transactionsBody tr.editing").forEach((r) => r.classList.remove("editing"));
+    tr.classList.add("editing");
+    openEditor(tr, id);
+  });
+
+  function openEditor(tr, id) {
+    fetch(`/api/v1/transactions/${id}`).then((r) => r.json()).then((t) => {
+      const editor = document.createElement("tr");
+      editor.id = "txEditorRow";
+      editor.dataset.txId = id;
+      const linked = !!t.transfer_id;
+      const cats = window.__CAT_OPTIONS__ || [];
+      editor.innerHTML = `<td colspan="6">
+        <div class="tx-editor">
+          <label class="tx-field">Date
+            <input class="field" type="date" id="txeDate" value="${esc(t.date)}" />
+          </label>
+          <label class="tx-field grow">Description
+            <input class="field" type="text" id="txeDescription" value="${esc(t.description)}" placeholder="e.g. Tesco Express" />
+          </label>
+          <label class="tx-field">Type
+            <select class="field" id="txeType" ${linked ? "disabled" : ""}>
+              <option value="expense"${t.type === "expense" ? " selected" : ""}>Expense</option>
+              <option value="income"${t.type === "income" ? " selected" : ""}>Income</option>
+              <option value="transfer"${t.type === "transfer" ? " selected" : ""}>Transfer</option>
+            </select>
+          </label>
+          <label class="tx-field">Category
+            <select class="field" id="txeCategory" ${linked ? "disabled" : ""}>
+              ${linked ? `<option selected>Internal transfer</option>` : `<option value="">Select category…</option>` + cats.map((c) => `<option value="${esc(c.id)}"${t.category && t.category.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="tx-field">Amount
+            <input class="field" type="number" step="0.01" id="txeAmount" value="${(t.amount_minor / 100).toFixed(2)}" />
+          </label>
+          <div class="tx-editor-actions">
+            ${linked ? `<button class="btn btn-ghost btn-xs" id="txeUnlink" type="button">Break link</button>` : ""}
+            <button class="btn btn-primary btn-xs" id="txeSave" type="button">Save</button>
+            <button class="btn btn-ghost btn-xs" id="txeCancel" type="button">Cancel</button>
+          </div>
+        </div>
+      </td>`;
+      tr.after(editor);
+      document.getElementById("txeDescription").focus();
+
+      document.getElementById("txeCancel").addEventListener("click", () => { editor.remove(); tr.classList.remove("editing"); });
+      document.getElementById("txeSave").addEventListener("click", () => {
+        const date = document.getElementById("txeDate").value;
+        const description = document.getElementById("txeDescription").value.trim();
+        const amount = parseFloat(document.getElementById("txeAmount").value);
+        if (!date) { toast("Date is required"); return; }
+        if (!description) { toast("Description is required"); return; }
+        if (isNaN(amount)) { toast("Amount is required"); return; }
+        const body = {
+          date, description,
+          amount_minor: Math.round(amount * 100),
+          type: document.getElementById("txeType") ? document.getElementById("txeType").value : t.type,
+          category_id: document.getElementById("txeCategory").value || null,
+        };
+        fetch(`/api/v1/transactions/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+          body: JSON.stringify(body),
+        }).then(async (r) => {
+          if (!r.ok) {
+            const b = await r.json().catch(() => ({}));
+            toast((b.error && b.error.message) || "Could not save");
+            return;
+          }
+          toast("Transaction updated");
+          location.reload();
+        }).catch(() => toast("Could not save"));
+      });
+      const unlink = document.getElementById("txeUnlink");
+      if (unlink) {
+        unlink.addEventListener("click", () => {
+          if (!t.transfer_id) return;
+          showConfirm("Break the link?", "Both transactions will stay; the transfer link will be removed.", "Break link", () => {
+            fetch(`/api/v1/transactions/${id}/unlink`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+              body: JSON.stringify({}),
+            }).then((r) => {
+              if (!r.ok) { toast("Could not unlink"); return; }
+              toast("Transfer unlinked");
+              location.reload();
+            });
+          });
+        });
+      }
+    }).catch(() => toast("Could not load transaction"));
+  }
+});

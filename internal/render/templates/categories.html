@@ -39,6 +39,9 @@
     </div>
   </form>
 
+  {{if .Editing}}
+  <script>window.__EDIT_CATEGORY__ = {id: "{{.Editing.ID}}", name: "{{.Editing.Name}}", color: "{{.Editing.Color}}", type: "{{.Editing.Type}}"};</script>
+  {{end}}
   <div class="category-grid" id="categoriesGrid">
     {{range .Categories}}
     <div class="category-card">
