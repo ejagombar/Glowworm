@@ -152,9 +152,11 @@ function lineChartSVG(data, width = 640, height = 260) {
   parts.push(`<polygon points="${area}" fill="url(#${gradId})"/>`);
   parts.push(`<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
 
-  vals.forEach((v, i) => {
-    parts.push(`<circle cx="${px(i)}" cy="${py(v)}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(v)}</title></circle>`);
-  });
+  if (vals.length <= 80) {
+    vals.forEach((v, i) => {
+      parts.push(`<circle cx="${px(i)}" cy="${py(v)}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(v)}</title></circle>`);
+    });
+  }
   if (n > 1) {
     parts.push(`<text x="${padL}" y="${H - 8}" class="chart-tooltip">${esc(shortLabel(labels[0]))}</text>`);
     parts.push(`<text x="${W - padR}" y="${H - 8}" text-anchor="end" class="chart-tooltip">${esc(shortLabel(labels[n - 1]))}</text>`);
