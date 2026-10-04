@@ -1558,3 +1558,5 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .overview-chart .chart-host { height: 240px; }
 .queries-messages .chart-host { height: 260px; }
 .msg-error .msg-text, .msg-text.msg-error { color: var(--danger); }
+/* v1 additions: history page balance-over-time chart needs a height */
+#timelineChart { height: 240px; }

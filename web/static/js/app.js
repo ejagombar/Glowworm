@@ -1638,18 +1638,17 @@ document.addEventListener("DOMContentLoaded", () => {
 document.addEventListener("DOMContentLoaded", () => {
   const slider = document.getElementById("timelineSlider");
   if (!slider) return;
+  // Steps are every day the balance can change (opening balances,
+  // valuations, transactions) plus today — one slider stop per data point.
   const months = (window.__TIMELINE_MONTHS__ || []);
   let timer = null;
   const render = (idx) => {
-    const m = months[idx];
-    if (!m) return;
-    const dateInput = m + "-28";
-    // Fetch the snapshot for the selected month end.
-    const end = monthEndOf(m);
+    const end = months[idx];
+    if (!end) return;
     document.getElementById("timelineDate").textContent = humanDate(end);
     const chip = document.getElementById("timelineChip");
-    const monthsBack = months.length - 1 - idx;
-    chip.textContent = monthsBack === 0 ? "Latest" : monthsBack === 1 ? "1 month back" : monthsBack + " months back";
+    const stepsBack = months.length - 1 - idx;
+    chip.textContent = stepsBack === 0 ? "Latest" : stepsBack === 1 ? "1 step back" : stepsBack + " steps back";
     slider.style.setProperty("--fill", (months.length > 1 ? (idx / (months.length - 1)) * 100 : 0) + "%");
     fetch(`/api/v1/snapshot?date=${end}`).then((r) => r.json()).then((b) => {
       const bal = document.getElementById("timelineBalance");
@@ -1682,17 +1681,18 @@ document.addEventListener("DOMContentLoaded", () => {
       const tIdx = Math.round((i * (months.length - 1)) / denom);
       const pos = months.length > 1 ? (tIdx / (months.length - 1)) * 100 : 0;
       const cls = i === 0 ? " first" : i === count - 1 ? " last" : "";
-      html += `<div class="timeline-tick${cls}" style="left:${pos}%"><span>${esc(shortMonthLabel(months[tIdx]))}</span></div>`;
+      html += `<div class="timeline-tick${cls}" style="left:${pos}%"><span>${esc(tickDateLabel(months[tIdx]))}</span></div>`;
     }
     ticks.innerHTML = html;
   }
   render(Number(slider.value));
 });
 
-function shortMonthLabel(m) {
-  const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const mm = Number(m.slice(5, 7));
-  return (names[mm - 1] || m) + " " + m.slice(2, 4);
+function tickDateLabel(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return shortMonthLabel(iso);
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
 }
 function humanDate(iso) {
   const d = new Date(iso + "T00:00:00");

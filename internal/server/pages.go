@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -295,39 +296,82 @@ func seriesStart(a *App) string {
 }
 
 func balancesSeries(a *App, from, to string) ([]string, []int64, error) {
-	// Full month range from the series start to today — a flat opening
-	// balance line appears even in months without transactions.
-	labels := monthRange(from, to)
-	if len(labels) == 0 {
+	return balancePointSeries(a, from, to)
+}
+
+// balancePointSeries builds the balance history at **transaction resolution**:
+// one point on every day the balance can change (opening balances,
+// valuations, transactions) plus today. Between points the balance is flat,
+// so the line shows every individual transaction's up/down movement.
+func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
+	if from > to {
+		from, to = to, from
+	}
+	dates := map[string]bool{}
+	addDates := func(q string, args ...any) {
+		rows, err := a.DB.Query(q, args...)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var d any
+			if err := rows.Scan(&d); err == nil {
+				if s, ok := d.(string); ok && s >= from && s <= to {
+					dates[s] = true
+				}
+			}
+		}
+	}
+	addDates(`SELECT DISTINCT date FROM transactions WHERE deleted_at IS NULL AND date BETWEEN ? AND ?`, from, to)
+	addDates(`SELECT DISTINCT opening_balance_date FROM accounts WHERE deleted_at IS NULL AND opening_balance_date BETWEEN ? AND ?`, from, to)
+	addDates(`SELECT DISTINCT date FROM valuations WHERE deleted_at IS NULL AND date BETWEEN ? AND ?`, from, to)
+	if a.Clock.Today() >= from && a.Clock.Today() <= to {
+		dates[a.Clock.Today()] = true
+	}
+	if len(dates) == 0 {
 		return nil, nil, nil
 	}
-	if len(labels) > 240 {
-		labels = labels[len(labels)-240:]
+	sorted := make([]string, 0, len(dates))
+	for d := range dates {
+		sorted = append(sorted, d)
 	}
-	values := make([]int64, len(labels))
-	for i, m := range labels {
-		end := monthEndOf(m)
-		var accounts []string
-		arows, err := a.DB.Query(`SELECT id FROM accounts WHERE deleted_at IS NULL`)
-		if err != nil {
-			return nil, nil, err
+	sort.Strings(sorted)
+	// Cap density: beyond ~370 points, keep every Nth day so the SVG stays sane.
+	if len(sorted) > 370 {
+		step := (len(sorted) + 369) / 370
+		kept := []string{sorted[0]}
+		for i := step; i < len(sorted); i += step {
+			kept = append(kept, sorted[i])
 		}
-		for arows.Next() {
-			var id string
-			_ = arows.Scan(&id)
-			accounts = append(accounts, id)
+		if last := sorted[len(sorted)-1]; kept[len(kept)-1] != last {
+			kept = append(kept, last)
 		}
-		arows.Close()
-		for _, id := range accounts {
-			var b int64
-			b, err = balanceAt(a, id, end)
+		sorted = kept
+	}
+	var accIDs []string
+	arows, err := a.DB.Query(`SELECT id FROM accounts WHERE deleted_at IS NULL`)
+	if err != nil {
+		return nil, nil, err
+	}
+	for arows.Next() {
+		var id string
+		if err := arows.Scan(&id); err == nil {
+			accIDs = append(accIDs, id)
+		}
+	}
+	arows.Close()
+	values := make([]int64, len(sorted))
+	for i, d := range sorted {
+		for _, id := range accIDs {
+			b, err := balanceAt(a, id, d)
 			if err != nil {
 				return nil, nil, err
 			}
 			values[i] += b
 		}
 	}
-	return labels, values, nil
+	return sorted, values, nil
 }
 
 // balanceAt is the checkpoint replay (doc 02 §6): opening balance (or the
