@@ -51,6 +51,16 @@ function closeModal(id) {
   const m = document.getElementById(id);
   if (m) m.hidden = true;
 }
+function closePasswordModal() {
+  closeModal("passwordModal");
+  ["pwCurrent", "pwNew", "pwConfirm"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+}
+function closeNameModal() {
+  closeModal("nameModal");
+}
 function showConfirm(title, message, okLabel, callback) {
   document.getElementById("confirmTitle").textContent = title;
   document.getElementById("confirmMessage").textContent = message;
@@ -64,6 +74,10 @@ let confirmCallback = null;
 function openDrawer(id) {
   const card = document.querySelector(`[data-widget-id="${id}"]`);
   if (!card) return;
+  // The drawer markup was removed from the templates; fail quietly instead of
+  // throwing when the edit gear is clicked.
+  const drawer = document.getElementById("widgetDrawer");
+  if (!drawer || !document.getElementById("drawerBackdrop") || !document.getElementById("wTitle")) return;
   state.editingId = id;
   document.getElementById("wTitle").value = card.dataset.widgetTitle || "";
   document.getElementById("wType").value = card.dataset.widgetType || "bar";
@@ -77,7 +91,7 @@ function openDrawer(id) {
 }
 function closeDrawer() {
   const d = document.getElementById("widgetDrawer"), b = document.getElementById("drawerBackdrop");
-  if (!d) return;
+  if (!d || !b) return;
   d.classList.remove("show"); b.classList.remove("show");
   setTimeout(() => { d.hidden = true; b.hidden = true; }, 220);
   state.editingId = null;
@@ -618,7 +632,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Escape") {
       const cm = document.getElementById("confirmModal");
       if (cm && !cm.hidden) { cm.hidden = true; confirmCallback = null; return; }
-      closeModal("setupWizard"); closeDrawer(); closeModal("recurringModal"); closeModal("accountModal"); closeModal("txModal");
+      closeModal("setupWizard"); closeDrawer(); closeModal("recurringModal"); closeModal("accountModal"); closeModal("txModal"); closePasswordModal(); closeNameModal();
     }
   });
 
@@ -910,42 +924,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accSaveBtn")?.addEventListener("click", (e) => { e.preventDefault(); saveAccount(); });
   document.getElementById("accCancelBtn")?.addEventListener("click", () => closeModal("accountModal"));
   document.querySelectorAll("[data-action='close-account']").forEach((b) => b.addEventListener("click", () => closeModal("accountModal")));
-  // New transaction modal (doc 04 §5.2): manual add without an import.
-  document.getElementById("newTxBtn")?.addEventListener("click", () => {
-    openModal("txModal");
-    document.getElementById("txDesc").focus();
-  });
-  document.querySelectorAll("[data-action='close-tx-modal']").forEach((b) => b.addEventListener("click", () => closeModal("txModal")));
-  document.getElementById("txModal")?.addEventListener("click", (e) => { if (e.target.id === "txModal") closeModal("txModal"); });
-  document.getElementById("txAddForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const accountID = document.getElementById("txAccount").value;
-    const date = document.getElementById("txDate").value;
-    const description = document.getElementById("txDesc").value.trim();
-    const amount = parseFloat(document.getElementById("txAmount").value);
-    if (!accountID) { toast("Add an account first (Settings → Account)"); return; }
-    if (!date) { toast("Date is required"); return; }
-    if (!description) { toast("Description is required"); return; }
-    if (isNaN(amount) || amount === 0) { toast("Amount is required (negative for spending)"); return; }
-    const body = {
-      account_id: accountID, date, description,
-      amount_minor: Math.round(amount * 100),
-      category_id: document.getElementById("txCategory").value || null,
-    };
-    fetch("/api/v1/transactions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify(body),
-    }).then(async (r) => {
-      if (!r.ok) {
-        const b = await r.json().catch(() => ({}));
-        toast((b.error && b.error.message) || "Could not add transaction");
-        return;
-      }
-      toast("Transaction added");
-      location.reload();
-    }).catch(() => toast("Could not add transaction"));
-  });
+  // (The new-transaction modal is wired in the boot handler above, guarded by
+  // #newTxBtn. A duplicate here — with an unguarded #txAddForm — threw on
+  // every page without the tx modal and killed every binding below it:
+  // settings, category form and audit actions.)
   document.getElementById("accDeleteBtn")?.addEventListener("click", () => {
     const form = document.getElementById("accountForm");
     const id = form.dataset.accountId;
@@ -956,11 +938,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Appearance save.
-  // Account: change password (doc 14: >=10 chars, current verified).
-  const pwSave = document.getElementById("passwordSave");
-  if (pwSave) {
-    pwSave.addEventListener("click", async () => {
+  // Account: change password (doc 14: >=10 chars, current verified) — opens in a modal.
+  const pwOpen = document.getElementById("changePasswordBtn");
+  if (pwOpen) {
+    pwOpen.addEventListener("click", () => openModal("passwordModal"));
+    document.getElementById("passwordCancel")?.addEventListener("click", () => closePasswordModal());
+    document.querySelectorAll('[data-action="close-password"]').forEach((b) => b.addEventListener("click", closePasswordModal));
+    document.getElementById("passwordModal")?.addEventListener("click", (e) => {
+      if (e.target.id === "passwordModal") closePasswordModal();
+    });
+    const pwSave = document.getElementById("passwordSave");
+    pwSave?.addEventListener("click", async () => {
       const cur = document.getElementById("pwCurrent").value;
       const nw = document.getElementById("pwNew").value;
       const cf = document.getElementById("pwConfirm").value;
@@ -973,21 +961,53 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const b = await r.json().catch(() => ({}));
       if (!r.ok) { toast((b.error && b.error.message) || "Could not change password"); return; }
-      document.getElementById("pwCurrent").value = "";
-      document.getElementById("pwNew").value = "";
-      document.getElementById("pwConfirm").value = "";
+      closePasswordModal();
       toast("Password changed");
     });
   }
 
+  // Account: update your name — opens in a modal (shown on the dashboard greeting).
+  const nameOpen = document.getElementById("changeNameBtn");
+  if (nameOpen) {
+    nameOpen.addEventListener("click", () => {
+      const shown = (document.getElementById("signedInName")?.textContent || "").trim();
+      const input = document.getElementById("nameInput");
+      if (input && shown && shown !== "you") input.value = shown;
+      openModal("nameModal");
+    });
+    document.getElementById("nameCancel")?.addEventListener("click", closeNameModal);
+    document.querySelectorAll('[data-action="close-name"]').forEach((b) => b.addEventListener("click", closeNameModal));
+    document.getElementById("nameModal")?.addEventListener("click", (e) => {
+      if (e.target.id === "nameModal") closeNameModal();
+    });
+    document.getElementById("nameSaveModal")?.addEventListener("click", () => {
+      const name = document.getElementById("nameInput").value.trim();
+      fetch("/api/v1/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ user_name: name }),
+      }).then(async (r) => {
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          toast((b.error && b.error.message) || "Could not update name");
+          return;
+        }
+        const shown = document.getElementById("signedInName");
+        if (shown) shown.textContent = name || "you";
+        closeNameModal();
+        toast("Name updated");
+      }).catch(() => toast("Could not update name"));
+    });
+  }
+
+  // Appearance save (theme + currency; the name lives in the Account block).
   document.getElementById("appearanceSave")?.addEventListener("click", () => {
     const theme = document.getElementById("themeSelect").value;
     const currency = document.getElementById("currencySelect").value;
-    const name = document.getElementById("userNameInput").value.trim();
     fetch("/api/v1/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ theme, currency, user_name: name }),
+      body: JSON.stringify({ theme, currency }),
     }).then((r) => {
       if (!r.ok) { toast("Could not save settings"); return; }
       try { localStorage.setItem("glowworm-theme", theme); } catch (e) {}
@@ -997,17 +1017,146 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // AI provider save + test.
+  const KEY_MASK = "*********";
+  const aiProviderSel = document.getElementById("aiProvider");
+  const aiKeyInput = document.getElementById("aiKey");
+  const aiKeyClear = document.getElementById("aiKeyClear");
+  const aiBaseUrlRow = document.getElementById("aiBaseUrlRow");
+  let aiHasSavedKey = aiKeyInput ? aiKeyInput.dataset.hasKey === "1" : false;
+  let aiKeyUnlocked = false;
+  const syncAIKeyRow = () => {
+    if (!aiKeyInput) return;
+    if (aiHasSavedKey && !aiKeyUnlocked) {
+      aiKeyInput.value = KEY_MASK; // never re-display the real key
+      aiKeyInput.type = "text";    // literal mask, not password dots
+      aiKeyInput.readOnly = true;
+    } else {
+      aiKeyInput.type = "password";
+      aiKeyInput.readOnly = false;
+      if (aiKeyInput.value === KEY_MASK) aiKeyInput.value = "";
+    }
+    if (aiKeyClear) aiKeyClear.hidden = !aiHasSavedKey;
+  };
+  if (aiKeyInput) {
+    aiKeyInput.addEventListener("focus", () => {
+      if (aiHasSavedKey && !aiKeyUnlocked) {
+        aiKeyUnlocked = true; // typing a new key replaces the saved one
+        aiKeyInput.value = "";
+        aiKeyInput.placeholder = "Type a new key to replace the saved one";
+        aiKeyInput.type = "password"; // hide the replacement key as it is typed
+        aiKeyInput.readOnly = false;
+      }
+    });
+    aiKeyInput.addEventListener("blur", () => {
+      if (aiHasSavedKey && aiKeyUnlocked && aiKeyInput.value.trim() === "") {
+        aiKeyUnlocked = false; // left empty — keep showing the saved key
+        syncAIKeyRow();
+      }
+    });
+  }
+  if (aiKeyClear && aiKeyInput) {
+    aiKeyClear.addEventListener("click", () => {
+      fetch("/api/v1/settings/ai", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ provider: aiProviderSel.value, clear_key: true }),
+      }).then(async (r) => {
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok) { toast((b.error && b.error.message) || "Could not clear key"); return; }
+        aiHasSavedKey = false;
+        aiKeyUnlocked = false;
+        aiKeyInput.value = "";
+        aiKeyInput.placeholder = "sk-…";
+        syncAIKeyRow();
+        toast("API key cleared");
+      }).catch(() => toast("Could not clear key"));
+    });
+  }
+  const syncAIBaseUrlRow = () => {
+    if (!aiBaseUrlRow || !aiProviderSel) return;
+    const p = aiProviderSel.value;
+    aiBaseUrlRow.hidden = !(p === "custom" || p === "ollama" || p === "openrouter");
+    if (p === "openrouter") {
+      const base = document.getElementById("aiBaseUrl");
+      if (base && !base.value) base.placeholder = "https://openrouter.ai/api/v1";
+    }
+  };
+  // Model list: fetch the provider's live catalogue and populate the select.
+  const aiModelSel = document.getElementById("aiModel");
+  const aiModelsStatus = document.getElementById("aiModelsStatus");
+  const aiLoadBtn = document.getElementById("aiLoadModels");
+  const savedModel = aiModelSel && aiModelSel.options.length > 1 ? aiModelSel.options[1].value : "";
+  const loadAIModels = async () => {
+    if (!aiModelSel || !aiProviderSel || aiProviderSel.value === "") {
+      if (aiModelsStatus) aiModelsStatus.textContent = "Pick a provider first.";
+      return;
+    }
+    if (aiLoadBtn) aiLoadBtn.disabled = true;
+    if (aiModelsStatus) aiModelsStatus.textContent = "Loading models…";
+    try {
+      const r = await fetch("/api/v1/settings/ai/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({
+          provider: aiProviderSel.value,
+          base_url: document.getElementById("aiBaseUrl")?.value.trim() || "",
+          api_key: (aiKeyInput.value.trim() === KEY_MASK ? "" : aiKeyInput.value.trim()), // empty falls back to the stored key
+        }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok || !b.ok) throw new Error((b.error && b.error.message) || "could not list models");
+      const models = b.models || [];
+      const current = aiModelSel.value || savedModel;
+      aiModelSel.innerHTML = "";
+      aiModelSel.appendChild(new Option("Auto (provider default)", ""));
+      models.forEach((m) => aiModelSel.appendChild(new Option(m.name || m.id, m.id)));
+      if (current && models.some((m) => m.id === current)) aiModelSel.value = current;
+      if (aiModelsStatus) {
+        if (b.source === "live") {
+          aiModelsStatus.textContent = models.length + " models loaded from the provider.";
+        } else if (b.source === "needs-key") {
+          aiModelsStatus.textContent = "Enter your API key to load this provider's model list.";
+        } else if (models.length) {
+          aiModelsStatus.textContent = "Couldn't reach the provider — showing a built-in list." + (b.error ? " (" + b.error + ")" : "");
+        } else {
+          aiModelsStatus.textContent = "Couldn't reach the provider." + (b.error ? " (" + b.error + ")" : "");
+        }
+      }
+    } catch (e) {
+      if (aiModelsStatus) aiModelsStatus.textContent = "Could not load models: " + e.message;
+    } finally {
+      if (aiLoadBtn) aiLoadBtn.disabled = false;
+    }
+  };
+  if (aiLoadBtn) aiLoadBtn.addEventListener("click", loadAIModels);
+  aiProviderSel?.addEventListener("change", () => { syncAIBaseUrlRow(); if (aiProviderSel.value) loadAIModels(); });
+  syncAIBaseUrlRow();
+  syncAIKeyRow();
+  if (aiProviderSel && aiProviderSel.value) loadAIModels(); // saved provider: populate on page load
   document.getElementById("aiSave")?.addEventListener("click", () => {
-    const provider = document.getElementById("aiProvider").value;
-    const key = document.getElementById("aiKey").value.trim();
+    const provider = aiProviderSel.value;
+    const baseUrl = document.getElementById("aiBaseUrl")?.value.trim() || "";
+    if ((provider === "custom" || provider === "ollama") && !baseUrl) {
+      toast("Enter the endpoint URL for this provider");
+      return;
+    }
+    // The masked placeholder means "keep the saved key" — never send the mask.
+    // A freshly typed key is sent whether or not the field was "unlocked"
+    // (first-time setup has no saved key, so there is nothing to unlock).
+    const typedKey = aiKeyInput.value.trim();
+    const key = typedKey === KEY_MASK ? "" : typedKey;
+    const model = aiModelSel ? aiModelSel.value : "";
+    const models = { default: model }; // always send: Auto ("") clears a stale selection
     fetch("/api/v1/settings/ai", {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ provider, api_key: key || undefined }),
+      body: JSON.stringify({ provider, api_key: key || undefined, base_url: baseUrl || undefined, models }),
     }).then(async (r) => {
       const b = await r.json().catch(() => ({}));
       if (!r.ok) { toast((b.error && b.error.message) || "Could not save"); return; }
+      if (key) { aiHasSavedKey = true; aiKeyUnlocked = false; syncAIKeyRow(); }
       toast("AI provider updated");
+      if (aiProviderSel.value) loadAIModels(); // a fresh key may unlock the live catalogue
     }).catch(() => toast("Could not save"));
   });
   document.getElementById("aiTest")?.addEventListener("click", () => {
@@ -1102,28 +1251,39 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Audit entry actions (jump back / revert / forget / delete).
-  document.querySelectorAll("[data-jump-back]").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.jumpBack;
-      showConfirm("Jump back?", "Everything after this point will be undone but kept collapsed in the history — restorable at any time.", "Jump back", () => {
-        fetch(`/api/v1/audit/${id}/jump-back`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
-          .then(async (r) => {
-            if (!r.ok) {
-              const b = await r.json().catch(() => ({}));
-              toast((b.error && b.error.message) || "Jump back failed");
-              return;
-            }
-            toast("State restored to this point");
-            location.reload();
-          });
+  // Audit entry actions (jump back / revert / forget / delete). Bound via
+  // wireAuditActions so freshly injected audit panes get them too.
+  function wireAuditActions(root) {
+    (root || document).querySelectorAll("[data-jump-back]").forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = "1";
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.jumpBack;
+        showConfirm("Jump back?", "Everything after this point will be undone but kept collapsed in the history — restorable at any time.", "Jump back", () => {
+          fetch(`/api/v1/audit/${id}/jump-back`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
+            .then(async (r) => {
+              if (!r.ok) {
+                const b = await r.json().catch(() => ({}));
+                toast((b.error && b.error.message) || "Jump back failed");
+                return;
+              }
+              toast("State restored to this point");
+              location.reload();
+            });
+        });
       });
-    }));
-  document.querySelectorAll("[data-audit-menu]").forEach((btn) =>
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openAuditMenu(btn);
-    }));
+    });
+    (root || document).querySelectorAll("[data-audit-menu]").forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = "1";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openAuditMenu(btn);
+      });
+    });
+  }
+  window.wireAuditActions = wireAuditActions; // history pane switcher uses this
+  wireAuditActions(document);
   function auditAction(id, url, method, title, body, confirmLabel, okMsg) {
     showConfirm(title, body, confirmLabel, () => {
       fetch(url, { method, headers: { "X-CSRF-Token": csrfToken() } })
@@ -1635,13 +1795,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 /* ---------- Timeline slider (doc 04 §5.7) ---------- */
-document.addEventListener("DOMContentLoaded", () => {
+/* Initialised on load and re-run whenever the transactions pane is injected
+   by the history mode switcher (the old nodes — and their listeners — die
+   with the replaced innerHTML). */
+function initHistoryTimeline() {
   const slider = document.getElementById("timelineSlider");
   if (!slider) return;
   // Steps are every day the balance can change (opening balances,
   // valuations, transactions) plus today — one slider stop per data point.
-  const months = (window.__TIMELINE_MONTHS__ || []);
+  // Months travel with the pane (data-months) so fragment swaps work too.
+  let months = [];
+  try { months = JSON.parse(slider.dataset.months || "[]"); } catch (e) { months = []; }
+  if (!months.length) months = (window.__TIMELINE_MONTHS__ || []);
+  // Full balance series (server-rendered into #timelineChart). Sliced per
+  // slider position so the chart shows only the selected period.
+  const chartHost = document.getElementById("timelineChart");
+  let fullSeries = null;
+  if (chartHost && chartHost.dataset.chartData) {
+    try { fullSeries = JSON.parse(chartHost.dataset.chartData); } catch (e) { fullSeries = null; }
+  }
   let timer = null;
+  const renderChart = (endDate) => {
+    if (!chartHost || !fullSeries || !Array.isArray(fullSeries.labels)) return;
+    let count = fullSeries.labels.length;
+    for (let i = 0; i < fullSeries.labels.length; i++) {
+      if (String(fullSeries.labels[i]) > endDate) { count = i; break; }
+    }
+    const series = (fullSeries.series || []).map((s) => Object.assign({}, s, { values: (s.values || []).slice(0, count) }));
+    chartHost.dataset.chartData = JSON.stringify({ labels: fullSeries.labels.slice(0, count), series });
+    if (window.redrawChartHost) window.redrawChartHost(chartHost);
+  };
   const render = (idx) => {
     const end = months[idx];
     if (!end) return;
@@ -1650,6 +1833,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const stepsBack = months.length - 1 - idx;
     chip.textContent = stepsBack === 0 ? "Latest" : stepsBack === 1 ? "1 step back" : stepsBack + " steps back";
     slider.style.setProperty("--fill", (months.length > 1 ? (idx / (months.length - 1)) * 100 : 0) + "%");
+    renderChart(end);
     fetch(`/api/v1/snapshot?date=${end}`).then((r) => r.json()).then((b) => {
       const bal = document.getElementById("timelineBalance");
       if (bal) bal.textContent = fmtMoneyMinor(b.total_minor, b.currency);
@@ -1686,7 +1870,8 @@ document.addEventListener("DOMContentLoaded", () => {
     ticks.innerHTML = html;
   }
   render(Number(slider.value));
-});
+}
+document.addEventListener("DOMContentLoaded", initHistoryTimeline);
 
 function tickDateLabel(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return shortMonthLabel(iso);
@@ -1698,3 +1883,71 @@ function humanDate(iso) {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
+
+/* ---------- History mode switch (doc 04 §5.7) ----------
+   Switching Transactions ⇄ Audit log (and audit filter chips) swaps the pane
+   fragment in place: the page shows a skeleton instantly while /history/pane
+   loads, instead of a slow full-page reload. */
+let historyPaneToken = 0;
+
+function historySkeletonHTML(mode) {
+  const block = (h) => `<div class="sk-block" style="height:${h}px"></div>`;
+  if (mode === "audit") {
+    return `<div class="pane-skeleton">${block(46)}${Array.from({ length: 6 }, () => `<div class="sk-block sk-row"></div>`).join("")}</div>`;
+  }
+  return `<div class="pane-skeleton">${block(112)}<div class="stats-grid three">${block(84)}${block(84)}${block(84)}</div>${block(52)}${block(120)}${block(240)}</div>`;
+}
+
+function loadHistoryPane(url, push) {
+  const host = document.getElementById("historyPaneHost");
+  if (!host) return;
+  const u = new URL(url, location.origin);
+  const mode = u.searchParams.get("mode") === "audit" ? "audit" : "transactions";
+  const filter = u.searchParams.get("filter") || "all";
+  const period = u.searchParams.get("period") || "all";
+
+  // Immediate feedback: segmented state + skeleton while the fragment loads.
+  document.querySelectorAll(".history-mode .segmented-item").forEach((a) => {
+    const on = a.dataset.historyMode === mode;
+    a.classList.toggle("active", on);
+    a.setAttribute("aria-selected", on);
+  });
+  host.innerHTML = historySkeletonHTML(mode);
+
+  const token = ++historyPaneToken;
+  fetch(`/history/pane?mode=${mode}&filter=${filter}&period=${period}`, { headers: { "X-Requested-With": "fetch" } })
+    .then((r) => {
+      // A redirect (e.g. to /setup while not initialised) would otherwise be
+      // injected as pane HTML — treat it as a failure and navigate fully.
+      if (!r.ok || r.redirected) throw new Error("pane " + r.status);
+      return r.text();
+    })
+    .then((html) => {
+      if (token !== historyPaneToken) return; // a newer switch superseded this
+      host.innerHTML = html;
+      if (mode === "audit") {
+        if (window.wireAuditActions) window.wireAuditActions(host);
+      } else {
+        initHistoryTimeline();
+        if (window.drawChartHosts) drawChartHosts(host);
+      }
+    })
+    .catch(() => { location.href = u.href; }); // fragment failed — fall back to full navigation
+  if (push) history.pushState({}, "", u.href);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const view = document.getElementById("view-history");
+  if (!view) return;
+  // Segmented tabs + audit filter chips are plain /history? links; intercept.
+  view.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest('a[href^="/history?"]');
+    if (!a) return;
+    e.preventDefault();
+    loadHistoryPane(a.getAttribute("href"), true);
+  });
+  // Back/forward between modes restores the right pane.
+  window.addEventListener("popstate", () => {
+    if (document.getElementById("historyPaneHost")) loadHistoryPane(location.href, false);
+  });
+});

@@ -303,6 +303,12 @@ func balancesSeries(a *App, from, to string) ([]string, []int64, error) {
 // one point on every day the balance can change (opening balances,
 // valuations, transactions) plus today. Between points the balance is flat,
 // so the line shows every individual transaction's up/down movement.
+//
+// The checkpoint replay (doc 02 §6) is swept in memory per account: each
+// account's per-day transaction sums and valuations are fetched once, then
+// replayed across the sorted point list. This keeps the query count constant
+// per account instead of three per (account, day) — which dominated page
+// load on long histories.
 func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 	if from > to {
 		from, to = to, from
@@ -349,70 +355,115 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 		}
 		sorted = kept
 	}
-	var accIDs []string
-	arows, err := a.DB.Query(`SELECT id FROM accounts WHERE deleted_at IS NULL`)
+	values := make([]int64, len(sorted))
+	// All non-deleted accounts with their opening baselines.
+	arows, err := a.DB.Query(`SELECT id, opening_balance_minor, COALESCE(opening_balance_date,'') FROM accounts WHERE deleted_at IS NULL`)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer arows.Close()
 	for arows.Next() {
 		var id string
-		if err := arows.Scan(&id); err == nil {
-			accIDs = append(accIDs, id)
+		var opening int64
+		var openingDate string
+		if err := arows.Scan(&id, &opening, &openingDate); err != nil {
+			return nil, nil, err
 		}
-	}
-	arows.Close()
-	values := make([]int64, len(sorted))
-	for i, d := range sorted {
-		for _, id := range accIDs {
-			b, err := balanceAt(a, id, d)
-			if err != nil {
-				return nil, nil, err
+		txs, err := accountTxSums(a, id, to)
+		if err != nil {
+			return nil, nil, err
+		}
+		vals, err := accountValuations(a, id, to)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Checkpoint replay swept across the point list (same semantics as
+		// the per-day replay): the opening balance is always the baseline —
+		// even when its date is empty or in the future (a future opening
+		// date simply excludes every earlier transaction); the latest
+		// valuation at or before the point replaces the checkpoint; only
+		// transactions strictly after the checkpoint count.
+		base := opening
+		since := openingDate
+		var txAfter int64
+		txi, vi := 0, 0
+		for i, d := range sorted {
+			for vi < len(vals) && vals[vi].date <= d {
+				base = vals[vi].value
+				since = vals[vi].date
+				txi, txAfter = 0, 0 // re-count: only transactions after the new checkpoint
+				vi++
 			}
-			values[i] += b
+			for txi < len(txs) && txs[txi].date <= d {
+				if since == "" || txs[txi].date > since {
+					txAfter += txs[txi].sum
+				}
+				txi++
+			}
+			values[i] += base + txAfter
 		}
 	}
 	return sorted, values, nil
 }
 
-// balanceAt is the checkpoint replay (doc 02 §6): opening balance (or the
-// latest valuation before `date`) plus transactions after that checkpoint.
-// The opening balance is the baseline — not just a cutoff.
-func balanceAt(a *App, accountID, date string) (int64, error) {
-	var opening int64
-	var openingDate any
-	if err := a.DB.QueryRow(`SELECT opening_balance_minor, opening_balance_date FROM accounts WHERE id=?`, accountID).
-		Scan(&opening, &openingDate); err != nil {
-		return 0, err
+// txDay is one account's net transaction movement on a single day.
+type txDay struct {
+	date string
+	sum  int64
+}
+
+// valuationPoint is one account's recorded value on a single day.
+type valuationPoint struct {
+	date  string
+	value int64
+}
+
+// accountTxSums returns the account's per-day net movements up to `until`,
+// ascending. No lower bound: checkpoints may reach back before the series
+// start, mirroring the original per-day replay.
+func accountTxSums(a *App, accountID, until string) ([]txDay, error) {
+	rows, err := a.DB.Query(`SELECT date, SUM(amount_minor) FROM transactions
+		WHERE account_id=? AND deleted_at IS NULL AND date<=? GROUP BY date ORDER BY date`, accountID, until)
+	if err != nil {
+		return nil, err
 	}
-	since := ""
-	if s, ok := openingDate.(string); ok && s != "" {
-		since = s
-	}
-	balance := opening
-	var valDate any
-	var val int64
-	err := a.DB.QueryRow(`SELECT value_minor, date FROM valuations WHERE account_id=? AND date<=? AND deleted_at IS NULL
-		ORDER BY date DESC, created_at DESC LIMIT 1`, accountID, date).Scan(&val, &valDate)
-	if err == nil {
-		balance = val
-		if s, ok := valDate.(string); ok {
-			since = s
+	defer rows.Close()
+	out := []txDay{}
+	for rows.Next() {
+		var d any
+		var sum int64
+		if err := rows.Scan(&d, &sum); err != nil {
+			return nil, err
+		}
+		if s, ok := d.(string); ok {
+			out = append(out, txDay{date: s, sum: sum})
 		}
 	}
-	q := `SELECT COALESCE(SUM(amount_minor),0) FROM transactions WHERE account_id=? AND deleted_at IS NULL AND date <= ?`
-	args := []any{accountID, date}
-	if since != "" {
-		q += ` AND date > ?`
-		args = append(args, since)
+	return out, rows.Err()
+}
+
+// accountValuations returns the account's valuations up to `until`, ascending
+// by date then creation (latest creation wins per day, as the old per-day
+// `LIMIT 1` replay did).
+func accountValuations(a *App, accountID, until string) ([]valuationPoint, error) {
+	rows, err := a.DB.Query(`SELECT date, value_minor FROM valuations
+		WHERE account_id=? AND deleted_at IS NULL AND date<=? ORDER BY date, created_at`, accountID, until)
+	if err != nil {
+		return nil, err
 	}
-	var sum any
-	if err := a.DB.QueryRow(q, args...).Scan(&sum); err != nil {
-		return 0, err
+	defer rows.Close()
+	out := []valuationPoint{}
+	for rows.Next() {
+		var d any
+		var value int64
+		if err := rows.Scan(&d, &value); err != nil {
+			return nil, err
+		}
+		if s, ok := d.(string); ok {
+			out = append(out, valuationPoint{date: s, value: value})
+		}
 	}
-	if v, ok := sum.(int64); ok {
-		balance += v
-	}
-	return balance, nil
+	return out, rows.Err()
 }
 
 func monthEndOf(m string) string {
@@ -578,63 +629,129 @@ func (a *App) handleHistory(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	mode := r.URL.Query().Get("mode")
-	if mode == "" {
+	mode, filter := historyParams(r)
+	data, err := a.historyData(base, mode, filter)
+	if err != nil {
+		return err
+	}
+	return a.Render.Render(w, "history", data)
+}
+
+// handleHistoryPane renders only the active history pane (transactions
+// timeline or audit log) as a fragment. The client switches modes with this
+// so the page itself appears instantly (skeleton) while the data loads.
+func (a *App) handleHistoryPane(w http.ResponseWriter, r *http.Request) error {
+	// The pane is injected client-side after mode/filter changes — never
+	// serve a heuristically cached copy.
+	w.Header().Set("Cache-Control", "no-store")
+	base, err := a.base(w, r, "history", "History")
+	if err != nil {
+		return err
+	}
+	mode, filter := historyParams(r)
+	data, err := a.historyData(base, mode, filter)
+	if err != nil {
+		return err
+	}
+	return a.Render.RenderFragment(w, "history-pane-content", data)
+}
+
+// historyParams reads the mode/filter from the query string.
+func historyParams(r *http.Request) (mode, filter string) {
+	mode = r.URL.Query().Get("mode")
+	if mode != "audit" {
 		mode = "transactions"
 	}
-	filter := r.URL.Query().Get("filter")
+	filter = r.URL.Query().Get("filter")
 	if filter == "" {
 		filter = "all"
 	}
-	// Timeline months (min tx month → today).
-	var minDate any
-	_ = a.DB.QueryRow(`SELECT MIN(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&minDate)
-	start := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
-	if md, ok := minDate.(string); ok && md != "" {
-		start = md
-	}
-	labels, values, err := balancesSeries(a, start, a.Clock.Today())
-	if err != nil {
-		return err
-	}
-	months := labels
+	return mode, filter
+}
+
+// historyData assembles everything the history view (or pane fragment) needs.
+// The expensive part — the transaction-resolution balance series — is only
+// computed for the transactions pane; audit mode never needs it.
+func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
+	months := []string{}
 	latestBalance := int64(0)
-	if len(values) > 0 {
-		latestBalance = values[len(values)-1]
+	txCount := int64(0)
+	cards := []*accountCard{}
+	series := ""
+	reconStatus, reconLabel, reconHint := "", "", ""
+	if mode != "audit" {
+		// Timeline months (min tx month → today).
+		var minDate any
+		_ = a.DB.QueryRow(`SELECT MIN(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&minDate)
+		start := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
+		if md, ok := minDate.(string); ok && md != "" {
+			start = md
+		}
+		labels, values, err := balancesSeries(a, start, a.Clock.Today())
+		if err != nil {
+			return nil, err
+		}
+		months = labels
+		if len(values) > 0 {
+			latestBalance = values[len(values)-1]
+		}
+		if len(months) == 0 {
+			months = []string{a.Clock.Today()[:7]}
+		}
+		_ = a.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL AND date <= ?`, a.Clock.Today()).Scan(&txCount)
+		counts, _ := a.Repos.Transactions.CountByAccount("", "")
+		cards, err = a.accountCards(counts)
+		if err != nil {
+			return nil, err
+		}
+		series = seriesJSON(labels, values)
+		reconStatus, reconLabel, reconHint = a.reconcileSummary()
 	}
-	if len(months) == 0 {
-		months = []string{a.Clock.Today()[:7]}
-	}
-	var txCount int64
-	_ = a.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL AND date <= ?`, a.Clock.Today()).Scan(&txCount)
-	counts, _ := a.Repos.Transactions.CountByAccount("", "")
-	cards, err := a.accountCards(counts)
-	if err != nil {
-		return err
-	}
-	opt := audit.ListOptions{Limit: 50}
-	switch filter {
-	case "you":
-		opt.Actor = "user"
-	case "ai":
-		opt.Actor = "ai"
-	case "import":
-		opt.Action = "import"
-	}
-	entries, _, err := a.Audit.List(opt)
-	if err != nil {
-		return err
-	}
-	entryViews := toEntryViews(entries)
-	for i := range entryViews {
-		if caps, err := a.Audit.Capabilities(entryViews[i].ID); err == nil {
-			entryViews[i].Revertible = caps.Revert
-			entryViews[i].Jumpable = caps.JumpBack
-			entryViews[i].Forgettable = caps.Forget
-			entryViews[i].Deletable = caps.Delete
+	entryViews := []auditEntryView{}
+	if mode == "audit" {
+		opt := audit.ListOptions{Limit: 50}
+		switch filter {
+		case "you":
+			opt.Actor = "user"
+		case "ai":
+			opt.Actor = "ai"
+		case "import":
+			opt.Action = "import"
+		}
+		entries, _, err := a.Audit.List(opt)
+		if err != nil {
+			return nil, err
+		}
+		entryViews = toEntryViews(entries)
+		// Capability checks in one query + in-memory policy evaluation
+		// (was one query per entry).
+		if len(entries) > 0 {
+			args := make([]any, len(entries))
+			for i, e := range entries {
+				args[i] = e.ID
+			}
+			rows, err := a.DB.Query(`SELECT id, action, state FROM audit_entries WHERE id IN (`+strings.Repeat("?,", len(entries)-1)+"?)", args...)
+			if err == nil {
+				states := map[int64]audit.AuditRow{}
+				for rows.Next() {
+					var row audit.AuditRow
+					if err := rows.Scan(&row.ID, &row.Action, &row.State); err == nil {
+						states[row.ID] = row
+					}
+				}
+				rows.Close()
+				for i := range entryViews {
+					if row, ok := states[entryViews[i].ID]; ok {
+						caps := a.Audit.Policy.Evaluate(row.Action, row.State)
+						entryViews[i].Revertible = caps.Revert
+						entryViews[i].Jumpable = caps.JumpBack
+						entryViews[i].Forgettable = caps.Forget
+						entryViews[i].Deletable = caps.Delete
+					}
+				}
+			}
 		}
 	}
-	reconStatus, reconLabel, reconHint := a.reconcileSummary()
 	data := struct {
 		*viewBase
 		Mode            string
@@ -653,11 +770,11 @@ func (a *App) handleHistory(w http.ResponseWriter, r *http.Request) error {
 		viewBase: base, Mode: mode, AuditFilter: filter, Months: months,
 		LatestDate: a.Clock.Today(), LatestBalance: latestBalance,
 		TxCountToDate: txCount, Accounts: cards,
-		Series:          seriesJSON(labels, values),
+		Series:          series,
 		Entries:         entryViews,
 		ReconcileStatus: reconStatus, ReconcileLabel: reconLabel, ReconcileHint: reconHint,
 	}
-	return a.Render.Render(w, "history", data)
+	return data, nil
 }
 
 // reconcileSummary aggregates the reconciliation card (doc 11 §6).
@@ -718,10 +835,18 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		Accounts   []*accountCard
 		AIProvider string
 		AIKeyMask  string
+		AIHasKey   bool
+		AIBaseURL  string
+		AIModel    string
 		SetupDone  bool
 	}{
 		viewBase: base, Accounts: cards,
 		AIProvider: aiProviderLabel(aiRow), AIKeyMask: aiMasked, SetupDone: s.SetupCompleted,
+	}
+	if aiRow != nil {
+		data.AIHasKey = aiRow.KeyCipher != ""
+		data.AIBaseURL = aiRow.BaseURL
+		data.AIModel = aiRow.Models["default"]
 	}
 	return a.Render.Render(w, "settings", data)
 }

@@ -8,15 +8,27 @@ import (
 	"time"
 )
 
-// --- OpenAI-compatible (also serves the "custom" endpoint, doc 09 §3) ---
+// --- OpenAI-compatible (also serves the "custom" endpoint and OpenRouter,
+// doc 09 §3) ---
 
 type OpenAI struct {
-	BaseURL string // default https://api.openai.com/v1
-	APIKey  string
-	Model   string
+	BaseURL      string // default https://api.openai.com/v1
+	APIKey       string
+	Model        string
+	ExtraHeaders map[string]string // e.g. OpenRouter attribution headers
 }
 
 func (p *OpenAI) Name() string { return "openai" }
+
+func (p *OpenAI) headers() map[string]string {
+	h := map[string]string{
+		"Authorization": "Bearer " + p.APIKey,
+	}
+	for k, v := range p.ExtraHeaders {
+		h[k] = v
+	}
+	return h
+}
 
 func (p *OpenAI) CompleteStructured(req *StructuredRequest) (string, *Usage, error) {
 	if p.APIKey == "" {
@@ -26,6 +38,7 @@ func (p *OpenAI) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
+	base = strings.TrimRight(base, "/") // "…/v1/" + "/chat/completions" would 404
 	model := p.Model
 	if model == "" {
 		model = "gpt-4o-mini"
@@ -60,9 +73,7 @@ func (p *OpenAI) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
 		}
-		if err := postJSON(ctx, base+"/chat/completions", map[string]string{
-			"Authorization": "Bearer " + p.APIKey,
-		}, body, &resp); err != nil {
+		if err := postJSON(ctx, base+"/chat/completions", p.headers(), body, &resp); err != nil {
 			return "", nil, err
 		}
 		if len(resp.Choices) == 0 {
@@ -160,7 +171,7 @@ func (p *Gemini) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}
 	model := p.Model
 	if model == "" {
-		model = "gemini-1.5-flash"
+		model = "gemini-2.0-flash"
 	}
 	timeout := req.Timeout
 	if timeout == 0 {
@@ -229,6 +240,7 @@ func (p *Ollama) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	if base == "" {
 		base = "http://localhost:11434"
 	}
+	base = strings.TrimRight(base, "/")
 	model := p.Model
 	if model == "" {
 		model = "llama3.1"
@@ -262,11 +274,46 @@ func (p *Ollama) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}, validJSON)
 }
 
+// EffectiveModel reports the model a provider will actually call — the
+// configured one, or the per-provider default that New fills in for "Auto".
+// Useful in error messages so 404s point at a concrete model ID.
+func EffectiveModel(p Provider) string {
+	switch v := p.(type) {
+	case *OpenAI:
+		return v.Model
+	case *Anthropic:
+		return v.Model
+	case *Gemini:
+		return v.Model
+	case *Ollama:
+		return v.Model
+	default:
+		return ""
+	}
+}
+
 // New builds a provider from config (doc 09 §4).
 func New(provider, model, baseURL, apiKey string) (Provider, error) {
 	switch provider {
 	case "openai":
 		return &OpenAI{APIKey: apiKey, Model: model, BaseURL: baseURL}, nil
+	case "openrouter":
+		// OpenRouter speaks the OpenAI chat-completions dialect; its model IDs
+		// are "vendor/model". Attribution headers are recommended by OpenRouter.
+		base := baseURL
+		if base == "" {
+			base = "https://openrouter.ai/api/v1"
+		}
+		if model == "" {
+			model = "openai/gpt-4o-mini" // "Auto": the OpenAI-only default would 404 here
+		}
+		return &OpenAI{
+			APIKey: apiKey, Model: model, BaseURL: base,
+			ExtraHeaders: map[string]string{
+				"HTTP-Referer": "https://glowworm.app",
+				"X-Title":      "Glowworm",
+			},
+		}, nil
 	case "anthropic":
 		return &Anthropic{APIKey: apiKey, Model: model}, nil
 	case "google":

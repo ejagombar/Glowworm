@@ -183,6 +183,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/settings/ai", j(a.apiAIGet))
 	mux.HandleFunc("PUT /api/v1/settings/ai", j(a.apiAISet))
 	mux.HandleFunc("POST /api/v1/settings/ai/test", j(a.apiAITest))
+	mux.HandleFunc("POST /api/v1/settings/ai/models", j(a.apiAIModels))
 
 	// NL query + conversations (doc 03 §9).
 	mux.HandleFunc("POST /api/v1/query", j(a.apiQuery))
@@ -1016,7 +1017,8 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Provider string            `json:"provider"`
 		APIKey   string            `json:"api_key"`
-		BaseURL  string            `json:"base_url"`
+		BaseURL  *string           `json:"base_url"` // nil = keep the stored endpoint
+		ClearKey bool              `json:"clear_key"`
 		Models   map[string]string `json:"models"`
 	}
 	if err := decodeBody(r, &in); err != nil {
@@ -1026,6 +1028,10 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	baseURL := row.BaseURL // switching providers keeps the stored endpoint
+	if in.BaseURL != nil {
+		baseURL = *in.BaseURL
+	}
 	keyCipher := row.KeyCipher
 	if in.APIKey != "" {
 		cipher, err := a.Secret.Encrypt([]byte(in.APIKey))
@@ -1034,6 +1040,9 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 		}
 		keyCipher = cipher
 	}
+	if in.ClearKey {
+		keyCipher = "" // explicit clear keeps the provider
+	}
 	if in.Provider == "" {
 		keyCipher = "" // disabling the provider clears the stored key
 	}
@@ -1041,7 +1050,7 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	if in.Models != nil {
 		models = in.Models
 	}
-	if err := a.Repos.AIConfig.Set(nil, in.Provider, models, in.BaseURL, keyCipher); err != nil {
+	if err := a.Repos.AIConfig.Set(nil, in.Provider, models, baseURL, keyCipher); err != nil {
 		return err
 	}
 	if err := a.DB.WithTx(func(tx *sql.Tx) error {
@@ -1050,7 +1059,7 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 			EntityType: "ai_provider_config", EntityID: "1",
 			Title:  "Updated AI provider",
 			Sub:    maskedProvider(in.Provider),
-			After:  map[string]any{"provider": in.Provider, "models": models, "base_url": in.BaseURL, "has_key": in.APIKey != ""},
+			After:  map[string]any{"provider": in.Provider, "models": models, "base_url": baseURL, "has_key": in.APIKey != ""},
 			Revert: map[string]any{"provider": row.Provider, "models": row.Models, "base_url": row.BaseURL, "key_cipher": row.KeyCipher},
 		})
 		return err
@@ -1058,11 +1067,66 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	// Re-resolve the live provider.
-	a.Cat.Provider, _ = ai.New(in.Provider, models["default"], in.BaseURL, decodeKey(a.Secret, keyCipher))
+	a.Cat.Provider, _ = ai.New(in.Provider, models["default"], baseURL, decodeKey(a.Secret, keyCipher))
 	if a.Cat.Provider != nil {
 		a.Imports.Provider = a.Cat.Provider
 	}
 	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+// apiAIModels lists the models a provider currently offers so the settings
+// UI can offer real choices. Accepts the in-progress provider/base/key so it
+// works before saving; empty fields fall back to the stored config. The API
+// key is only accepted in the JSON body (never the query string).
+func (a *App) apiAIModels(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		Provider string `json:"provider"`
+		BaseURL  string `json:"base_url"`
+		APIKey   string `json:"api_key"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	row, err := a.Repos.AIConfig.Get()
+	if err != nil {
+		return err
+	}
+	provider := in.Provider
+	if provider == "" && row != nil {
+		provider = row.Provider
+	}
+	baseURL := in.BaseURL
+	if baseURL == "" && row != nil {
+		baseURL = row.BaseURL
+	}
+	apiKey := in.APIKey
+	if apiKey == "" && row != nil {
+		apiKey = decodeKey(a.Secret, row.KeyCipher)
+	}
+	// Providers whose catalogue needs auth: don't even call them without a
+	// key — an expected 401 is not an error worth showing.
+	needsKey := provider == "openai" || provider == "anthropic" || provider == "google"
+	if needsKey && apiKey == "" {
+		writeJSON(w, map[string]any{"ok": true, "source": "needs-key", "provider": provider, "models": ai.FallbackModels(provider)})
+		return nil
+	}
+	models, err := ai.ListModels(provider, baseURL, apiKey, 10*time.Second)
+	source := "live"
+	if err != nil || len(models) == 0 {
+		if err == nil {
+			err = &ai.ErrUnavailable{Reason: "provider returned no models"}
+		}
+		models = ai.FallbackModels(provider)
+		source = "fallback"
+	}
+	out := map[string]any{"ok": true, "source": source, "provider": provider, "models": models}
+	// Only surface the upstream error when a key was actually configured —
+	// without one, an auth failure is the expected state, not a problem.
+	if source == "fallback" && apiKey != "" {
+		out["error"] = err.Error()
+	}
+	writeJSON(w, out)
 	return nil
 }
 
@@ -1093,7 +1157,8 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 		writeJSON(w, map[string]any{"ok": false, "error": "No provider configured"})
 		return nil
 	}
-	p, err := ai.New(row.Provider, row.Models["default"], row.BaseURL, decodeKey(a.Secret, row.KeyCipher))
+	model := row.Models["default"]
+	p, err := ai.New(row.Provider, model, row.BaseURL, decodeKey(a.Secret, row.KeyCipher))
 	if err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return nil
@@ -1105,7 +1170,13 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 	})
 	latency := int(timeNow().Sub(start).Milliseconds())
 	if err != nil {
-		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		// Include the model actually used so 404s point at the config, not
+		// just the provider's raw response.
+		modelLabel := model
+		if modelLabel == "" {
+			modelLabel = ai.EffectiveModel(p)
+		}
+		writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("%s (model: %s)", err, modelLabel)})
 		return nil
 	}
 	a.Repos.AIConfig.LogCall("schema_naming", row.Provider, row.Models["default"], 0, 0, latency, true, "")
