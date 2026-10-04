@@ -8,111 +8,16 @@
   </div>
 
   <div class="segmented history-mode" role="tablist" aria-label="History view">
-    <a class="segmented-item{{if ne .Mode "audit"}} active{{end}}" href="/history?mode=transactions&period={{.Period}}" role="tab" aria-selected="{{if ne .Mode "audit"}}true{{else}}false{{end}}">
+    <a class="segmented-item{{if ne .Mode "audit"}} active{{end}}" href="/history?mode=transactions&period={{.Period}}" data-history-mode="transactions" role="tab" aria-selected="{{if ne .Mode "audit"}}true{{else}}false{{end}}">
       <svg class="icon"><use href="#i-transactions"/></svg> Transactions
     </a>
-    <a class="segmented-item{{if eq .Mode "audit"}} active{{end}}" href="/history?mode=audit&period={{.Period}}" role="tab" aria-selected="{{if eq .Mode "audit"}}true{{else}}false{{end}}">
+    <a class="segmented-item{{if eq .Mode "audit"}} active{{end}}" href="/history?mode=audit&period={{.Period}}" data-history-mode="audit" role="tab" aria-selected="{{if eq .Mode "audit"}}true{{else}}false{{end}}">
       <svg class="icon"><use href="#i-history"/></svg> Audit log
     </a>
   </div>
 
-  <script>window.__TIMELINE_MONTHS__ = [{{range .Months}}"{{.}}",{{end}}];</script>
-  {{if eq .Mode "audit"}}
-  <!-- Audit log -->
-  <div class="history-pane" id="historyAuditPane">
-    <div class="filters panel">
-      <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all&period={{.Period}}">All</a>
-      <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you&period={{.Period}}">By you</a>
-      <a class="chip{{if eq .AuditFilter "ai"}} active{{end}}" href="/history?mode=audit&filter=ai&period={{.Period}}">By AI</a>
-      <a class="chip{{if eq .AuditFilter "import"}} active{{end}}" href="/history?mode=audit&filter=import&period={{.Period}}">Imports</a>
-    </div>
-
-    <div class="history-list" id="historyList">
-      {{range .Entries}}
-      <div class="history-item" data-entry-id="{{.ID}}">
-        <div class="history-icon {{.Kind}}">
-          {{if eq .Kind "you"}}Y{{else if eq .Kind "ai"}}<svg class="icon"><use href="#i-sparkle"/></svg>{{else}}<svg class="icon"><use href="#i-import"/></svg>{{end}}
-        </div>
-        <div class="history-main">
-          <div class="history-title"><span class="who {{.Kind}}">{{.Actor}}</span> {{.Title}}</div>
-          <div class="history-sub">{{.Sub}}</div>
-          {{if .DiffLines}}
-          <div class="history-diff">
-            {{range .DiffLines}}<span class="{{.Cls}}">{{.Line}}</span>{{end}}
-          </div>
-          {{end}}
-        </div>
-        <div class="history-time">{{.Timestamp}}</div>
-        <div class="history-actions">
-          {{if .Jumpable}}
-          <button class="btn btn-ghost btn-xs history-restore" data-jump-back="{{.ID}}" title="Restore state to this point">Restore</button>
-          {{end}}
-          {{if or .Revertible .Deletable .Forgettable}}
-          <button class="widget-btn" data-audit-menu="{{.ID}}" title="More actions"><svg class="icon"><use href="#i-more"/></svg></button>
-          {{end}}
-        </div>
-      </div>
-      {{end}}
-      {{if not .Entries}}
-      <div class="history-item"><div class="history-main"><div class="history-title">No audit entries yet</div>
-        <div class="history-sub">Every change — by you, AI, or Glowworm — will appear here.</div></div></div>
-      {{end}}
-    </div>
-  </div>
-  {{else}}
-  <!-- Transactions timeline -->
-  <div class="history-pane" id="historyTimelinePane">
-    <div class="panel timeline-controls">
-      <div class="timeline-head">
-        <svg class="icon timeline-ico"><use href="#i-timeline"/></svg>
-        <div class="timeline-date-main">
-          <div class="timeline-date-label">Viewing state on</div>
-          <div class="timeline-date" id="timelineDate">{{dayMonthYear .LatestDate}}</div>
-        </div>
-        <span class="timeline-chip" id="timelineChip">Latest</span>
-      </div>
-      <div class="timeline-slider-wrap">
-        <input type="range" id="timelineSlider" min="0" max="{{sub (len .Months) 1}}" value="{{sub (len .Months) 1}}" step="1" aria-label="Timeline date" />
-        <div class="timeline-ticks" id="timelineTicks"></div>
-      </div>
-    </div>
-
-    <div class="stats-grid three">
-      <article class="stat-card">
-        <div class="stat-label">Balance at this date</div>
-        <div class="stat-value" id="timelineBalance">{{money .LatestBalance .Currency}}</div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-label">Reconciled</div>
-        <div class="stat-value {{if eq .ReconcileStatus "verified"}}ok{{end}} no-blur">{{.ReconcileLabel}}</div>
-        <div class="stat-trend {{if eq .ReconcileStatus "verified"}}up{{end}} no-blur">{{.ReconcileHint}}</div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-label">Transactions in period</div>
-        <div class="stat-value no-blur" id="timelineTxCount">{{.TxCountToDate}}</div>
-      </article>
-    </div>
-
-    <div class="section-head">
-      <h2>Account balances at this date</h2>
-    </div>
-    <div class="timeline-accounts" id="timelineAccounts">
-      {{range .Accounts}}
-      <div class="timeline-account">
-        <span class="account-dot" style="background:{{.Color}}"></span>
-        <span class="account-name">{{.Name}}</span>
-        <span class="account-balance {{if .BalanceNeg}}neg{{end}}">{{money .BalanceMinor $.Currency}}</span>
-      </div>
-      {{end}}
-    </div>
-
-    <div class="panel">
-      <div class="section-head inside">
-        <h2>Balance over time</h2>
-      </div>
-      <div class="chart-host" id="timelineChart" data-chart-type="line" data-chart-data="{{jsonAttr .Series}}"></div>
-    </div>
-  </div>
-  {{end}}
+  {{/* Pane content is shared with the /history/pane fragment endpoint so
+      the client can switch modes instantly (skeleton while it loads). */}}
+  <div id="historyPaneHost">{{template "history-pane-content" .}}</div>
 </section>
 {{end}}

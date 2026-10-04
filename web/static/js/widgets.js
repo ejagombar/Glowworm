@@ -129,8 +129,13 @@ function lineChartSVG(data, width = 640, height = 260) {
   const s = (data.series && data.series[0]) ? data.series[0] : { name: "Value", color: WIDGET_COLORS[0], values: [] };
   const labels = data.labels || [];
   const vals = s.values || [];
-  const max = Math.max(0, ...vals);
-  const min = Math.min(0, ...vals);
+  // Loop, not spread: Math.max(...vals) throws RangeError on very long series.
+  let max = 0, min = 0;
+  for (let i = 0; i < vals.length; i++) {
+    const v = Number(vals[i]);
+    if (v > max) max = v;
+    if (v < min) min = v;
+  }
   const W = width, H = height, padL = 46, padB = 30, padT = 14, padR = 14;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const span = (max - min) || 1;
@@ -157,11 +162,126 @@ function lineChartSVG(data, width = 640, height = 260) {
       parts.push(`<circle cx="${px(i)}" cy="${py(v)}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(v)}</title></circle>`);
     });
   }
-  if (n > 1) {
-    parts.push(`<text x="${padL}" y="${H - 8}" class="chart-tooltip">${esc(shortLabel(labels[0]))}</text>`);
-    parts.push(`<text x="${W - padR}" y="${H - 8}" text-anchor="end" class="chart-tooltip">${esc(shortLabel(labels[n - 1]))}</text>`);
-  }
+  // X axis: several evenly spread date labels (2 on narrow charts, up to 6 wide).
+  const xTickCount = width < 420 ? 2 : width < 700 ? 4 : 6;
+  xTickLabels(labels, xTickCount).forEach(({ i, text }) => {
+    const anchor = n === 1 ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+    parts.push(`<text x="${px(i)}" y="${H - 8}" text-anchor="${anchor}" class="chart-tooltip">${esc(text)}</text>`);
+  });
+  // Transparent overlay on top so the whole chart area tracks the pointer.
+  parts.push(`<rect class="chart-hover-layer" x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`);
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="line chart">${parts.join("")}</svg>`;
+}
+
+/* ---- line chart hover popup (nearest point to the pointer) ---- */
+let chartTipEl = null;
+function ensureChartTip() {
+  if (chartTipEl || !document.body) return chartTipEl;
+  chartTipEl = document.createElement("div");
+  chartTipEl.className = "chart-hover-tip";
+  chartTipEl.setAttribute("role", "status");
+  chartTipEl.style.display = "none";
+  document.body.appendChild(chartTipEl);
+  return chartTipEl;
+}
+function fmtMoneyTip(v) {
+  const n = Number(v);
+  const sym = ({ GBP: "\u00a3", USD: "$", EUR: "\u20ac" })[WIDGET_CURRENCY] || WIDGET_CURRENCY + " ";
+  const sign = n < 0 ? "\u2212" : "";
+  return sign + sym + Math.abs(n / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function nearestLinePoint(host, svg, clientX, clientY) {
+  const data = chartDataFor(host);
+  const labels = data.labels || [];
+  const series = (data.series && data.series[0]) || {};
+  const vals = series.values || [];
+  const n = Math.min(labels.length, vals.length);
+  if (!n) return null;
+  const vb = svg.viewBox && svg.viewBox.baseVal;
+  const W = vb && vb.width ? vb.width : 640;
+  const H = vb && vb.height ? vb.height : 260;
+  const padL = 46, padR = 14, padT = 14, padB = 30; // must match lineChartSVG
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const rect = svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const x = ((clientX - rect.left) / rect.width) * W;
+  const y = ((clientY - rect.top) / rect.height) * H;
+  let max = 0, min = 0; // loop: spread throws RangeError on very long series
+  for (let i = 0; i < n; i++) {
+    const v = Number(vals[i]);
+    if (v > max) max = v;
+    if (v < min) min = v;
+  }
+  const span = (max - min) || 1;
+  const px = (i) => (n <= 1 ? padL + innerW / 2 : padL + (i / (n - 1)) * innerW);
+  const py = (v) => padT + innerH - ((v - min) / span) * innerH;
+  let idx = 0, best = Infinity;
+  for (let i = 0; i < n; i++) {
+    const dx = px(i) - x, dy = py(vals[i]) - y;
+    const d = dx * dx + dy * dy;
+    if (d < best) { best = d; idx = i; }
+  }
+  return { label: labels[idx], value: vals[idx], name: series.name || "Value", x: px(idx), y: py(vals[idx]) };
+}
+
+/* Parsed chart data cached per host: the hover handler runs on every
+   mousemove, so avoid re-parsing the JSON attribute each time. */
+const chartDataCache = new WeakMap();
+function chartDataFor(host) {
+  const src = host.dataset.chartData || "";
+  const cached = chartDataCache.get(host);
+  if (cached && cached.src === src) return cached.data;
+  let data;
+  try { data = JSON.parse(src || "{}"); } catch (e) { data = {}; }
+  chartDataCache.set(host, { src, data });
+  return data;
+}
+function showChartTip(tip, svg, pt) {
+  // Anchor above the pin the popup represents (viewBox coords -> screen).
+  const rect = svg.getBoundingClientRect();
+  const vb = svg.viewBox && svg.viewBox.baseVal;
+  const W = vb && vb.width ? vb.width : 640;
+  const H = vb && vb.height ? vb.height : 260;
+  if (!rect.width || !rect.height) return; // bail before showing at a stale spot
+  tip.style.display = "block";
+  tip.innerHTML = `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
+    + `<div class="chart-tip-value">${esc(fmtMoneyTip(pt.value))}</div>`;
+  const sx = rect.left + (pt.x / W) * rect.width;
+  const sy = rect.top + (pt.y / H) * rect.height;
+  const gap = 10;
+  const r = tip.getBoundingClientRect();
+  let left = sx - r.width / 2;
+  let top = sy - r.height - gap;
+  let below = false;
+  if (top < 8) { top = sy + gap; below = true; } // flip under the pin near the top edge
+  if (left < 8) left = 8;
+  if (left + r.width > window.innerWidth - 8) left = window.innerWidth - 8 - r.width;
+  tip.classList.toggle("below", below);
+  tip.style.left = left + "px";
+  tip.style.top = top + "px";
+}
+function ensureChartHover() {
+  if (ensureChartHover.done || !document.body) return;
+  ensureChartHover.done = true;
+  const tip = ensureChartTip();
+  if (!tip) return;
+  document.addEventListener("mousemove", (e) => {
+    const host = e.target && e.target.closest ? e.target.closest('.chart-host[data-chart-type="line"]') : null;
+    if (!host) { tip.style.display = "none"; return; }
+    const svg = host.querySelector("svg");
+    if (!svg) { tip.style.display = "none"; return; }
+    const pt = nearestLinePoint(host, svg, e.clientX, e.clientY);
+    if (!pt) { tip.style.display = "none"; return; }
+    showChartTip(tip, svg, pt);
+  });
+  document.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+  // Fixed-position tip would go stale when the page scrolls under the pointer.
+  window.addEventListener("scroll", () => { tip.style.display = "none"; }, { passive: true });
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", ensureChartHover);
+} else {
+  ensureChartHover();
 }
 
 function pieChartSVG(data) {
@@ -200,6 +320,55 @@ function legendHTML(labels, values, colors, total) {
 function shortLabel(l) {
   const s = String(l);
   return s.length > 8 ? s.slice(0, 7) + "…" : s;
+}
+
+/* ---- date/label formatting for line-chart axes + hover popup ---- */
+/* Short form for the x axis: "1 Jun 24", "Jun 24", or a truncated string. */
+function chartAxisLabel(l) {
+  const s = String(l ?? "");
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s.slice(0, 10) + "T00:00:00");
+    if (!isNaN(d)) return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+  }
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    const d = new Date(s + "-01T00:00:00");
+    if (!isNaN(d)) return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+  }
+  return s.length > 12 ? s.slice(0, 11) + "…" : s;
+}
+/* Long form for the hover popup: date and, when present, time. */
+function chartTooltipLabel(l) {
+  const s = String(l ?? "");
+  let m;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s.slice(0, 10) + "T00:00:00");
+    if (!isNaN(d)) {
+      const datePart = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+      if ((m = /[T\s](\d{1,2}:\d{2})/.exec(s))) return datePart + ", " + m[1];
+      return datePart;
+    }
+  }
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    const d = new Date(s + "-01T00:00:00");
+    if (!isNaN(d)) return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  }
+  return s;
+}
+/* Evenly spread x-axis ticks: indices into labels + their display text. */
+function xTickLabels(labels, count = 6) {
+  const n = labels.length;
+  if (!n) return [];
+  const maxTicks = Math.max(2, count);
+  if (n <= maxTicks) return labels.map((text, i) => ({ i, text: chartAxisLabel(text) }));
+  const out = [];
+  const seen = new Set();
+  for (let k = 0; k < maxTicks; k++) {
+    const i = Math.round((k * (n - 1)) / (maxTicks - 1));
+    if (seen.has(i)) continue;
+    seen.add(i);
+    out.push({ i, text: chartAxisLabel(labels[i]) });
+  }
+  return out;
 }
 
 /* ---- responsive chart redraw (fills container without distortion) ---- */

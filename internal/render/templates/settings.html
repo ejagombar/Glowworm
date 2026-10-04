@@ -49,17 +49,33 @@
           <option value="openai"{{if eq .AIProvider "openai"}} selected{{end}}>OpenAI (GPT)</option>
           <option value="anthropic"{{if eq .AIProvider "anthropic"}} selected{{end}}>Anthropic (Claude)</option>
           <option value="google"{{if eq .AIProvider "google"}} selected{{end}}>Google (Gemini)</option>
+          <option value="openrouter"{{if eq .AIProvider "openrouter"}} selected{{end}}>OpenRouter</option>
           <option value="ollama"{{if eq .AIProvider "ollama"}} selected{{end}}>Ollama (local)</option>
           <option value="custom"{{if eq .AIProvider "custom"}} selected{{end}}>Custom endpoint</option>
         </select>
       </div>
+      <div class="field-row" id="aiBaseUrlRow"{{if and (ne .AIProvider "custom") (ne .AIProvider "ollama") (ne .AIProvider "openrouter")}} hidden{{end}}>
+        <label>Endpoint URL</label>
+        <input class="field" type="url" id="aiBaseUrl" value="{{.AIBaseURL}}" placeholder="https://your-endpoint.example.com/v1" />
+      </div>
       <div class="field-row">
         <label>API key</label>
-        <input class="field" type="password" id="aiKey" placeholder="{{.AIKeyMask}}" />
+        <div class="key-row">
+          <input class="field" type="password" id="aiKey" data-has-key="{{if .AIHasKey}}1{{else}}0{{end}}" placeholder="{{if .AIHasKey}}API key saved — click to replace{{else}}Paste your API key{{end}}" autocomplete="off" />
+          <button class="btn btn-ghost btn-xs" id="aiKeyClear" type="button" title="Remove the saved key"{{if not .AIHasKey}} hidden{{end}}>Clear</button>
+        </div>
+        {{if .AIHasKey}}<p class="muted" style="margin:4px 0 0">A key is saved for this provider. Click the field to replace it, or Clear to remove it.</p>{{end}}
       </div>
       <div class="field-row">
         <label>Model</label>
-        <select class="field select" id="aiModel"><option>Auto</option><option>Latest</option></select>
+        <div class="key-row">
+          <select class="field select" id="aiModel">
+            <option value="">Auto (provider default)</option>
+            {{if .AIModel}}<option value="{{.AIModel}}" selected>{{.AIModel}}</option>{{end}}
+          </select>
+          <button class="btn btn-ghost btn-xs" id="aiLoadModels" type="button" title="Fetch the model list from the provider">Load models</button>
+        </div>
+        <p class="muted" id="aiModelsStatus" style="margin:4px 0 0">Load the model list for the selected provider.</p>
       </div>
       <div class="field-row">
         <button class="btn btn-primary" id="aiSave">Save provider</button>
@@ -86,32 +102,16 @@
         </select>
       </div>
       <div class="field-row">
-        <label>Your name</label>
-        <input class="field" type="text" id="userNameInput" value="{{.UserName}}" placeholder="Shown on your dashboard greeting" />
-      </div>
-      <div class="field-row">
         <button class="btn btn-primary" id="appearanceSave">Save appearance</button>
       </div>
     </div>
 
     <div class="panel setting-block">
       <h2>Account</h2>
-      <p class="muted">Signed in as <strong>{{.UserName}}</strong>. Passwords are at least 10 characters.</p>
-      <div class="field-row">
-        <label>Current password</label>
-        <input class="field" type="password" id="pwCurrent" autocomplete="current-password" />
-      </div>
-      <div class="field-row">
-        <label>New password</label>
-        <input class="field" type="password" id="pwNew" autocomplete="new-password" placeholder="At least 10 characters" />
-      </div>
-      <div class="field-row">
-        <label>Confirm new password</label>
-        <input class="field" type="password" id="pwConfirm" autocomplete="new-password" />
-      </div>
-      <div class="field-row" style="gap:8px">
-        <button class="btn btn-primary" id="passwordSave">Change password</button>
-        <span class="spacer"></span>
+      <p class="muted">Signed in as <strong id="signedInName">{{if .UserName}}{{.UserName}}{{else}}you{{end}}</strong>.</p>
+      <div class="account-actions">
+        <button class="btn btn-ghost" id="changeNameBtn" type="button">Update name…</button>
+        <button class="btn btn-ghost" id="changePasswordBtn" type="button">Change password…</button>
         <form method="post" action="/logout">
           <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
           <button class="btn btn-ghost" type="submit">Sign out</button>
@@ -128,4 +128,68 @@
 </section>
 
 {{template "account-modal" dict "CSRF" .CSRFToken "Currency" .Currency "Symbol" (symbol .Currency)}}
+{{template "password-modal" .}}
+{{template "name-modal" .}}
+{{end}}
+
+{{define "name-modal"}}
+<div class="modal-backdrop" id="nameModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nameModalTitle">
+    <button class="icon-btn modal-close" data-action="close-name" aria-label="Close">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+    <div class="modal-head">
+      <div class="modal-head-text">
+        <h3 id="nameModalTitle">Update your name</h3>
+        <p class="muted">Shown on your dashboard greeting and here.</p>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <label>Your name</label>
+        <input class="field" type="text" id="nameInput" value="{{.UserName}}" placeholder="How should Glowworm greet you?" />
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="nameCancel" type="button">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="nameSaveModal">Save name</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "password-modal"}}
+<div class="modal-backdrop" id="passwordModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
+    <button class="icon-btn modal-close" data-action="close-password" aria-label="Close">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+    <div class="modal-head">
+      <div class="modal-head-text">
+        <h3 id="passwordModalTitle">Change password</h3>
+        <p class="muted">Your current password is required. New passwords are at least 10 characters.</p>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <label>Current password</label>
+        <input class="field" type="password" id="pwCurrent" autocomplete="current-password" />
+      </div>
+      <div class="field-row">
+        <label>New password</label>
+        <input class="field" type="password" id="pwNew" autocomplete="new-password" placeholder="At least 10 characters" />
+      </div>
+      <div class="field-row">
+        <label>Confirm new password</label>
+        <input class="field" type="password" id="pwConfirm" autocomplete="new-password" />
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="passwordCancel" type="button">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="passwordSave">Change password</button>
+      </div>
+    </div>
+  </div>
+</div>
 {{end}}

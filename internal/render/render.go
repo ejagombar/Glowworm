@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"net/http"
 	"strings"
 	"time"
 
@@ -106,7 +107,11 @@ func New() (*Renderer, error) {
 }
 
 // Render executes the layout (which pulls in the view's "content" define).
-func (r *Renderer) Render(w interface{ Write([]byte) (int, error) }, name string, data any) error {
+func (r *Renderer) Render(w http.ResponseWriter, name string, data any) error {
+	// Pages are server-rendered UI: never let a browser heuristically cache a
+	// stale copy — self-hosted binaries are updated in place, and a stale page
+	// paired with fresh JS breaks every handler the old markup referenced.
+	w.Header().Set("Cache-Control", "no-store")
 	_, ok := r.tmpl[name]
 	if !ok {
 		return fmt.Errorf("render: unknown template %q", name)
@@ -115,7 +120,8 @@ func (r *Renderer) Render(w interface{ Write([]byte) (int, error) }, name string
 }
 
 // RenderFragment executes only the named fragment template (no layout).
-func (r *Renderer) RenderFragment(w interface{ Write([]byte) (int, error) }, name string, data any) error {
+func (r *Renderer) RenderFragment(w http.ResponseWriter, name string, data any) error {
+	w.Header().Set("Cache-Control", "no-store")
 	// Fragments live in *.frag.html files; find the template by walking parsed sets.
 	for _, t := range r.tmpl {
 		if tt := t.Lookup(name); tt != nil {

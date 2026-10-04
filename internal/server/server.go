@@ -220,6 +220,7 @@ func (a *App) Router() http.Handler {
 	mux.HandleFunc("GET /categories", a.page(a.handleCategories))
 	mux.HandleFunc("GET /import", a.page(a.handleImport))
 	mux.HandleFunc("GET /history", a.page(a.handleHistory))
+	mux.HandleFunc("GET /history/pane", a.page(a.handleHistoryPane))
 	mux.HandleFunc("GET /settings", a.page(a.handleSettings))
 	mux.HandleFunc("GET /login", a.handleLoginPage)
 	mux.HandleFunc("POST /login", a.handleLoginSubmit)
