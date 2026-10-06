@@ -1,11 +1,13 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"glowworm/internal/core"
+	"glowworm/internal/core/setup"
 )
 
 var _ = core.ActorUser
@@ -139,35 +141,70 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
+// The first visit with no owner gets an account form instead of the sign-in
+// page. The owner can also come from config or `glowworm user create`.
 func (a *App) handleSetupPage(w http.ResponseWriter, r *http.Request) {
-	if a.Audit.HasUser() {
-		http.Redirect(w, r, "/", http.StatusFound)
+	a.renderSetup(w, r, "", "")
+}
+
+func (a *App) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
+	if !a.setupAllowed(w, r) {
 		return
 	}
-	if a.Cfg.SetupToken != "" {
-		if r.URL.Query().Get("token") != a.Cfg.SetupToken {
-			http.Error(w, "Setup token required. Check the server log for the first-run token.", http.StatusForbidden)
+	if err := r.ParseForm(); err != nil || !checkCSRF(r) {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+	ip := clientIP(r, a.Cfg.TrustedProxies)
+	if !a.loginLimiter.Allow("setup:" + ip) {
+		http.Error(w, "Too many attempts. Try again later.", http.StatusTooManyRequests)
+		return
+	}
+	username := r.PostFormValue("username")
+	u, err := a.Setup.CreateAccount(setup.AccountInput{
+		Username: username, Password: r.PostFormValue("password"),
+		PasswordConfirm: r.PostFormValue("password_confirm"),
+	})
+	if err != nil {
+		var ve *setup.ValidationError
+		if errors.As(err, &ve) {
+			a.renderSetup(w, r, ve.Message, username)
 			return
 		}
+		a.Log.Error("setup", "err", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
-	base, err := a.base(w, r, "dashboard", "Setup")
+	issueSession(w, r, a.Secret, u.ID)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (a *App) setupAllowed(w http.ResponseWriter, r *http.Request) bool {
+	if a.Cfg.AuthMode != "password" || a.Audit.HasUser() {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return false
+	}
+	if a.Cfg.SetupToken != "" && r.URL.Query().Get("token") != a.Cfg.SetupToken {
+		http.Error(w, "Setup token required. Check the server log for the first-run token.", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (a *App) renderSetup(w http.ResponseWriter, r *http.Request, errMsg, username string) {
+	if !a.setupAllowed(w, r) {
+		return
+	}
+	base, err := a.base(w, r, "setup", "Create account")
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	base.SetupOpen = true
-	defaults := []struct{ Name, Color string }{
-		{"Transport", "#4f5bc7"}, {"Food & Dining", "#c9822e"}, {"Bills & Utilities", "#c0483f"},
-		{"Entertainment", "#7a58b8"}, {"Shopping", "#2f7fb0"}, {"Health", "#0e7a4d"},
-	}
-	wizardCats := make([]core.Category, 0, len(defaults))
-	for i, d := range defaults {
-		wizardCats = append(wizardCats, core.Category{Name: d.Name, Color: d.Color, SortOrder: i})
-	}
+	base.Standalone = true
 	data := struct {
 		*viewBase
-		WizardCats []core.Category
-	}{viewBase: base, WizardCats: wizardCats}
+		Error, Username, Token string
+	}{viewBase: base, Error: errMsg, Username: username, Token: r.URL.Query().Get("token")}
 	if err := a.Render.Render(w, "setup", data); err != nil {
 		a.Log.Error("setup page", "err", err)
 	}

@@ -25,6 +25,8 @@ Commands:
   backup [-o FILE]          write a full backup (safe while the server runs)
   restore [--force] FILE    replace this instance's data with a backup;
                             stop the server first
+  user create [-u NAME]     create the account from the terminal (prompts
+                            for the password); otherwise the browser asks
   version                   print the version
   healthcheck [--url URL]   exit 0 if the server answers /healthz
 
@@ -43,6 +45,8 @@ func main() {
 		runBackup(args)
 	case "restore":
 		runRestore(args)
+	case "user":
+		runUser(args)
 	case "version":
 		fmt.Println(version)
 	case "healthcheck":
