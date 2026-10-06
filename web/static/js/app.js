@@ -1744,18 +1744,29 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.dataset.wired = "1";
       btn.addEventListener("click", () => {
         const id = btn.dataset.jumpBack;
-        showConfirm("Jump back?", "Everything after this point will be undone but kept collapsed in the history — restorable at any time.", "Jump back", () => {
+        showConfirm("Restore to this point?", "Everything after this point is undone. Those entries stay in the log, greyed out and collapsed, and can be redone.", "Restore", () => {
           fetch(`/api/v1/audit/${id}/jump-back`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
             .then(async (r) => {
               if (!r.ok) {
                 const b = await r.json().catch(() => ({}));
-                toast((b.error && b.error.message) || "Jump back failed");
+                toast((b.error && b.error.message) || "Restore failed");
                 return;
               }
               toast("State restored to this point");
               location.reload();
             });
         });
+      });
+    });
+    (root || document).querySelectorAll("[data-restore-path]").forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = "1";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault(); // it sits in a <summary>; don't toggle the group
+        e.stopPropagation();
+        auditAction(null, `/api/v1/audit/paths/${encodeURIComponent(btn.dataset.restorePath)}/restore`, "POST",
+          "Redo these changes?", "The undone changes are re-applied. Anything done since the restore is undone and collapsed instead.",
+          "Redo", "Changes redone");
       });
     });
     (root || document).querySelectorAll("[data-audit-menu]").forEach((btn) => {

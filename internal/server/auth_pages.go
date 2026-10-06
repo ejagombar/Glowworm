@@ -4,64 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
-	"glowworm/internal/core"
 	"glowworm/internal/core/setup"
 )
-
-var _ = core.ActorUser
-
-type auditEntryView struct {
-	ID          int64
-	Timestamp   string
-	Actor       string
-	Kind        string
-	Title       string
-	Sub         string
-	DiffLines   []core.DiffLine
-	State       string
-	Revertible  bool
-	Jumpable    bool
-	Forgettable bool
-	Deletable   bool
-}
-
-func toEntryViews(entries []core.AuditEntry) []auditEntryView {
-	out := make([]auditEntryView, 0, len(entries))
-	for _, e := range entries {
-		kind := "you"
-		switch e.Actor {
-		case "ai":
-			kind = "ai"
-		case "system":
-			if strings.HasPrefix(e.Action, "import") {
-				kind = "import"
-			} else {
-				kind = "ai"
-			}
-		}
-		out = append(out, auditEntryView{
-			ID: e.ID, Timestamp: e.Timestamp, Actor: actorLabel(e.Actor, e.ActorDetail), Kind: kind,
-			Title: e.Title, Sub: e.Sub, DiffLines: e.DiffLines, State: e.State,
-		})
-	}
-	return out
-}
-
-func actorLabel(actor, detail string) string {
-	switch actor {
-	case "user":
-		return "You"
-	case "ai":
-		if detail != "" {
-			return "AI"
-		}
-		return "AI"
-	default:
-		return "Glowworm"
-	}
-}
 
 func seriesJSON(labels []string, values []int64) string {
 	return fmt.Sprintf(`{"labels":%s,"series":[{"name":"Balance","color":"#0e6f51","values":%s}]}`,
