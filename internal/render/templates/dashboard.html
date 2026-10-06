@@ -11,17 +11,17 @@
 
       <div class="overview">
         <div class="stats-grid col">
-          <article class="stat-card compact clickable" data-balance-view="available">
+          <article class="stat-card compact clickable" data-balance-view="available" role="button" tabindex="0" aria-pressed="false">
             <span class="stat-icon"><svg class="icon"><use href="#i-bank"/></svg></span>
             <div class="stat-label">Available balance</div>
             <div class="stat-value">{{money .AvailableMinor .Currency}}</div>
-            <div class="stat-trend"><svg class="icon"><use href="#i-check"/></svg> Show graph</div>
+            <div class="stat-trend" data-graph-label>Show graph</div>
           </article>
-          <article class="stat-card compact clickable" data-balance-view="savings">
+          <article class="stat-card compact clickable" data-balance-view="savings" role="button" tabindex="0" aria-pressed="false">
             <span class="stat-icon"><svg class="icon"><use href="#i-check"/></svg></span>
             <div class="stat-label">Savings</div>
             <div class="stat-value">{{money .SavingsMinor .Currency}}</div>
-            <div class="stat-trend"><svg class="icon"><use href="#i-check"/></svg> Show graph</div>
+            <div class="stat-trend" data-graph-label>Show graph</div>
           </article>
           <article class="stat-card compact">
             <span class="stat-icon"><svg class="icon"><use href="#i-up"/></svg></span>
@@ -44,11 +44,12 @@
         <div class="panel overview-chart">
           <div class="section-head inside">
             <div>
-              <h2>Balance overview</h2>
+              <h2 id="heroTitle">Balance overview</h2>
               <p class="muted small" id="heroRange">{{.HeroRangeLabel}}</p>
             </div>
           </div>
-          <div class="chart-host" id="heroChart" data-chart-type="line" data-chart-data="{{jsonAttr .HeroChart}}"></div>
+          <div class="chart-host" id="heroChart" data-chart-type="line" data-chart-data="{{jsonAttr .HeroChart}}"
+            data-series-all="{{jsonAttr .HeroChart}}" data-series-available="{{jsonAttr .HeroAvailable}}" data-series-savings="{{jsonAttr .HeroSavings}}"></div>
         </div>
       </div>
 

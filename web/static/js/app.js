@@ -881,6 +881,38 @@ document.addEventListener("DOMContentLoaded", () => {
     if (chip) sendChat(chip.dataset.chatSuggest);
   });
 
+  // Available balance / Savings cards swap the overview chart to that slice;
+  // clicking the selected card again goes back to all accounts.
+  const heroChart = document.getElementById("heroChart");
+  const balanceCards = document.querySelectorAll("[data-balance-view]");
+  if (heroChart && balanceCards.length) {
+    const HERO_TITLES = { all: "Balance overview", available: "Available balance", savings: "Savings" };
+    const HERO_RANGES = { all: "All accounts", available: "Current and other non-savings accounts", savings: "Savings accounts" };
+    const setBalanceView = (view) => {
+      state.balanceView = view;
+      balanceCards.forEach((card) => {
+        const on = card.dataset.balanceView === view;
+        card.classList.toggle("selected", on);
+        card.setAttribute("aria-pressed", on ? "true" : "false");
+        const label = card.querySelector("[data-graph-label]");
+        if (label) label.textContent = on ? "Showing graph · click to reset" : "Show graph";
+      });
+      heroChart.dataset.chartData = heroChart.dataset[`series${view[0].toUpperCase()}${view.slice(1)}`] || heroChart.dataset.seriesAll;
+      const title = document.getElementById("heroTitle");
+      if (title) title.textContent = HERO_TITLES[view];
+      const range = document.getElementById("heroRange");
+      if (range) range.textContent = `${HERO_RANGES[view]} · all time`;
+      if (typeof redrawChartHost === "function") redrawChartHost(heroChart);
+    };
+    balanceCards.forEach((card) => {
+      const pick = () => setBalanceView(state.balanceView === card.dataset.balanceView ? "all" : card.dataset.balanceView);
+      card.addEventListener("click", pick);
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); }
+      });
+    });
+  }
+
   const pinnedEditBtn = document.getElementById("pinnedEditBtn");
   if (pinnedEditBtn) {
     pinnedEditBtn.addEventListener("click", () => setEditMode(!state.editMode));
