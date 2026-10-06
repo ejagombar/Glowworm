@@ -414,8 +414,8 @@ function widgetBody(widget) {
     const cols = data.columns || [];
     const rows = data.rows || [];
     return `<div class="table-widget"><table>
-      <thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map((r) => `<tr>${r.map((cell, i) => `<td class="${i === r.length - 1 ? "num" : ""}">${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+      <thead><tr>${cols.map((c, i) => `<th${i === cols.length - 1 ? ' class="num"' : ""}>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>${r.map((cell, i) => `<td${i === r.length - 1 ? ' class="num"' : ""}>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
     </table></div>`;
   }
   if (t === "transactions") {

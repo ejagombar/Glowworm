@@ -142,7 +142,8 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .num, .stat-value, .tx-amount, .cat-amount, .num-value { font-variant-numeric: tabular-nums; }
 
 .stat-value, .num-value, .tx-amount, .cat-amount,
-.tx-table .num, .table-widget td.num { font-family: var(--mono); letter-spacing: -0.01em; }
+.tx-table .num { font-family: var(--mono); letter-spacing: -0.01em; }
+.table-widget td.num { font-variant-numeric: tabular-nums; }
 
 .icon {
   width: 16px; height: 16px;
@@ -1555,8 +1556,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 
 .msg-text { white-space: pre-wrap; overflow-wrap: break-word; }
 
-.w-drawer-pin { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; user-select: none; }
-.w-drawer-pin input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
 
 .history-loading {
   align-self: center;
