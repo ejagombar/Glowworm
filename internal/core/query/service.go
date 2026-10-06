@@ -5,6 +5,7 @@ package query
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"glowworm/internal/core/periods"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/store"
+	"glowworm/internal/util"
 )
 
 // Service runs queries.
@@ -30,6 +32,9 @@ type ConversationRepo interface {
 	AddMessage(conversationID, role, text string, steps []string, widget *string, dataset *string, plan *string) (*core.Message, error)
 	ListConversations() ([]*core.Conversation, error)
 	Messages(conversationID string) ([]*core.Message, error)
+	// MessagesPage pages history backwards (doc 10 §8): the newest page when
+	// before is nil, else the page ending before the "created_at|id" cursor.
+	MessagesPage(conversationID string, before *string, limit int) ([]*core.Message, error)
 	GetConversation(id string) (*core.Conversation, error)
 	DeleteConversation(id string) error
 }
@@ -53,13 +58,15 @@ type Plan struct {
 	Title        string  `json:"title"`
 }
 
-// Answer is the full query response (doc 10 §2).
+// Answer is the full query response (doc 10 §2). Multiple widgets per
+// answer are supported (doc 10 §8); Plan/Dataset refer to the first widget
+// when the legacy plan pipeline produced the answer.
 type Answer struct {
-	Text    string           `json:"text"`
-	Steps   []string         `json:"steps"`
-	Widget  *widgets.Widget  `json:"widget"`
-	Plan    *Plan            `json:"plan"`
-	Dataset *widgets.Dataset `json:"dataset"`
+	Text    string            `json:"text"`
+	Steps   []string          `json:"steps"`
+	Widgets []*widgets.Widget `json:"widgets"`
+	Plan    *Plan             `json:"plan,omitempty"`
+	Dataset *widgets.Dataset  `json:"dataset,omitempty"`
 }
 
 // CompilePublic executes an already-validated plan (pinned widget refresh,
@@ -74,8 +81,22 @@ func (s *Service) CompilePublic(p *Plan) (*widgets.Dataset, string, error) {
 	return s.compile(p)
 }
 
-// Ask runs the full pipeline (doc 10 §2).
+// Ask runs the full pipeline: the agent first, the legacy plan compiler as
+// fallback. See AskStream for the progressive version.
 func (s *Service) Ask(question string) (*Answer, error) {
+	return s.AskStreamWindow(question, nil, nil)
+}
+
+// AskStream answers with the agent loop (query tool + rich text/widgets),
+// streaming reasoning steps through onStep as they happen.
+func (s *Service) AskStream(question string, onStep func(string)) (*Answer, error) {
+	return s.AskStreamWindow(question, nil, onStep)
+}
+
+// AskStreamWindow is AskStream with the user's current view period. If the
+// agent fails on its protocol, the legacy plan pipeline takes over (doc 10
+// §2 stays as the fallback; a provider that is down cannot be rescued).
+func (s *Service) AskStreamWindow(question string, win *TimeWindow, onStep func(string)) (*Answer, error) {
 	if s.Provider == nil {
 		return nil, &ClarifyError{Message: "Connect an AI provider in Settings to ask questions."}
 	}
@@ -83,6 +104,29 @@ func (s *Service) Ask(question string) (*Answer, error) {
 	if question == "" || len(question) > 500 {
 		return nil, fmt.Errorf("query: empty or too long")
 	}
+	ans, err := s.AskAgentWindow(question, win, onStep)
+	if err == nil {
+		return ans, nil
+	}
+	var unavail *ai.ErrUnavailable
+	if errors.As(err, &unavail) {
+		return nil, err
+	}
+	ans2, err2 := s.askLegacy(question)
+	if err2 != nil {
+		return nil, err2
+	}
+	if onStep != nil {
+		for _, st := range ans2.Steps {
+			onStep(st)
+		}
+	}
+	return ans2, nil
+}
+
+// askLegacy is the original plan pipeline (doc 10 §2): question → plan →
+// whitelisted SQL → dataset → templated widget answer.
+func (s *Service) askLegacy(question string) (*Answer, error) {
 	plan, err := s.plan(question)
 	if err != nil {
 		return nil, err
@@ -103,7 +147,7 @@ func (s *Service) Ask(question string) (*Answer, error) {
 	steps := s.steps(plan, sqlDisplay, ds)
 	widget := s.present(plan, ds)
 	text := s.answer(plan, ds)
-	return &Answer{Text: text, Steps: steps, Widget: widget, Plan: plan, Dataset: ds}, nil
+	return &Answer{Text: text, Steps: steps, Widgets: []*widgets.Widget{widget}, Plan: plan, Dataset: ds}, nil
 }
 
 // UnmarshalJSON accepts both the nested entity shape ({entity:{kind,...}})
@@ -156,6 +200,15 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 	return json.Marshal(a)
 }
 
+// TimeWindow is the view period the user is currently browsing (the global
+// period selector). The agent restricts answers to it unless the question
+// specifies a different range (doc 10 §2a).
+type TimeWindow struct {
+	From  string // YYYY-MM-DD, empty = unbounded
+	To    string
+	Label string // e.g. "Last 12 months" — shown in the prompt
+}
+
 // ClarifyError asks the user to disambiguate (doc 10 §9).
 type ClarifyError struct {
 	Message     string   `json:"message"`
@@ -170,7 +223,8 @@ func (s *Service) plan(question string) (*Plan, error) {
 	accounts, _ := s.nameList(`SELECT name FROM accounts WHERE deleted_at IS NULL`)
 	merchants, _ := s.nameList(`SELECT COALESCE(NULLIF(merchant,''), description) FROM transactions
 		WHERE deleted_at IS NULL GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 30`)
-	resp, _, err := s.Provider.CompleteStructured(&ai.StructuredRequest{
+	started := time.Now()
+	resp, usage, err := s.Provider.CompleteStructured(&ai.StructuredRequest{
 		Capability: "query_planning",
 		PromptJSON: map[string]any{
 			"question":        question,
@@ -180,6 +234,7 @@ func (s *Service) plan(question string) (*Plan, error) {
 			"known_merchants": merchants,
 		},
 	})
+	s.logCall("query_planning", started, usage, err)
 	if err != nil {
 		return nil, err
 	}
@@ -830,6 +885,7 @@ func entityKindLabel(kind string) string {
 // store plans; the dashboard re-executes them).
 func (s *Service) present(p *Plan, ds *widgets.Dataset) *widgets.Widget {
 	w := s.presentBody(p, ds)
+	w.ID = "w-" + util.NewID()
 	w.Plan = p
 	return w
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"glowworm/internal/clock"
@@ -181,4 +182,33 @@ func TestBalancePointSeriesParity(t *testing.T) {
 		}
 		compareSeries(t, a, "2023-01-01", "2024-12-31")
 	})
+}
+
+// --- agent-era message rendering ---
+
+func TestParseStoredWidgets(t *testing.T) {
+	// Current shape: an array of widgets.
+	arr := `[{"id":"w-1","type":"number","title":"T","data":{"value":"£1"}},
+	         {"id":"w-2","type":"bar","title":"B","data":{"labels":[],"series":[]}}]`
+	if ws := parseStoredWidgets(arr); len(ws) != 2 {
+		t.Errorf("array: got %d widgets, want 2", len(ws))
+	}
+	// Legacy rows stored a single object.
+	one := `{"id":"w-1","type":"number","title":"T","data":{"value":"£1"}}`
+	if ws := parseStoredWidgets(one); len(ws) != 1 || ws[0].Type != "number" {
+		t.Errorf("legacy single: got %+v", ws)
+	}
+	if ws := parseStoredWidgets(""); len(ws) != 0 {
+		t.Errorf("empty: got %d", len(ws))
+	}
+}
+
+func TestFormatAssistantText(t *testing.T) {
+	out := formatAssistantText("You spent **£12.50** <script>alert(1)</script>\nnext line")
+	if !strings.Contains(out, "<strong>£12.50</strong>") {
+		t.Errorf("bold not rendered: %q", out)
+	}
+	if strings.Contains(out, "<script>") {
+		t.Errorf("HTML not escaped: %q", out)
+	}
 }

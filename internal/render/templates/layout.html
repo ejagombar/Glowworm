@@ -158,6 +158,44 @@
     </div>
   </div>
 
+  <!-- Widget settings drawer (chat + dashboard widgets) -->
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="drawer" id="widgetDrawer" hidden aria-label="Widget settings">
+    <div class="drawer-head">
+      <strong>Widget settings</strong>
+      <button class="icon-btn" data-action="close-drawer" aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div class="field-row">
+        <label for="wTitle">Title</label>
+        <input class="field" id="wTitle" type="text" maxlength="120" autocomplete="off" />
+      </div>
+      <div class="field-row">
+        <label for="wType">Widget type</label>
+        <select class="field select" id="wType">
+          <option value="bar">Bar chart</option>
+          <option value="line">Line chart</option>
+          <option value="pie">Pie chart</option>
+          <option value="table">Table</option>
+          <option value="number">Number</option>
+          <option value="text">Text</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label class="w-drawer-pin">
+          <input type="checkbox" id="wPinned" />
+          <span>Pinned to dashboard</span>
+        </label>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn btn-ghost" data-action="close-drawer">Cancel</button>
+      <button class="btn btn-primary" id="wApply">Apply</button>
+    </div>
+  </aside>
+
   <div class="toast" id="toast" hidden></div>
 
   <script>window.__CSRF__ = {{.CSRFToken}};</script>

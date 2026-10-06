@@ -155,6 +155,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		DB: db, Provider: provider, Clock: clk,
 		Repo: &query.ConvRepo{DB: db},
 	}
+	app.startMidnightSummariser(log)
 	app.Exec = &auditexec.Executor{
 		DB: db, Accounts: rp.Accounts, Categories: rp.Categories, Txs: rp.Transactions,
 		InternalCat: func(tx *sql.Tx) (string, error) {
@@ -171,6 +172,21 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 // applyEntry adapts the audit engine's hook to the executor.
 func (a *App) applyEntry(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	return a.Exec.Apply(tx, ent, reapply)
+}
+
+// startMidnightSummariser regenerates chat-day summaries at midnight every
+// day (doc 10 §8): the timer fires once per local day; a missed midnight
+// (app down) is recovered by the page-load catch-up.
+func (a *App) startMidnightSummariser(log *slog.Logger) {
+	go func() {
+		for {
+			now := time.Now()
+			next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1)
+			timer := time.NewTimer(time.Until(next))
+			<-timer.C
+			a.Query.CatchUpSummaries() // the day that just ended is now < today
+		}
+	}()
 }
 
 // a_resolveProvider builds the AI provider from the encrypted config row.
@@ -216,6 +232,7 @@ func (a *App) Router() http.Handler {
 	// Pages.
 	mux.HandleFunc("GET /{$}", a.page(a.handleDashboard))
 	mux.HandleFunc("GET /transactions", a.page(a.handleTransactions))
+	mux.HandleFunc("GET /transactions/rows", a.page(a.handleTransactionsRows))
 	mux.HandleFunc("GET /queries", a.page(a.handleQueries))
 	mux.HandleFunc("GET /categories", a.page(a.handleCategories))
 	mux.HandleFunc("GET /import", a.page(a.handleImport))

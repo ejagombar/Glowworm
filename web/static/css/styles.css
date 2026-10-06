@@ -436,7 +436,7 @@ body.privacy .pie-total { filter: blur(4px); }
   padding: 6px;
 }
 .queries-day {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  display: flex; flex-direction: column; gap: 2px;
   width: 100%;
   border: 1px solid transparent; border-radius: 3px;
   background: transparent; color: var(--text-2);
@@ -445,7 +445,12 @@ body.privacy .pie-total { filter: blur(4px); }
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 .queries-day:hover { background: var(--surface-2); color: var(--text); }
+.queries-day-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .queries-day-count { font-family: var(--mono); font-size: 10.5px; color: var(--muted-2); }
+.queries-day-summary {
+  font-size: 11.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 .queries-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
 .queries-sidebar-expand { position: absolute; top: 8px; left: 8px; z-index: 5; height: 32px; }
@@ -623,7 +628,8 @@ body.privacy .pie-total { filter: blur(4px); }
 .widget.dragging { opacity: 0.35; }
 .widgets-grid.editing .widget.drop-target { outline: 2px solid var(--primary); outline-offset: -2px; }
 
-.resize-handle { position: absolute; z-index: 3; touch-action: none; }
+.resize-handle { position: absolute; z-index: 3; touch-action: none; display: none; }
+.widgets-grid.editing .resize-handle { display: block; }
 .rh-w { left: 0; top: 0; bottom: 0; width: 12px; cursor: ew-resize; }
 .rh-e { right: 0; top: 0; bottom: 0; width: 12px; cursor: ew-resize; }
 .rh-s { left: 0; right: 0; bottom: 0; height: 12px; cursor: ns-resize; }
@@ -1610,3 +1616,29 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .msg-error .msg-text, .msg-text.msg-error { color: var(--danger); }
 /* v1 additions: history page balance-over-time chart needs a height */
 #timelineChart { height: 240px; }
+
+/* ---------- Agent-era chat fixes ---------- */
+/* Chat message widget cards are auto-height (no grid row spans like the
+   dashboard), so the flex:1 chain in .widget-body/.chart-host collapses to
+   0px and charts never draw. Give the bodies intrinsic sizes here. */
+.queries-messages .widget-body { flex: none; min-height: 0; overflow: visible; }
+.queries-messages .widget .chart-host { flex: none; min-height: 260px; height: 260px; }
+.queries-messages .widget .chart-host svg { max-height: 360px; }
+.queries-messages .widget .table-widget { flex: none; min-height: 0; overflow: auto; max-height: 360px; }
+
+/* Assistant text: agent answers are multi-line; render line breaks. */
+.msg-text { white-space: pre-wrap; overflow-wrap: break-word; }
+
+/* Widget settings drawer: pin checkbox row. */
+.w-drawer-pin { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; user-select: none; }
+.w-drawer-pin input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+
+/* History paging: loading row prepended while older messages fetch. */
+.history-loading {
+  align-self: center;
+  font-size: 11px; color: var(--muted);
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+}

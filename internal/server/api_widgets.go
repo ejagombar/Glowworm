@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
+	"glowworm/internal/core/periods"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/util"
@@ -16,17 +18,37 @@ import (
 // query_Answer aliases the engine answer for handlers.
 type query_Answer = query.Answer
 
+// viewWindow resolves the user's current period-selector state to the agent's
+// TimeWindow. Unknown/"all" periods produce an unbounded window (nil) — the
+// prompt then imposes no range and the question's own dates rule.
+func (a *App) viewWindow(period, from, to string) *query.TimeWindow {
+	if period == "" {
+		period = a.Settings.Get().DefaultPeriod // same default as every view
+		if period == "" {
+			period = "all"
+		}
+	}
+	f, t, label := periods.Resolve(period, from, to, a.Clock.TodayTime())
+	if f == "" && t == "" {
+		return nil
+	}
+	return &query.TimeWindow{From: f, To: t, Label: label}
+}
+
 // --- NL query + conversations (doc 10 §8) ---
 
 func (a *App) apiQuery(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Text           string  `json:"text"`
 		ConversationID *string `json:"conversation_id"`
+		Period         string  `json:"period"`
+		From           string  `json:"from"`
+		To             string  `json:"to"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	ans, convID, err := a.askQuery(in.Text, in.ConversationID)
+	ans, convID, err := a.askQueryWindow(in, nil)
 	if err != nil {
 		return err
 	}
@@ -34,12 +56,22 @@ func (a *App) apiQuery(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// askQuery runs the pipeline and persists both messages.
-func (a *App) askQuery(text string, conversationID *string) (*query.Answer, string, error) {
+// askQueryWindow runs the agent pipeline and persists both messages.
+// onStep, when non-nil, receives reasoning steps as they happen (progressive
+// streaming). in.Period/From/To carry the user's current view period.
+func (a *App) askQueryWindow(in struct {
+	Text           string  `json:"text"`
+	ConversationID *string `json:"conversation_id"`
+	Period         string  `json:"period"`
+	From           string  `json:"from"`
+	To             string  `json:"to"`
+}, onStep func(string)) (*query.Answer, string, error) {
+	win := a.viewWindow(in.Period, in.From, in.To)
+	text := in.Text
 	var conv *core.Conversation
 	var err error
-	if conversationID != nil && *conversationID != "" {
-		conv, err = a.Query.Repo.GetConversation(*conversationID)
+	if in.ConversationID != nil && *in.ConversationID != "" {
+		conv, err = a.Query.Repo.GetConversation(*in.ConversationID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -56,22 +88,27 @@ func (a *App) askQuery(text string, conversationID *string) (*query.Answer, stri
 	if _, err := a.Query.Repo.AddMessage(conv.ID, "user", text, nil, nil, nil, nil); err != nil {
 		return nil, "", err
 	}
-	ans, err := a.Query.Ask(text)
+	ans, err := a.Query.AskStreamWindow(text, win, onStep)
 	if err != nil {
 		return nil, conv.ID, err
 	}
-	widgetJSON := marshalWidget(ans.Widget)
+	// Persist the widget array (doc 10 §8: multiple widgets per answer).
+	widgetJSON := marshalWidgets(ans.Widgets)
 	datasetJSON := marshalAny(ans.Dataset)
 	planJSON := marshalAny(ans.Plan)
-	if _, err := a.Query.Repo.AddMessage(conv.ID, "assistant", ans.Text, ans.Steps, &widgetJSON, &datasetJSON, &planJSON); err != nil {
+	if _, err := a.Query.Repo.AddMessage(conv.ID, "assistant", ans.Text, ans.Steps, widgetJSON, &datasetJSON, &planJSON); err != nil {
 		return nil, conv.ID, err
 	}
 	return ans, conv.ID, nil
 }
 
-func marshalWidget(w *widgets.Widget) string {
-	b, _ := json.Marshal(w)
-	return string(b)
+func marshalWidgets(ws []*widgets.Widget) *string {
+	if len(ws) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(ws)
+	s := string(b)
+	return &s
 }
 
 func marshalAny(v any) string {
@@ -79,11 +116,15 @@ func marshalAny(v any) string {
 	return string(b)
 }
 
-// apiQueryStream emits NDJSON events (doc 10 §8): steps → text → widget → done.
+// apiQueryStream emits NDJSON events (doc 10 §8): steps (progressively) →
+// text → widget(s) → done.
 func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Text           string  `json:"text"`
 		ConversationID *string `json:"conversation_id"`
+		Period         string  `json:"period"`
+		From           string  `json:"from"`
+		To             string  `json:"to"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
@@ -104,9 +145,11 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	// No opening "Analysing your question" step: reasoning steps are sent
-	// with the answer. Errors get no thinking section (nothing was analysed).
-	ans, convID, err := a.askQuery(in.Text, in.ConversationID)
+	// Reasoning steps stream as the agent works (query → query → final),
+	// giving the progressive feel of the loader choreography.
+	ans, convID, err := a.askQueryWindow(in, func(step string) {
+		send("steps", map[string]any{"items": []string{step}})
+	})
 	if err != nil {
 		var ce *query.ClarifyError
 		if errors.As(err, &ce) {
@@ -115,15 +158,12 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 			return nil
 		}
 		send("error", map[string]any{"message": err.Error()})
-		send("done", map[string]any{})
+		send("done", map[string]any{"conversation_id": convID})
 		return nil
 	}
-	if len(ans.Steps) > 0 {
-		send("steps", map[string]any{"items": ans.Steps})
-	}
 	send("text", map[string]any{"text": ans.Text})
-	if ans.Widget != nil {
-		send("widget", map[string]any{"widget": ans.Widget})
+	for _, w := range ans.Widgets {
+		send("widget", map[string]any{"widget": w})
 	}
 	send("done", map[string]any{"conversation_id": convID})
 	return nil
@@ -138,12 +178,64 @@ func (a *App) apiConversationsList(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+// apiQueryDays feeds the sidebar's day entries (used by the client's
+// summary-catch-up poll).
+func (a *App) apiQueryDays(w http.ResponseWriter, r *http.Request) error {
+	days, err := a.Query.DayEntries()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"items": days})
+	return nil
+}
+
 func (a *App) apiConversationGet(w http.ResponseWriter, r *http.Request) error {
 	msgs, err := a.Query.Repo.Messages(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
 	writeJSON(w, map[string]any{"items": msgs})
+	return nil
+}
+
+// apiConversationMessages pages a conversation's history backwards for the
+// queries client (scroll-up loading, doc 10 §8). Cursor: created_at|id of the
+// oldest currently-loaded message; empty = newest page. Items carry parsed
+// widget objects so the client renders them without re-parsing stored JSON.
+func (a *App) apiConversationMessages(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	before := r.URL.Query().Get("before")
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	var beforePtr *string
+	if before != "" {
+		beforePtr = &before
+	}
+	msgs, err := a.Query.Repo.MessagesPage(id, beforePtr, limit)
+	if err != nil {
+		return err
+	}
+	items := make([]map[string]any, 0, len(msgs))
+	for _, m := range msgs {
+		var widgets []any
+		if m.Widget != nil {
+			for _, w := range parseStoredWidgets(*m.Widget) {
+				widgets = append(widgets, w)
+			}
+		}
+		items = append(items, map[string]any{
+			"id": m.ID, "role": m.Role, "text": m.Text, "steps": m.Steps,
+			"widgets": widgets, "created_at": m.CreatedAt,
+		})
+	}
+	writeJSON(w, map[string]any{"items": items, "has_more": len(msgs) == limit})
 	return nil
 }
 
@@ -202,7 +294,8 @@ func (a *App) apiWidgetPin(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Title   string          `json:"title"`
 		Type    string          `json:"type"`
-		Dataset json.RawMessage `json:"dataset"`
+		Data    json.RawMessage `json:"data"`    // presentation payload (labels/series/...)
+		Dataset json.RawMessage `json:"dataset"` // legacy field (older clients sent the canonical dataset)
 		Plan    json.RawMessage `json:"plan"`
 		Col     int             `json:"col"`
 		Rows    int             `json:"rows"`
@@ -210,7 +303,11 @@ func (a *App) apiWidgetPin(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	id, err := a.PinWidget(in.Title, in.Type, string(in.Dataset), string(in.Plan), in.Col, in.Rows)
+	data := string(in.Data)
+	if data == "" || data == "null" {
+		data = string(in.Dataset)
+	}
+	id, err := a.PinWidget(in.Title, in.Type, data, string(in.Plan), in.Col, in.Rows)
 	if err != nil {
 		return err
 	}
@@ -243,7 +340,11 @@ func (a *App) apiWidgetPatch(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	if err := a.WidgetPatch(id, in.Title, in.Type, string(in.Dataset)); err != nil {
+	data := string(in.Data)
+	if data == "" || data == "null" {
+		data = string(in.Dataset)
+	}
+	if err := a.WidgetPatch(id, in.Title, in.Type, data); err != nil {
 		return err
 	}
 	if !in.Pinned {

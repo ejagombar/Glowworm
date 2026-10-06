@@ -9,16 +9,19 @@
         </button>
       </div>
       <div class="queries-days" id="queriesDays">
-        {{range .Conversations}}
-        <a class="queries-day" href="/queries?c={{.ID}}"><span>{{.Title}}</span></a>
+        {{range .DayEntries}}
+        <a class="queries-day" href="/queries?c={{.ConversationID}}&day={{.Date}}">
+          <span class="queries-day-top"><span>{{.Label}}</span><span class="queries-day-count">{{.Count}}</span></span>
+          {{if .Summary}}<span class="queries-day-summary">{{.Summary}}</span>{{end}}
+        </a>
         {{end}}
       </div>
     </aside>
-    <div class="queries-main" {{if .ConversationID}}data-conversation-id="{{.ConversationID}}"{{end}}>
+    <div class="queries-main" {{if .ConversationID}}data-conversation-id="{{.ConversationID}}"{{end}}{{if .DayParam}} data-jump-day="{{.DayParam}}"{{end}}{{if .MissingSummaries}} data-day-summarising="1"{{end}}>
       <button class="btn btn-ghost btn-xs queries-sidebar-expand" id="queriesSidebarExpand" aria-label="Show history">
         <svg class="icon"><use href="#i-chevron"/></svg> History
       </button>
-      <div class="queries-messages" id="queryMessages">
+      <div class="queries-messages" id="queryMessages"{{if .Oldest}} data-oldest="{{.Oldest}}"{{end}}{{if .HasMore}} data-has-more="1"{{end}}>
         {{if not .Messages}}
         <div class="msg assistant">
           <div class="msg-content">
@@ -29,11 +32,11 @@
         {{range .Messages}}
         {{if .DayLabel}}<div class="msg-day">{{.DayLabel}}</div>{{end}}
         {{if eq .Role "user"}}
-        <div class="msg user"><div class="msg-content"><div class="msg-bubble">{{.Text}}</div></div></div>
+        <div class="msg user" data-created="{{.CreatedAt}}"><div class="msg-content"><div class="msg-bubble">{{.Text}}</div></div></div>
         {{else}}
-        <div class="msg assistant">
+        <div class="msg assistant" data-created="{{.CreatedAt}}">
           <div class="msg-content">
-            {{if .Text}}<div class="msg-text">{{.Text}}</div>{{end}}
+            {{if .TextHTML}}<div class="msg-text">{{.TextHTML}}</div>{{end}}
             {{if .Steps}}{{template "msg-reason" .Steps}}{{end}}
             {{if .WidgetHTML}}{{.WidgetHTML}}{{end}}
           </div>
@@ -58,6 +61,6 @@
 </section>
 {{end}}
 
-{{define "msg-reason"}}{{range .}}
+{{define "msg-reason"}}<details class="msg-reason"><summary>How I worked this out</summary><div class="reason-steps">{{range .}}
 <div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span>{{.}}</span></div>
-{{end}}{{end}}
+{{end}}</div></details>{{end}}

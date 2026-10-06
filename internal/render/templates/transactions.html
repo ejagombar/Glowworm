@@ -58,7 +58,11 @@
 
   <script>window.__CAT_OPTIONS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", internal: {{if eq .Type "internal"}}true{{else}}false{{end}}},{{end}}];</script>
   <div class="panel table-panel">
-    <table class="tx-table{{if .SelectedAcc}} account-view{{end}}" id="transactionsTable">
+    <table class="tx-table{{if .SelectedAcc}} account-view{{end}}" id="transactionsTable"
+      data-tx-next-offset="{{.NextOffset}}"{{if .HasMore}} data-tx-has-more="1"{{end}}
+      data-tx-filter-q="{{.FiltersQ}}" data-tx-filter-category="{{.FiltersCat}}"
+      data-tx-filter-type="{{.FiltersType}}" data-tx-filter-account="{{.SelectedAcc}}"
+      data-tx-filter-period="{{.Period}}" data-tx-filter-from="{{.PeriodFrom}}" data-tx-filter-to="{{.PeriodTo}}">
       <thead id="transactionsHead">{{template "tx-head" .}}</thead>
       <tbody id="transactionsBody">
         {{if .Rows}}
@@ -67,6 +71,9 @@
           <tr><td colspan="6" class="cell-sub" style="padding:28px;text-align:center">No transactions match your filters.</td></tr>
         {{end}}
       </tbody>
+      {{if .HasMore}}
+      <tfoot><tr id="transactionsSentinel"><td colspan="6" class="cell-sub" style="padding:14px;text-align:center">Loading more…</td></tr></tfoot>
+      {{end}}
     </table>
   </div>
 

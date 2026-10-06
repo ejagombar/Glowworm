@@ -54,6 +54,11 @@ var palette = []string{
 	"#2f7fb0", "#7a58b8", "#2e9d8f", "#6b7280",
 }
 
+// PaletteAt returns the series color for index i (wrapping).
+func PaletteAt(i int) string {
+	return palette[i%len(palette)]
+}
+
 // DataJSON marshals the presentation payload.
 func (w *Widget) DataJSON() string {
 	b, _ := json.Marshal(w.Data)

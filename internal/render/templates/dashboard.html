@@ -64,22 +64,6 @@
         </div>
       </div>
       <div class="widgets-grid" id="pinnedGrid">{{template "pinned-widgets" dict "Widgets" .Widgets "Currency" .Currency}}</div>
-
-      <!-- Recent transactions -->
-      <div class="section-head">
-        <h2>Recent activity</h2>
-        <a class="btn btn-ghost btn-xs" href="/transactions">View all</a>
-      </div>
-      <div class="panel">
-        <div class="tx-list" id="recentTransactions">
-          {{if .Recent}}
-            {{range .Recent}}{{template "tx-row" dict "Row" . "Currency" $.Currency}}{{end}}
-          {{else}}
-            <div class="tx-row"><div class="tx-main"><div class="tx-merchant">No activity yet</div>
-              <div class="tx-sub">Import a statement to get started.</div></div></div>
-          {{end}}
-        </div>
-      </div>
     </div>
   </div>
 </section>

@@ -50,14 +50,22 @@ func (p *OpenAI) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	user := capabilityPrompt(req.Capability, req.PromptJSON)
+	sys, _ := turnsFor(req, "")
 	if req.MaxTokens == 0 {
-		req.MaxTokens = 2000
+		req.MaxTokens = 4000
 	}
 	return retry(func(feedback string) (string, *Usage, error) {
+		_, turns := turnsFor(req, feedback)
+		msgs := make([]map[string]string, 0, len(turns)+1)
+		if sys != "" {
+			msgs = append(msgs, map[string]string{"role": "system", "content": sys})
+		}
+		for _, m := range turns {
+			msgs = append(msgs, map[string]string{"role": m.Role, "content": m.Content})
+		}
 		body := map[string]any{
 			"model":           model,
-			"messages":        []map[string]string{{"role": "user", "content": user + feedback}},
+			"messages":        msgs,
 			"temperature":     0,
 			"max_tokens":      req.MaxTokens,
 			"response_format": map[string]string{"type": "json_object"},
@@ -95,8 +103,9 @@ func validJSON(s string) error {
 // --- Anthropic ---
 
 type Anthropic struct {
-	APIKey string
-	Model  string
+	APIKey  string
+	Model   string
+	BaseURL string // default https://api.anthropic.com
 }
 
 func (p *Anthropic) Name() string { return "anthropic" }
@@ -115,16 +124,24 @@ func (p *Anthropic) CompleteStructured(req *StructuredRequest) (string, *Usage, 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	user := capabilityPrompt(req.Capability, req.PromptJSON)
+	sys, _ := turnsFor(req, "")
 	if req.MaxTokens == 0 {
-		req.MaxTokens = 2000
+		req.MaxTokens = 4000
 	}
 	return retry(func(feedback string) (string, *Usage, error) {
+		_, turns := turnsFor(req, feedback)
+		msgs := make([]map[string]string, 0, len(turns))
+		for _, m := range turns {
+			msgs = append(msgs, map[string]string{"role": m.Role, "content": m.Content})
+		}
 		body := map[string]any{
 			"model":       model,
 			"max_tokens":  req.MaxTokens,
 			"temperature": 0,
-			"messages":    []map[string]string{{"role": "user", "content": user + feedback}},
+			"messages":    msgs,
+		}
+		if sys != "" {
+			body["system"] = sys
 		}
 		var resp struct {
 			Content []struct {
@@ -136,7 +153,11 @@ func (p *Anthropic) CompleteStructured(req *StructuredRequest) (string, *Usage, 
 				OutputTokens int `json:"output_tokens"`
 			} `json:"usage"`
 		}
-		if err := postJSON(ctx, "https://api.anthropic.com/v1/messages", map[string]string{
+		base := p.BaseURL
+		if base == "" {
+			base = "https://api.anthropic.com"
+		}
+		if err := postJSON(ctx, strings.TrimRight(base, "/")+"/v1/messages", map[string]string{
 			"x-api-key":         p.APIKey,
 			"anthropic-version": "2023-06-01",
 		}, body, &resp); err != nil {
@@ -159,8 +180,9 @@ func (p *Anthropic) CompleteStructured(req *StructuredRequest) (string, *Usage, 
 // --- Google Gemini ---
 
 type Gemini struct {
-	APIKey string
-	Model  string
+	APIKey  string
+	Model   string
+	BaseURL string // default https://generativelanguage.googleapis.com
 }
 
 func (p *Gemini) Name() string { return "google" }
@@ -179,20 +201,33 @@ func (p *Gemini) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	user := capabilityPrompt(req.Capability, req.PromptJSON)
+	sys, _ := turnsFor(req, "")
 	if req.MaxTokens == 0 {
-		req.MaxTokens = 2000
+		req.MaxTokens = 4000
 	}
 	return retry(func(feedback string) (string, *Usage, error) {
+		_, turns := turnsFor(req, feedback)
+		contents := make([]map[string]any, 0, len(turns))
+		for _, m := range turns {
+			role := "user"
+			if m.Role == "assistant" {
+				role = "model"
+			}
+			contents = append(contents, map[string]any{"role": role,
+				"parts": []map[string]string{{"text": m.Content}}})
+		}
 		body := map[string]any{
-			"contents": []map[string]any{{
-				"parts": []map[string]string{{"text": user + feedback}},
-			}},
+			"contents": contents,
 			"generationConfig": map[string]any{
 				"temperature":      0,
 				"maxOutputTokens":  req.MaxTokens,
 				"responseMimeType": "application/json",
 			},
+		}
+		if sys != "" {
+			body["systemInstruction"] = map[string]any{
+				"parts": []map[string]string{{"text": sys}},
+			}
 		}
 		var resp struct {
 			Candidates []struct {
@@ -207,7 +242,11 @@ func (p *Gemini) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 				CandidatesTokenCount int `json:"candidatesTokenCount"`
 			} `json:"usageMetadata"`
 		}
-		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, p.APIKey)
+		base := p.BaseURL
+		if base == "" {
+			base = "https://generativelanguage.googleapis.com"
+		}
+		url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", strings.TrimRight(base, "/"), model, p.APIKey)
 		if err := postJSON(ctx, url, nil, body, &resp); err != nil {
 			return "", nil, err
 		}
@@ -251,11 +290,24 @@ func (p *Ollama) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	user := capabilityPrompt(req.Capability, req.PromptJSON)
+	sys, _ := turnsFor(req, "")
 	return retry(func(feedback string) (string, *Usage, error) {
+		_, turns := turnsFor(req, feedback)
+		prompt := ""
+		if sys != "" {
+			prompt = sys + "\n\n"
+		}
+		for _, m := range turns {
+			role := "Human"
+			if m.Role == "assistant" {
+				role = "Assistant"
+			}
+			prompt += role + ": " + m.Content + "\n\n"
+		}
+		prompt += "Assistant:"
 		body := map[string]any{
 			"model":   model,
-			"prompt":  user + feedback,
+			"prompt":  prompt,
 			"stream":  false,
 			"format":  "json",
 			"options": map[string]any{"temperature": 0},
