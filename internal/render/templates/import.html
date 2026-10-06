@@ -7,57 +7,48 @@
     </div>
   </div>
 
-  <div class="dropzone" id="dropzone">
-    <svg class="icon big"><use href="#i-import"/></svg>
-    <p><strong>Drop a statement here</strong> or <button class="link" id="dropzoneBrowse">browse files</button></p>
-    <p class="muted">CSV, Excel, PDF, OFX, QIF, dividend &amp; interest payment history… anything goes.</p>
-    <input type="file" id="fileInput" hidden multiple />
-  </div>
+  <div class="import-idle">
+    <div class="dropzone" id="dropzone">
+      <svg class="icon big"><use href="#i-import"/></svg>
+      <p><strong>Drop a statement here</strong> or <button class="link" id="dropzoneBrowse">browse files</button></p>
+      <p class="muted">CSV, Excel, PDF, OFX, QIF, dividend &amp; interest payment history… anything goes.</p>
+      <input type="file" id="fileInput" hidden multiple />
+    </div>
 
-  <div class="field-row" style="max-width:320px">
-    <label>Default account for imports</label>
-    <select class="field select" id="importAccount">
-      {{range .Accounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-    </select>
+    <div class="field-row" style="max-width:320px">
+      <label>Default account for imports</label>
+      <select class="field select" id="importAccount">
+        {{range .Accounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
+    </div>
   </div>
   <script>
     window.__IMPORT_ACCOUNTS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];
-    window.__IMPORT_CATS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];
+    window.__IMPORT_CATS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", type: "{{.Type}}", color: "{{.Color}}"},{{end}}];
   </script>
-  <div class="two-col">
-    <div>
-      <div class="section-head">
-        <h2>Saved schemas</h2>
-        <span class="muted">Auto-detected formats you've confirmed</span>
-      </div>
-      <div class="schema-list" id="schemasList">
-        {{range .Schemas}}
-        <div class="schema-card">
-          <div class="schema-logo" style="background:var(--primary)">{{initial .Name}}</div>
-          <div class="schema-main">
-            <div class="schema-name">{{.Name}} <span class="schema-conf">· {{printf "%.0f" (mul 100 .Confidence)}}% match</span></div>
-            <div class="schema-cols">{{range .Columns}}{{.}} · {{end}}</div>
-          </div>
-          <button class="widget-btn" title="Use this schema"><svg class="icon"><use href="#i-chevron"/></svg></button>
-        </div>
-        {{end}}
-        {{if not .Schemas}}
-        <div class="schema-card"><div class="schema-main"><div class="schema-name">No schemas saved yet</div>
-          <div class="schema-cols">Confirmed formats will appear here for reuse.</div></div></div>
-        {{end}}
-      </div>
-      <div id="importFlow" hidden></div>
+
+  <div id="importFlow" hidden></div>
+
+  <div class="import-idle">
+    <div class="section-head">
+      <h2>Saved schemas</h2>
+      <span class="muted">File formats remembered from past imports — a matching upload skips straight to review</span>
     </div>
-    <div>
-      <div class="section-head">
-        <h2>How it works</h2>
+    <div class="schema-list" id="schemasList">
+      {{range .Schemas}}
+      <div class="schema-card">
+        <div class="schema-logo" style="background:var(--primary)">{{initial .Name}}</div>
+        <div class="schema-main">
+          <div class="schema-name">{{.Name}} <span class="schema-conf">· {{pct .Confidence}} match</span></div>
+          <div class="schema-cols">{{range .Columns}}{{.}} · {{end}}</div>
+        </div>
+        {{if .AccountName}}<span class="schema-account" title="Imports of this format go to {{.AccountName}} by default">{{.AccountName}}</span>{{end}}
       </div>
-      <ol class="steps-list panel">
-        <li><span class="step-num">1</span> Upload a statement</li>
-        <li><span class="step-num">2</span> AI detects the schema</li>
-        <li><span class="step-num">3</span> You confirm with a preview</li>
-        <li><span class="step-num">4</span> Transactions are imported &amp; categorised</li>
-      </ol>
+      {{end}}
+      {{if not .Schemas}}
+      <div class="schema-card"><div class="schema-main"><div class="schema-name">No schemas saved yet</div>
+        <div class="schema-cols">Formats are saved automatically when an import completes.</div></div></div>
+      {{end}}
     </div>
   </div>
 </section>

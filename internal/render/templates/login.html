@@ -1,37 +1,39 @@
 {{define "content"}}
 <div class="login-shell">
-  <div class="login-card">
-    <div class="brand">
-      <svg class="gw" viewBox="0 0 40 32" aria-hidden="true">
-        <g class="gw-body">
-          <circle class="gw-seg gw-seg-1" cx="7.5" cy="23.5" r="3" fill="#7dffb8"/>
-          <circle class="gw-seg gw-seg-2" cx="13" cy="21" r="5.5" fill="#2cc57a"/>
-          <circle class="gw-seg gw-seg-3" cx="21" cy="18" r="7" fill="#27b268"/>
-        </g>
-        <g class="gw-head">
-          <circle cx="30" cy="17" r="8.5" fill="#1f9b57"/>
-          <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff"/>
-          <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff"/>
-          <circle cx="28" cy="15" r="1.15" fill="#0c3a22"/>
-          <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22"/>
-          <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <circle cx="31" cy="5" r="1.3" fill="#7dffb8"/>
-          <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8"/>
-          <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round"/>
-        </g>
-      </svg>
-      <span class="brand-name">Glowworm</span>
+    <div class="login-card">
+        <div class="brand">
+            <svg class="gw" viewBox="0 0 40 32" aria-hidden="true">
+                <g class="gw-body">
+                    <circle class="gw-seg gw-seg-1" cx="7.5" cy="23.5" r="3" fill="#7dffb8" />
+                    <circle class="gw-seg gw-seg-2" cx="13" cy="21" r="5.5" fill="#2cc57a" />
+                    <circle class="gw-seg gw-seg-3" cx="21" cy="18" r="7" fill="#27b268" />
+                </g>
+                <g class="gw-head">
+                    <circle cx="30" cy="17" r="8.5" fill="#1f9b57" />
+                    <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff" />
+                    <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff" />
+                    <circle cx="28" cy="15" r="1.15" fill="#0c3a22" />
+                    <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22" />
+                    <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none"
+                        stroke-linecap="round" />
+                    <circle cx="31" cy="5" r="1.3" fill="#7dffb8" />
+                    <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none"
+                        stroke-linecap="round" />
+                    <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8" />
+                    <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round" />
+                </g>
+            </svg>
+            <span class="brand-name">Glowworm</span>
+        </div>
+        {{if .Error}}<p class="login-error">{{.Error}}</p>{{end}}
+        <form method="post" action="/login">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
+            <input class="field" type="text" id="loginUsername" name="username" placeholder="Username"
+                autocomplete="username" required />
+            <input class="field" type="password" id="loginPassword" name="password" placeholder="Password"
+                autocomplete="current-password" required />
+            <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
+        </form>
     </div>
-    <h1>Sign in</h1>
-    {{if .Error}}<p class="login-error">{{.Error}}</p>{{end}}
-    <form method="post" action="/login">
-      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
-      <input class="field" type="text" id="loginUsername" name="username" placeholder="Username" autocomplete="username" required />
-      <input class="field" type="password" id="loginPassword" name="password" placeholder="Password" autocomplete="current-password" required />
-      <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
-    </form>
-    <p class="muted small" style="margin-top:12px;text-align:center">Glowworm — finance, made clear.</p>
-  </div>
 </div>
 {{end}}

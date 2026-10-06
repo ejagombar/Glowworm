@@ -1,5 +1,3 @@
-// Package render loads embedded templates and provides formatting helpers
-// shared by templates (money/date per prototype conventions, doc 04 §3).
 package render
 
 import (
@@ -16,12 +14,10 @@ import (
 //go:embed templates/*.html
 var templatesFS embed.FS
 
-// Renderer holds parsed templates.
 type Renderer struct {
 	tmpl map[string]*template.Template
 }
 
-// New parses all templates: layout.html + the named view/partial files.
 func New() (*Renderer, error) {
 	r := &Renderer{tmpl: map[string]*template.Template{}}
 	funcs := template.FuncMap{
@@ -62,14 +58,15 @@ func New() (*Renderer, error) {
 			return m
 		},
 		"mul": func(a, b int64) int64 { return a * b },
+		"pct": func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
 		"sub": func(a, b int) int { return a - b },
 		"add": func(a, b int64) int64 { return a + b },
 		"json": func(v any) template.JS {
 			b, _ := jsonMarshal(v)
 			return template.JS(b)
 		},
-		// jsonAttr renders pre-serialised JSON into an attribute; html/template
-		// escapes quotes (&quot;) which the browser decodes back.
+		// html/template escapes quotes to &quot;, which the browser decodes
+		// back.
 		"jsonAttr": func(v any) template.HTMLAttr {
 			if s, ok := v.(string); ok {
 				return template.HTMLAttr(s)
@@ -106,11 +103,9 @@ func New() (*Renderer, error) {
 	return r, nil
 }
 
-// Render executes the layout (which pulls in the view's "content" define).
 func (r *Renderer) Render(w http.ResponseWriter, name string, data any) error {
-	// Pages are server-rendered UI: never let a browser heuristically cache a
-	// stale copy — self-hosted binaries are updated in place, and a stale page
-	// paired with fresh JS breaks every handler the old markup referenced.
+	// No heuristic caching: binaries are updated in place, and a stale page
+	// with fresh JS breaks its handlers.
 	w.Header().Set("Cache-Control", "no-store")
 	_, ok := r.tmpl[name]
 	if !ok {
@@ -119,10 +114,8 @@ func (r *Renderer) Render(w http.ResponseWriter, name string, data any) error {
 	return r.tmpl[name].ExecuteTemplate(w, "layout.html", data)
 }
 
-// RenderFragment executes only the named fragment template (no layout).
 func (r *Renderer) RenderFragment(w http.ResponseWriter, name string, data any) error {
 	w.Header().Set("Cache-Control", "no-store")
-	// Fragments live in *.frag.html files; find the template by walking parsed sets.
 	for _, t := range r.tmpl {
 		if tt := t.Lookup(name); tt != nil {
 			return tt.Execute(w, data)

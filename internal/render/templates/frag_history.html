@@ -1,9 +1,5 @@
-{{/* History pane content (transactions timeline or audit log). Shared by
-     the full page render and the /history/pane fragment endpoint, so the
-     client can swap modes instantly with a skeleton while this loads. */}}
 {{define "history-pane-content"}}
 {{if eq .Mode "audit"}}
-<!-- Audit log -->
 <div class="history-pane" id="historyAuditPane">
   <div class="filters panel">
     <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all&period={{.Period}}">All</a>
@@ -45,7 +41,6 @@
   </div>
 </div>
 {{else}}
-<!-- Transactions timeline -->
 <div class="history-pane" id="historyTimelinePane">
   <div class="panel timeline-controls">
     <div class="timeline-head">

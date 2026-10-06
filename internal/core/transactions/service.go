@@ -1,6 +1,3 @@
-// Package transactions implements the transaction service (doc 02 §5.1,
-// doc 03 §5): CRUD with audit, the display-row contract, and category
-// assignment with type masking.
 package transactions
 
 import (
@@ -15,7 +12,6 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Service owns transaction rules.
 type Service struct {
 	DB         *store.DB
 	Repos      *repos.Transactions
@@ -24,20 +20,16 @@ type Service struct {
 	Clock      *clock.Clock
 }
 
-// ErrNotFound mirrors repos.
 var ErrNotFound = repos.ErrNotFound
 
-// ValidationError is user-facing.
 type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
-// Display returns display rows for the transactions table (doc 03 §5.1).
 func (s *Service) Display(f repos.ListFilter, accountID string) ([]*repos.DisplayRow, error) {
 	return s.Repos.DisplayRows(f, accountID)
 }
 
-// InternalCategoryID resolves the system "Internal transfer" category.
 func (s *Service) InternalCategoryID() (string, error) {
 	c, err := s.Categories.ByName("Internal transfer")
 	if err != nil {
@@ -46,9 +38,6 @@ func (s *Service) InternalCategoryID() (string, error) {
 	return c.ID, nil
 }
 
-// deriveType infers the transaction type — the user never picks it (doc:
-// income is the Income category; transfer means a linked internal move;
-// everything else is an expense).
 func (s *Service) deriveType(categoryID *string, linked bool) string {
 	if linked {
 		return core.TypeTransfer
@@ -66,8 +55,6 @@ func (s *Service) deriveType(categoryID *string, linked bool) string {
 	return core.TypeExpense
 }
 
-// eligibleCategory validates type masking (doc 02 §4): expense→spend,
-// income→income, transfer→internal.
 func (s *Service) eligibleCategory(txType string, categoryID *string) error {
 	if categoryID == nil || *categoryID == "" {
 		return nil
@@ -94,7 +81,6 @@ func (s *Service) eligibleCategory(txType string, categoryID *string) error {
 	return nil
 }
 
-// CreateInput is a manual transaction create/edit payload (doc 03 §5.2).
 type CreateInput struct {
 	AccountID   string  `json:"account_id"`
 	Date        string  `json:"date"`
@@ -106,7 +92,6 @@ type CreateInput struct {
 	Merchant    *string `json:"merchant"`
 }
 
-// Validate checks create input.
 func (in *CreateInput) Validate() error {
 	if in.AccountID == "" {
 		return &ValidationError{Message: "Account is required"}
@@ -122,7 +107,6 @@ func (in *CreateInput) Validate() error {
 	}
 	switch in.Type {
 	case core.TypeExpense, core.TypeIncome, "":
-		// Empty type is fine: the service derives it from category/links.
 	default:
 		return &ValidationError{Message: "Type must be expense, income or transfer"}
 	}
@@ -132,7 +116,6 @@ func (in *CreateInput) Validate() error {
 	return nil
 }
 
-// Create adds a manual transaction (audit transaction.created).
 func (s *Service) Create(in CreateInput) (*core.Transaction, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
@@ -183,7 +166,6 @@ func (s *Service) Create(in CreateInput) (*core.Transaction, error) {
 	return s.Repos.Get(t.ID)
 }
 
-// Edit applies a partial update (audit transaction.edited with field diffs).
 func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.Transaction, error) {
 	t, err := s.Repos.Get(id)
 	if err != nil {
@@ -198,8 +180,6 @@ func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.
 		}
 	}
 	before := s.snapshot(t)
-	// Apply fields (only provided ones for partial updates: empty strings mean
-	// "keep" except explicit pointers).
 	if in.Date != "" {
 		t.Date = in.Date
 	}
@@ -231,8 +211,6 @@ func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.
 		}
 		t.Type = in.Type
 	} else if t.TransferID == nil {
-		// Type is no longer user-set: re-derive from the (possibly new)
-		// category. Linked rows stay transfers.
 		t.Type = s.deriveType(t.CategoryID, false)
 	}
 	if err := s.eligibleCategory(t.Type, t.CategoryID); err != nil {
@@ -279,15 +257,12 @@ func trimQuotes(s string) string {
 	return s
 }
 
-// Delete soft-deletes (audit transaction.deleted) — the history engine can
-// restore it (doc 11 §4.5).
 func (s *Service) Delete(id string) error {
 	t, err := s.Repos.Get(id)
 	if err != nil {
 		return err
 	}
 	return s.DB.WithTx(func(tx *sql.Tx) error {
-		// Unlink first if it is a transfer leg.
 		if t.TransferID != nil {
 			if err := s.Repos.DeleteTransfer(tx, *t.TransferID); err != nil {
 				return err
@@ -307,8 +282,6 @@ func (s *Service) Delete(id string) error {
 	})
 }
 
-// SetCategory assigns a category (source = user) — used by review, inline
-// editor and the review queue; audit transaction.edited.
 func (s *Service) SetCategory(id string, categoryID *string) error {
 	t, err := s.Repos.Get(id)
 	if err != nil {
@@ -341,9 +314,6 @@ func (s *Service) SetCategory(id string, categoryID *string) error {
 	})
 }
 
-// Snapshot helpers for the audit payloads / engine re-application.
-
-// TxSnapshot is the engine-facing transaction snapshot (doc 11 §4.5).
 type TxSnapshot struct {
 	ID              string  `json:"id"`
 	AccountID       string  `json:"account_id"`
@@ -362,7 +332,6 @@ type TxSnapshot struct {
 	ImportBatchID   *string `json:"import_batch_id"`
 }
 
-// Snapshot projects a transaction to its audit payload.
 func (s *Service) Snapshot(t *core.Transaction) TxSnapshot { return s.snapshot(t) }
 
 func (s *Service) snapshot(t *core.Transaction) TxSnapshot {
@@ -383,7 +352,6 @@ func (s *Service) mustReload(id string) *core.Transaction {
 	return t
 }
 
-// fieldDiffs renders a compact before/after diff for the audit entry.
 func fieldDiffs(before, after TxSnapshot) []audit.DiffLine {
 	var out []audit.DiffLine
 	pair := func(label string, b, a any) {
@@ -401,10 +369,8 @@ func fieldDiffs(before, after TxSnapshot) []audit.DiffLine {
 	return out
 }
 
-// IsNotFound maps driver errors.
 func IsNotFound(err error) bool { return errors.Is(err, sql.ErrNoRows) }
 
-// Get returns one enriched transaction.
 func (s *Service) Get(id string) (*core.Transaction, error) {
 	return s.Repos.Get(id)
 }

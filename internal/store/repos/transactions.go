@@ -14,11 +14,8 @@ import (
 	"glowworm/internal/util"
 )
 
-// Transactions is the transactions + transfers repo (doc 02 §5).
 type Transactions struct{ DB *store.DB }
 
-// DedupeHash computes the import dedupe key (doc 06 §8):
-// sha256(account_id ‖ date ‖ amount_minor ‖ normalised description).
 func DedupeHash(accountID, date string, amountMinor int64, description string) string {
 	h := sha256.Sum256([]byte(accountID + "|" + date + "|" + fmt.Sprint(amountMinor) + "|" + normalize.Text(description)))
 	return hex.EncodeToString(h[:8])
@@ -70,14 +67,13 @@ func scanTx(sc Scanner) (*core.Transaction, error) {
 	return &t, nil
 }
 
-// ListFilter constrains transaction queries (doc 03 §5.1).
 type ListFilter struct {
 	AccountID   string
 	Q           string
 	CategoryID  string
-	Type        string // expense|income|transfer|recurring
+	Type        string
 	From, To    string
-	Sort        string // date_desc|date_asc|amount_desc|amount_asc
+	Sort        string
 	Limit       int
 	NeedsReview bool
 }
@@ -127,7 +123,6 @@ func txOrder(sort string) string {
 	}
 }
 
-// List returns raw rows matching the filter (enriched).
 func (r *Transactions) List(f ListFilter) ([]*core.Transaction, error) {
 	w, args := f.where()
 	q := `SELECT ` + txCols + ` FROM transactions t` + w + txOrder(f.Sort)
@@ -141,8 +136,6 @@ func (r *Transactions) List(f ListFilter) ([]*core.Transaction, error) {
 	return r.enrich(rows)
 }
 
-// SearchMatch implements the prototype haystack (doc 04 §5.2.3): description,
-// merchant, category name, recurring key/label, account names.
 func (r *Transactions) SearchMatch(f ListFilter) ([]*core.Transaction, error) {
 	w, args := f.where()
 	if f.Q != "" {
@@ -210,7 +203,6 @@ func (r *Transactions) query(q string, args ...any) ([]*core.Transaction, error)
 	return out, rows.Err()
 }
 
-// Get returns one live transaction (enriched).
 func (r *Transactions) Get(id string) (*core.Transaction, error) {
 	rows, err := r.query(`SELECT `+txCols+` FROM transactions t WHERE t.id = ? AND t.deleted_at IS NULL`, id)
 	if err != nil {
@@ -226,7 +218,6 @@ func (r *Transactions) Get(id string) (*core.Transaction, error) {
 	return enr[0], nil
 }
 
-// GetTx returns one transaction row without enrichment (engine internals).
 func (r *Transactions) GetTx(id string) (*core.Transaction, error) {
 	rows, err := r.query(`SELECT `+txCols+` FROM transactions t WHERE t.id = ?`, id)
 	if err != nil {
@@ -238,7 +229,6 @@ func (r *Transactions) GetTx(id string) (*core.Transaction, error) {
 	return rows[0], nil
 }
 
-// enrich attaches Category, Account, recurring labels.
 func (r *Transactions) enrich(txs []*core.Transaction) ([]*core.Transaction, error) {
 	if len(txs) == 0 {
 		return txs, nil
@@ -301,9 +291,6 @@ func (r *Transactions) enrich(txs []*core.Transaction) ([]*core.Transaction, err
 	return txs, nil
 }
 
-// Mutations (tx may be nil) -------------------------------------------
-
-// Create inserts a transaction.
 func (r *Transactions) Create(tx *sql.Tx, t *core.Transaction) error {
 	t.ID = util.NewID()
 	t.CreatedAt = util.NowStr()
@@ -322,7 +309,6 @@ func (r *Transactions) Create(tx *sql.Tx, t *core.Transaction) error {
 	return err
 }
 
-// Update persists the mutable fields.
 func (r *Transactions) Update(tx *sql.Tx, t *core.Transaction) error {
 	t.UpdatedAt = util.NowStr()
 	_, err := exec(r.DB, tx, `UPDATE transactions SET account_id=?, date=?, description=?, merchant=?, amount_minor=?,
@@ -334,7 +320,6 @@ func (r *Transactions) Update(tx *sql.Tx, t *core.Transaction) error {
 	return err
 }
 
-// SoftDelete / Restore for the history engine (doc 11 §4.5).
 func (r *Transactions) SoftDelete(tx *sql.Tx, id string) error {
 	_, err := exec(r.DB, tx, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, util.NowStr(), id)
 	return err
@@ -345,9 +330,6 @@ func (r *Transactions) Restore(tx *sql.Tx, id string) error {
 	return err
 }
 
-// Transfers ------------------------------------------------------------
-
-// CreateTransfer atomically creates the link record and stamps both legs.
 func (r *Transactions) CreateTransfer(tx *sql.Tx, tr *core.Transfer, sourceTx, destTx *core.Transaction, internalCategoryID string) error {
 	tr.ID = util.NewID()
 	tr.CreatedAt = util.NowStr()
@@ -364,13 +346,11 @@ func (r *Transactions) CreateTransfer(tx *sql.Tx, tr *core.Transfer, sourceTx, d
 	return nil
 }
 
-// DeleteTransfer hard-deletes the link row (unlink).
 func (r *Transactions) DeleteTransfer(tx *sql.Tx, transferID string) error {
 	_, err := exec(r.DB, tx, `DELETE FROM transfers WHERE id = ?`, transferID)
 	return err
 }
 
-// TransferByID returns a live (non-deleted) transfer.
 func (r *Transactions) TransferByID(id string) (*core.Transfer, error) {
 	return r.transferByID(id, true)
 }
@@ -395,7 +375,6 @@ func (r *Transactions) transferByID(id string, liveOnly bool) (*core.Transfer, e
 	return &tr, nil
 }
 
-// TransferByPeerTx finds the live transfer containing a leg.
 func (r *Transactions) TransferByPeerTx(txID string) (*core.Transfer, error) {
 	var tr core.Transfer
 	var conf sql.NullFloat64
@@ -413,8 +392,6 @@ func (r *Transactions) TransferByPeerTx(txID string) (*core.Transfer, error) {
 	return &tr, nil
 }
 
-// Suggestion candidates for the transfer detector / linking UI (doc 08 §4.3):
-// unlinked, non-transfer transactions on other accounts, within a date window.
 func (r *Transactions) UnlinkedCandidates(accountID string, from, to string) ([]*core.Transaction, error) {
 	q := `SELECT ` + txCols + ` FROM transactions t
 		WHERE t.deleted_at IS NULL AND t.type != 'transfer' AND t.transfer_id IS NULL
@@ -427,7 +404,6 @@ func (r *Transactions) UnlinkedCandidates(accountID string, from, to string) ([]
 	return r.enrich(rows)
 }
 
-// UnlinkedTxs returns all unlinked transactions (detection sweeps).
 func (r *Transactions) UnlinkedTxs() ([]*core.Transaction, error) {
 	rows, err := r.query(`SELECT ` + txCols + ` FROM transactions t
 		WHERE t.deleted_at IS NULL AND t.type != 'transfer' AND t.transfer_id IS NULL
@@ -438,7 +414,6 @@ func (r *Transactions) UnlinkedTxs() ([]*core.Transaction, error) {
 	return r.enrich(rows)
 }
 
-// CountByAccount returns the transaction count per account in a period.
 func (r *Transactions) CountByAccount(from, to string) (map[string]int, error) {
 	q := `SELECT account_id, COUNT(*) FROM transactions WHERE deleted_at IS NULL`
 	var args []any
@@ -468,9 +443,6 @@ func (r *Transactions) CountByAccount(from, to string) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// Recurring ------------------------------------------------------------
-
-// UpsertRecurringKey stores series metadata (tx may be nil).
 func (r *Transactions) UpsertRecurringKey(tx *sql.Tx, k *core.RecurringKey) error {
 	_, err := exec(r.DB, tx, `INSERT INTO recurring_keys (key, label, cadence, interval_days, amount_minor, direction, first_seen, last_seen, next_expected, confidence, active, updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
@@ -482,7 +454,6 @@ func (r *Transactions) UpsertRecurringKey(tx *sql.Tx, k *core.RecurringKey) erro
 	return err
 }
 
-// RecurringKeys lists series metadata.
 func (r *Transactions) RecurringKeys() ([]*core.RecurringKey, error) {
 	rows, err := r.DB.Query(`SELECT key, label, cadence, interval_days, amount_minor, direction, first_seen, last_seen, next_expected, confidence, active, updated_at
 		FROM recurring_keys ORDER BY last_seen DESC`)
@@ -526,13 +497,11 @@ func scanRecurringKey(sc Scanner) (*core.RecurringKey, error) {
 	return &k, nil
 }
 
-// RecurringKey returns one series metadata row.
 func (r *Transactions) RecurringKey(key string) (*core.RecurringKey, error) {
 	return scanRecurringKey(r.DB.QueryRow(`SELECT key, label, cadence, interval_days, amount_minor, direction, first_seen, last_seen, next_expected, confidence, active, updated_at
 		FROM recurring_keys WHERE key = ?`, key))
 }
 
-// RecurringSeries returns a series' transactions ordered by date asc.
 func (r *Transactions) RecurringSeries(key string) ([]*core.Transaction, error) {
 	rows, err := r.query(`SELECT `+txCols+` FROM transactions t WHERE t.deleted_at IS NULL AND t.recurring_key = ? ORDER BY t.date ASC`, key)
 	if err != nil {
@@ -541,7 +510,6 @@ func (r *Transactions) RecurringSeries(key string) ([]*core.Transaction, error) 
 	return r.enrich(rows)
 }
 
-// ClearRecurringKeys removes stamps (revert of recurring.detected).
 func (r *Transactions) ClearRecurringKeys(tx *sql.Tx, keys []string) error {
 	if len(keys) == 0 {
 		return nil
@@ -555,11 +523,8 @@ func (r *Transactions) ClearRecurringKeys(tx *sql.Tx, keys []string) error {
 	return err
 }
 
-// Display rows (doc 03 §5.1) ------------------------------------------
-
-// DisplayRow is a grouped or single display row.
 type DisplayRow struct {
-	Kind        string              `json:"kind"` // single | linked
+	Kind        string              `json:"kind"`
 	Tx          *core.Transaction   `json:"-"`
 	Members     []*core.Transaction `json:"-"`
 	Rep         *core.Transaction   `json:"-"`
@@ -567,7 +532,6 @@ type DisplayRow struct {
 	Destination string              `json:"destination_account,omitempty"`
 }
 
-// DisplayRows implements the grouping contract (doc 03 §5.1).
 func (r *Transactions) DisplayRows(f ListFilter, accountID string) ([]*DisplayRow, error) {
 	var rows []*core.Transaction
 	var err error
@@ -620,8 +584,6 @@ func (r *Transactions) DisplayRows(f ListFilter, accountID string) ([]*DisplayRo
 	return out, nil
 }
 
-// resolveNames fills SourceName/DestinationName/Counterparty (doc 02 §5.1,
-// prototype txCounterparty parity).
 func (r *Transactions) resolveNames(txs []*core.Transaction) {
 	peers := map[string]*core.Transaction{}
 	for _, t := range txs {
@@ -687,7 +649,7 @@ func (r *Transactions) resolveNames(txs []*core.Transaction) {
 			t.SourceName = firstNonEmpty(t.SourceText, deref(t.Merchant), t.Description)
 			t.DestinationName = accName
 			t.Counterparty = "From " + t.SourceName
-		default: // expense
+		default:
 			t.SourceName = accName
 			t.DestinationName = firstNonEmpty(t.DestinationText, deref(t.Merchant), t.Description)
 			t.Counterparty = "To " + t.DestinationName
@@ -729,7 +691,6 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// null helpers
 func nullStr(s *string) any {
 	if s == nil || *s == "" {
 		return nil

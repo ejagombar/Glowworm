@@ -1,5 +1,3 @@
-// Package settings implements the settings service (doc 12): key catalogue,
-// audit exemptions, and typed accessors.
 package settings
 
 import (
@@ -11,7 +9,6 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Keys (doc 12 §1).
 const (
 	KeyTheme           = "theme"
 	KeyCurrency        = "currency"
@@ -27,20 +24,17 @@ const (
 	KeyAIDailyTokenCap = "ai_daily_token_cap"
 )
 
-// notAudited per doc 12 §2.
 var notAudited = map[string]bool{
 	KeyTheme: true, KeyPrivacyDefault: true, KeyDefaultPeriod: true,
 	KeyUserName: true, KeyCurrency: true,
 }
 
-// Service reads/writes settings.
 type Service struct {
 	DB    *store.DB
 	Repos *repos.Settings
 	Audit *audit.Writer
 }
 
-// Snapshot is the typed settings bundle used across handlers.
 type Snapshot struct {
 	Theme           string
 	Currency        string
@@ -56,7 +50,6 @@ type Snapshot struct {
 	AIDailyTokenCap int
 }
 
-// Get loads the snapshot.
 func (s *Service) Get() *Snapshot {
 	return &Snapshot{
 		Theme:           s.Repos.GetString(KeyTheme),
@@ -74,12 +67,10 @@ func (s *Service) Get() *Snapshot {
 	}
 }
 
-// All returns the raw settings map (GET /api/v1/settings).
 func (s *Service) All() (map[string]any, error) {
 	return s.Repos.All()
 }
 
-// Patch applies allowed keys (audit only for data-affecting ones).
 func (s *Service) Patch(m map[string]any) error {
 	allowed := map[string]bool{
 		KeyTheme: true, KeyCurrency: true, KeyUserName: true, KeyDefaultPeriod: true,

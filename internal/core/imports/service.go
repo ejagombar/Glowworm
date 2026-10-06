@@ -1,5 +1,3 @@
-// Package imports implements the import pipeline (doc 06): upload → sniff →
-// schema match/detect → parse+stage → review → commit (+detections+retrain).
 package imports
 
 import (
@@ -21,39 +19,32 @@ import (
 	"glowworm/internal/util"
 )
 
-// Service owns the pipeline.
 type Service struct {
 	DB          *store.DB
 	Accounts    *repos.Accounts
 	Txs         *repos.Transactions
 	Audit       *audit.Writer
 	Cat         *categoriser.Service
-	Provider    ai.Provider // may be nil (AI disabled)
+	Provider    ai.Provider
 	DisplayCC   string
-	AfterCommit func(batchID string) // detection hooks (transfers, recurring, retrain)
+	AfterCommit func(batchID string)
 }
 
-// ValidationError is user-facing.
 type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
-// ErrDuplicateFile per doc 06 §8.
 var ErrDuplicateFile = errors.New("this exact file was already imported")
 
-// Batch is a view-model of import_batches (+ staged row count).
 type Batch struct {
 	*core.ImportBatch
 	Rows       int        `json:"rows"`
 	SchemaName string     `json:"schema_name,omitempty"`
 	Sheets     []string   `json:"sheets,omitempty"`
 	Detection  *Detection `json:"detection,omitempty"`
-	// ParseError is surfaced to the UI (the embedded core type hides it from
-	// JSON via its own tag; this copy is what the import endpoints return).
-	ParseError *string `json:"parse_error,omitempty"`
+	ParseError *string    `json:"parse_error,omitempty"`
 }
 
-// Detection is the detector output shown in the schema preview (doc 06 §5).
 type Detection struct {
 	Kind          string               `json:"kind"`
 	Sheet         string               `json:"sheet,omitempty"`
@@ -67,10 +58,9 @@ type Detection struct {
 	Confidence    float64              `json:"confidence"`
 	MatchedSchema string               `json:"matched_schema,omitempty"`
 	Sample        [][]string           `json:"sample,omitempty"`
+	AIProposed    bool                 `json:"ai_proposed,omitempty"`
 }
 
-// Upload stores the file and creates the batch (doc 06 §1). The original
-// bytes are retained in import_files so the fix-mapping stage can re-parse.
 func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batch, error) {
 	if len(data) == 0 {
 		return nil, &ValidationError{Message: "That file is empty."}
@@ -79,9 +69,9 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
 
-	// Duplicate file check (doc 06 §8).
 	var prior string
-	err := s.DB.QueryRow(`SELECT status FROM import_batches WHERE sha256 = ? AND status = 'confirmed' LIMIT 1`, sha).Scan(&prior)
+	err := s.DB.QueryRow(`SELECT b.status FROM import_batches b WHERE b.sha256 = ? AND b.status = 'confirmed'
+		AND EXISTS (SELECT 1 FROM transactions t WHERE t.import_batch_id = b.id AND t.deleted_at IS NULL) LIMIT 1`, sha).Scan(&prior)
 	if err == nil {
 		return nil, ErrDuplicateFile
 	}
@@ -100,9 +90,6 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 			nullStr(accountID), batch.Status, batch.CreatedAt); err != nil {
 			return err
 		}
-		// The upload itself is not a data mutation: no audit entry here.
-		// Failed uploads therefore never appear in the audit log; the
-		// completed import is logged once, on confirm (doc 11 §3 catalogue).
 		_, err := tx.Exec(`INSERT INTO import_files (batch_id, content) VALUES (?,?)`, batch.ID, data)
 		return err
 	})
@@ -111,8 +98,6 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 	}
 	b, err = s.Detect(batch.ID, kind, filename, data)
 	if err != nil {
-		// Read/decode problems become failed batches with a human reason so
-		// the UI can say why (a bare 500 would just say "failed").
 		if b == nil {
 			var mb *Batch
 			mb, err2 := s.markFailed(batch.ID, fmt.Sprintf("Couldn't read that file: %v", err))
@@ -126,11 +111,8 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 	return b, err
 }
 
-// DetectionRows caps the sample lines sent to the LLM (doc 09 §10).
 const detectionSampleLines = 5
 
-// Detect runs the detection order (doc 06 §5.1): saved schema fingerprint →
-// LLM → manual-ready auto mapping.
 func (s *Service) Detect(batchID string, kind importer.Kind, filename string, data []byte) (*Batch, error) {
 	if _, err := s.getBatch(batchID); err != nil {
 		return nil, err
@@ -149,47 +131,9 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			det.HasHeader = true
 			det.Sample = sampleTable(table, detectionSampleLines+1)
 		}
-		// Saved schema fingerprint (doc 06 §5.1 step 1).
 		if m, schema := s.matchSavedSchema(kind, table); schema != nil {
-			det.Columns = m.Columns
-			det.Confidence = 1.0
-			det.ProposedName = schema.Name
-			det.MatchedSchema = schema.Name
-			det.BankHint = schema.BankHint
-			det.DateFormat = m.DateFormat
-			det.Columns = m.Columns
-			det.Confidence = 1.0
-			det.ProposedName = schema.Name
-			det.MatchedSchema = schema.Name
-			det.BankHint = schema.BankHint
-			b, err := s.applyMapping(batchID, m, data, &schema.ID, det)
-			if err != nil {
-				return nil, err
-			}
-			return b, nil
+			return s.applySavedSchema(batchID, m, schema, data, det)
 		}
-		// LLM detection (doc 06 §5.1 step 2).
-		if s.Provider != nil && len(table) > 1 {
-			m, err := s.detectWithAI(kind, table)
-			if err == nil {
-				det.Columns = m.Columns
-				det.HasHeader = m.HasHeader
-				det.Delimiter = m.Delimiter
-				det.ProposedName = m.ProposedName
-				det.Confidence = m.Confidence
-				det.BankHint = m.BankHint
-				det.DateFormat = m.DateFormat
-				s.auditSchemaDetected(batchID, filename, det)
-				b, err := s.applyMapping(batchID, m, data, nil, det)
-				if err != nil {
-					return nil, err
-				}
-				return b, nil
-			}
-			// AI failed: fall through to manual mapping (doc 09 §9) — the
-			// failure is logged, not audited (failed actions don't appear).
-		}
-		// Manual-ready auto mapping (doc 06 §5.1 step 3).
 		if len(table) > 0 {
 			m := importer.AutoMapping(kind, table[0], nil)
 			det.Columns = m.Columns
@@ -207,6 +151,11 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 		if len(table) > 0 {
 			det.HasHeader = true
 			det.Sample = sampleTable(table, detectionSampleLines+1)
+		}
+		if m, schema := s.matchSavedSchema(kind, table); schema != nil {
+			return s.applySavedSchema(batchID, m, schema, data, det)
+		}
+		if len(table) > 0 {
 			m := importer.AutoMapping(kind, table[0], nil)
 			det.Columns = m.Columns
 			det.Confidence = 0.5
@@ -235,7 +184,6 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 		return s.Get(batchID)
 	}
 
-	// QIF/OFX parse directly to rows — stage immediately.
 	if kind == importer.KindQIF || kind == importer.KindOFX {
 		if _, err := s.stageRows(batchID, rows); err != nil {
 			return nil, err
@@ -251,8 +199,104 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 	return s.Get(batchID)
 }
 
-// detectWithAI calls the schema_detection capability (doc 09 §6.1) and
-// validates the mapping deterministically (doc 09 §6.1: Go verifies).
+// Adopt the schema's account before staging so duplicates are checked against
+// it.
+func (s *Service) applySavedSchema(batchID string, m *importer.Mapping, schema *core.ImportSchema, data []byte, det *Detection) (*Batch, error) {
+	det.Columns = m.Columns
+	det.Confidence = 1.0
+	det.ProposedName = schema.Name
+	det.MatchedSchema = schema.Name
+	det.BankHint = schema.BankHint
+	det.DateFormat = m.DateFormat
+	if schema.AccountID != nil {
+		if _, err := s.DB.Exec(`UPDATE import_batches SET account_id = ? WHERE id = ?`, *schema.AccountID, batchID); err != nil {
+			return nil, err
+		}
+	}
+	return s.applyMapping(batchID, m, data, &schema.ID, det)
+}
+
+func (s *Service) AIDetect(batchID string, data []byte, filename string) (*Batch, error) {
+	if s.Provider == nil {
+		return nil, &ValidationError{Message: "AI provider is not configured"}
+	}
+	batch, err := s.getBatch(batchID)
+	if err != nil {
+		return nil, err
+	}
+	if batch.Status != "awaiting_schema" {
+		return nil, &ValidationError{Message: "This import is past the mapping step"}
+	}
+	kind := importer.Kind(batch.Mime)
+	var table [][]string
+	switch kind {
+	case importer.KindCSV:
+		table, _, err = importer.ReadCSV(data)
+	case importer.KindXLSX:
+		_, table, err = importer.ReadXLSX(data, "")
+	default:
+		return nil, &ValidationError{Message: "AI mapping is only supported for CSV and Excel files"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(table) < 2 {
+		return nil, &ValidationError{Message: "Not enough rows to detect a schema"}
+	}
+	m, err := s.detectWithAI(kind, table)
+	if err != nil {
+		return nil, &ValidationError{Message: "AI detection failed: " + err.Error()}
+	}
+	det := &Detection{Kind: string(kind)}
+	if batch.Detection != nil {
+		_ = json.Unmarshal([]byte(*batch.Detection), det)
+	}
+	byName := map[string]importer.ColumnMap{}
+	for _, c := range m.Columns {
+		byName[c.Source] = c
+	}
+	det.Columns = make([]importer.ColumnMap, 0, len(table[0]))
+	for _, h := range table[0] {
+		h = strings.TrimSpace(h)
+		c, ok := byName[h]
+		if !ok {
+			c = importer.ColumnMap{Source: h, Role: importer.RoleIgnore}
+		}
+		det.Columns = append(det.Columns, c)
+	}
+	det.HasHeader = m.HasHeader
+	if m.Delimiter != "" {
+		det.Delimiter = m.Delimiter
+	}
+	det.DateFormat = mappingDateFormat(m)
+	det.BankHint = m.BankHint
+	det.ProposedName = m.ProposedName
+	det.Confidence = m.Confidence
+	det.MatchedSchema = ""
+	det.Sample = sampleTable(table, detectionSampleLines+1)
+	det.AIProposed = true
+	s.auditSchemaDetected(batchID, filename, det)
+	if err := s.markAwaitingSchema(batchID, det); err != nil {
+		return nil, err
+	}
+	if _, err := s.DB.Exec(`UPDATE import_batches SET parse_error = NULL WHERE id = ?`, batchID); err != nil {
+		return nil, err
+	}
+	return s.Get(batchID)
+}
+
+func mappingDateFormat(m *importer.Mapping) string {
+	if m.DateFormat != "" {
+		return m.DateFormat
+	}
+	for _, c := range m.Columns {
+		if c.Role == importer.RoleDate && c.DateFormat != "" {
+			return c.DateFormat
+		}
+	}
+	return ""
+}
+
 func (s *Service) detectWithAI(kind importer.Kind, table [][]string) (*importer.Mapping, error) {
 	headers := table[0]
 	sample := table[1:]
@@ -280,7 +324,6 @@ func (s *Service) detectWithAI(kind importer.Kind, table [][]string) (*importer.
 	return &m, nil
 }
 
-// validateMapping checks roles/dates deterministically (doc 09 §6.1).
 func validateMapping(m *importer.Mapping, headers []string, sample [][]string) error {
 	hasDate, hasAmount := false, false
 	known := map[string]bool{}
@@ -308,8 +351,6 @@ func validateMapping(m *importer.Mapping, headers []string, sample [][]string) e
 	return nil
 }
 
-// applyMapping parses + stages with the given mapping (doc 06 §6) and saves
-// the schema fingerprint when schemaID is provided.
 func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte, schemaID *string, det *Detection) (*Batch, error) {
 	batch, err := s.getBatch(batchID)
 	if err != nil {
@@ -319,39 +360,40 @@ func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte,
 	if kind == "" {
 		kind = importer.Kind(batch.Mime)
 	}
-	var rows []importer.Row
+	var table [][]string
 	switch kind {
 	case importer.KindXLSX:
-		_, table, err := importer.ReadXLSX(data, m.Sheet)
-		if err != nil {
-			return nil, err
-		}
-		rows, err = importer.ParseRows(m, table, s.DisplayCC)
-		if err != nil {
-			return s.markParseError(batchID, err)
-		}
+		_, table, err = importer.ReadXLSX(data, m.Sheet)
 	case importer.KindCSV:
-		table, _, err := importer.ReadCSV(data)
-		if err != nil {
-			return nil, err
-		}
-		rows, err = importer.ParseRows(m, table, s.DisplayCC)
-		if err != nil {
-			return s.markParseError(batchID, err)
-		}
+		table, _, err = importer.ReadCSV(data)
 	default:
 		return nil, &ValidationError{Message: "Mapping applies only to CSV and Excel files"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if det != nil {
+		// The header sample is the schema fingerprint, so take it from the
+		// sheet actually parsed.
+		det.Sample = sampleTable(table, detectionSampleLines+1)
+		if err := s.storeDetection(batchID, det); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := importer.ParseRows(m, table, s.DisplayCC)
+	if err != nil {
+		return s.markParseError(batchID, err)
 	}
 	if len(rows) == 0 {
 		return s.markParseError(batchID, &importer.ParseError{Message: "no rows parsed — check the column mapping"})
 	}
-	// Save/refresh the schema fingerprint on confirm; for now record schema_id.
-	if schemaID != nil {
-		if _, err := s.DB.Exec(`UPDATE import_batches SET schema_id = ? WHERE id = ?`, *schemaID, batchID); err != nil {
-			return nil, err
-		}
+	if _, err := s.DB.Exec(`UPDATE import_batches SET schema_id = ? WHERE id = ?`, nullStr(schemaID), batchID); err != nil {
+		return nil, err
 	}
 	if _, err := s.stageRows(batchID, rows); err != nil {
+		return nil, err
+	}
+	if _, err := s.DB.Exec(`UPDATE import_batches SET parse_error = NULL WHERE id = ?`, batchID); err != nil {
 		return nil, err
 	}
 	if err := s.setStatus(batchID, "awaiting_review"); err != nil {
@@ -360,19 +402,14 @@ func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte,
 	return s.Get(batchID)
 }
 
-// stageRows inserts parsed rows into import_staging with dedupe + cascade
-// categorisation (doc 06 §6).
 func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 	var count int
 	err := s.DB.WithTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM import_staging WHERE batch_id = ?`, batchID); err != nil {
 			return err
 		}
-		staged := make([]*core.Transaction, 0, len(rows))
-		stagingIDs := []string{}
 		for _, r := range rows {
 			stagingID := util.NewID()
-			stagingIDs = append(stagingIDs, stagingID)
 			hash := repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, r.Description)
 			if r.FitID != "" {
 				hash = "fitid:" + r.FitID
@@ -392,59 +429,19 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 					dup = existing
 				}
 			}
-			t := &core.Transaction{
-				ID: stagingID, Date: r.Date, Description: r.Description,
-				AmountMinor: r.AmountMinor, Currency: r.Currency,
-				SourceText: r.SourceText, DestinationText: r.DestinationText,
-				DedupeHash: hash, CategorySource: core.CategorySourceNone,
-			}
-			if r.AmountMinor >= 0 {
-				t.Type = core.TypeIncome
-			} else {
-				t.Type = core.TypeExpense
-			}
-			staged = append(staged, t)
 			raw, _ := json.Marshal(r.Raw)
 			if _, err := tx.Exec(`INSERT INTO import_staging
-				(id, batch_id, line_no, date, description, amount_minor, currency, source_text, destination_text, duplicate_of, raw, created_at)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+				(id, batch_id, line_no, date, description, amount_minor, currency, source_text, destination_text, duplicate_of, raw, category_source, needs_review, created_at)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				stagingID, batchID, r.Line, r.Date, r.Description, r.AmountMinor, r.Currency,
-				r.SourceText, r.DestinationText, dup, string(raw), util.NowStr()); err != nil {
+				r.SourceText, r.DestinationText, dup, string(raw), core.CategorySourceNone, 1, util.NowStr()); err != nil {
 				return err
 			}
 			count++
 		}
-		// Categorisation cascade over staged rows (doc 06 §6 last bullet).
-		if s.Cat != nil {
-			if _, err := s.Cat.Categorise(tx, staged); err != nil {
-				return err
-			}
-			for i, t := range staged {
-				_, err := tx.Exec(`UPDATE import_staging SET proposed_category_id = ?, category_source = ?, category_confidence = ?, needs_review = ?
-					WHERE id = ?`, nullStr(t.CategoryID), t.CategorySource, nullConf(t.CategoryConfidence),
-					boolToInt(t.CategorySource == core.CategorySourceNone), stagingIDs[i])
-				if err != nil {
-					return err
-				}
-			}
-		}
 		return nil
 	})
 	return count, err
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func nullConf(f *float64) any {
-	if f == nil {
-		return nil
-	}
-	return *f
 }
 
 func (s *Service) batchAccountID(tx *sql.Tx, batchID string) *string {
@@ -457,7 +454,6 @@ func (s *Service) batchAccountID(tx *sql.Tx, batchID string) *string {
 	return &str
 }
 
-// Get returns the batch view-model.
 func (s *Service) Get(batchID string) (*Batch, error) {
 	batch, err := s.getBatch(batchID)
 	if err != nil {
@@ -542,15 +538,39 @@ func (s *Service) markParseError(id string, err error) (*Batch, error) {
 }
 
 func (s *Service) markAwaitingSchema(id string, det *Detection) error {
+	if err := s.storeDetection(id, det); err != nil {
+		return err
+	}
+	return s.setStatus(id, "awaiting_schema")
+}
+
+func (s *Service) storeDetection(id string, det *Detection) error {
 	b, _ := json.Marshal(det)
-	_, err := s.DB.Exec(`UPDATE import_batches SET detection = ?, status = 'awaiting_schema' WHERE id = ?`, string(b), id)
+	_, err := s.DB.Exec(`UPDATE import_batches SET detection = ? WHERE id = ?`, string(b), id)
 	return err
 }
 
-// ApplySchemaPublic re-parses the stored upload with a corrected mapping
-// (doc 06 §5 fix-mapping stage).
 func (s *Service) ApplySchemaPublic(batchID string, m *importer.Mapping, data []byte) (*Batch, error) {
-	return s.applyMapping(batchID, m, data, nil, nil)
+	batch, err := s.getBatch(batchID)
+	if err != nil {
+		return nil, err
+	}
+	det := &Detection{}
+	if batch.Detection != nil {
+		_ = json.Unmarshal([]byte(*batch.Detection), det)
+	}
+	if m.Kind == "" {
+		m.Kind = importer.Kind(batch.Mime)
+	}
+	det.Kind = string(m.Kind)
+	det.Sheet = m.Sheet
+	det.HasHeader = m.HasHeader
+	det.Delimiter = m.Delimiter
+	det.Columns = m.Columns
+	det.DateFormat = mappingDateFormat(m)
+	det.MatchedSchema = ""
+	det.AIProposed = false
+	return s.applyMapping(batchID, m, data, nil, det)
 }
 
 func sampleTable(table [][]string, n int) [][]string {
@@ -571,9 +591,6 @@ func sampleLines(lines []string, n int) [][]string {
 	return out
 }
 
-// auditSchemaDetected records a successful AI detection (doc 11 §3: actor ai;
-// prototype History parity: "Detected schema “Monzo CSV” · confidence 98% ·
-// 4 columns"). Only written on success — failures never appear.
 func (s *Service) auditSchemaDetected(batchID, filename string, det *Detection) {
 	err := s.DB.WithTx(func(tx *sql.Tx) error {
 		_, err := s.Audit.Write(tx, audit.Input{
@@ -586,20 +603,21 @@ func (s *Service) auditSchemaDetected(batchID, filename string, det *Detection) 
 		return err
 	})
 	if err != nil {
-		// Non-fatal: detection itself already succeeded.
 		return
 	}
 }
 
-// matchSavedSchema finds a saved schema by fingerprint (doc 06 §5.1).
 func (s *Service) matchSavedSchema(kind importer.Kind, table [][]string) (*importer.Mapping, *core.ImportSchema) {
 	if len(table) == 0 {
 		return nil, nil
 	}
 	h := schemaHash(kind, table[0])
 	var id, name, bank, mappingJSON string
-	err := s.DB.QueryRow(`SELECT id, name, bank_hint, mapping FROM import_schemas WHERE sample_hash = ?`, h).
-		Scan(&id, &name, &bank, &mappingJSON)
+	var accountID sql.NullString
+	err := s.DB.QueryRow(`SELECT s.id, s.name, s.bank_hint, s.mapping, a.id
+		FROM import_schemas s LEFT JOIN accounts a ON a.id = s.account_id AND a.deleted_at IS NULL
+		WHERE s.sample_hash = ?`, h).
+		Scan(&id, &name, &bank, &mappingJSON, &accountID)
 	if err != nil {
 		return nil, nil
 	}
@@ -607,7 +625,11 @@ func (s *Service) matchSavedSchema(kind importer.Kind, table [][]string) (*impor
 	if err := json.Unmarshal([]byte(mappingJSON), &m); err != nil {
 		return nil, nil
 	}
-	return &m, &core.ImportSchema{ID: id, Name: name, BankHint: bank}
+	schema := &core.ImportSchema{ID: id, Name: name, BankHint: bank}
+	if accountID.Valid {
+		schema.AccountID = &accountID.String
+	}
+	return &m, schema
 }
 
 func schemaHash(kind importer.Kind, header []string) string {
@@ -623,27 +645,34 @@ func normHeaders(header []string) []string {
 	return out
 }
 
-// StagedRow is the review-table projection (doc 06 §7).
 type StagedRow struct {
-	ID             string   `json:"id"`
-	Line           int      `json:"line_no"`
-	Date           string   `json:"date"`
-	Description    string   `json:"description"`
-	AmountMinor    int64    `json:"amount_minor"`
-	Currency       string   `json:"currency"`
-	CategoryID     *string  `json:"category_id"`
-	CategoryName   string   `json:"category_name"`
-	CategorySource string   `json:"category_source"`
-	Confidence     *float64 `json:"category_confidence"`
-	NeedsReview    bool     `json:"needs_review"`
-	DuplicateOf    *string  `json:"duplicate_of,omitempty"`
+	ID                    string   `json:"id"`
+	Line                  int      `json:"line_no"`
+	Date                  string   `json:"date"`
+	Description           string   `json:"description"`
+	Destination           string   `json:"destination,omitempty"`
+	AmountMinor           int64    `json:"amount_minor"`
+	Currency              string   `json:"currency"`
+	Type                  string   `json:"type"`
+	GroupKey              string   `json:"group_key"`
+	CategoryID            *string  `json:"category_id"`
+	CategoryName          string   `json:"category_name"`
+	CategorySource        string   `json:"category_source"`
+	Confidence            *float64 `json:"category_confidence"`
+	NeedsReview           bool     `json:"needs_review"`
+	DuplicateOf           *string  `json:"duplicate_of,omitempty"`
+	SuggestedCategoryID   *string  `json:"suggested_category_id,omitempty"`
+	SuggestedCategoryName string   `json:"suggested_category_name,omitempty"`
+	SuggestedConfidence   *float64 `json:"suggested_confidence,omitempty"`
 }
 
-// Review returns staged rows + aggregates (doc 03 §7).
 func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsReview, duplicates int, err error) {
-	brows, e := s.DB.Query(`SELECT st.id, st.line_no, st.date, st.description, st.amount_minor, st.currency,
-		st.proposed_category_id, COALESCE(c.name,''), st.category_source, st.category_confidence, st.needs_review, st.duplicate_of
-		FROM import_staging st LEFT JOIN categories c ON c.id = st.proposed_category_id
+	brows, e := s.DB.Query(`SELECT st.id, st.line_no, st.date, st.description, st.destination_text, st.amount_minor, st.currency,
+		st.proposed_category_id, COALESCE(c.name,''), st.category_source, st.category_confidence, st.needs_review, st.duplicate_of,
+		st.suggested_category_id, COALESCE(sc.name,''), st.suggested_confidence
+		FROM import_staging st
+		LEFT JOIN categories c ON c.id = st.proposed_category_id
+		LEFT JOIN categories sc ON sc.id = st.suggested_category_id
 		WHERE st.batch_id = ? ORDER BY st.line_no ASC`, batchID)
 	if e != nil {
 		return nil, 0, 0, 0, e
@@ -651,13 +680,16 @@ func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsRev
 	defer brows.Close()
 	for brows.Next() {
 		var r StagedRow
-		var catID, dup sql.NullString
-		var conf sql.NullFloat64
+		var catID, dup, sugID sql.NullString
+		var conf, sugConf sql.NullFloat64
 		var needs int
-		if e := brows.Scan(&r.ID, &r.Line, &r.Date, &r.Description, &r.AmountMinor, &r.Currency,
-			&catID, &r.CategoryName, &r.CategorySource, &conf, &needs, &dup); e != nil {
+		if e := brows.Scan(&r.ID, &r.Line, &r.Date, &r.Description, &r.Destination, &r.AmountMinor, &r.Currency,
+			&catID, &r.CategoryName, &r.CategorySource, &conf, &needs, &dup,
+			&sugID, &r.SuggestedCategoryName, &sugConf); e != nil {
 			return nil, 0, 0, 0, e
 		}
+		r.Type = typeFor(r.AmountMinor)
+		r.GroupKey = GroupKey(r.Description, r.Destination, r.AmountMinor)
 		if catID.Valid {
 			s := catID.String
 			r.CategoryID = &s
@@ -665,6 +697,14 @@ func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsRev
 		if conf.Valid {
 			f := conf.Float64
 			r.Confidence = &f
+		}
+		if sugID.Valid {
+			s := sugID.String
+			r.SuggestedCategoryID = &s
+		}
+		if sugConf.Valid {
+			f := sugConf.Float64
+			r.SuggestedConfidence = &f
 		}
 		if dup.Valid {
 			s := dup.String
@@ -682,28 +722,18 @@ func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsRev
 	return rows, confident, needsReview, duplicates, brows.Err()
 }
 
-// ReviewPatch applies bulk ops (doc 03 §7).
 type ReviewPatch struct {
 	SetCategory *struct {
 		RowIDs     []string `json:"row_ids"`
 		CategoryID string   `json:"category_id"`
 	} `json:"set_category,omitempty"`
-	AcceptConfident bool     `json:"accept_confident"`
-	ForceImport     []string `json:"force_import,omitempty"`
+	AcceptSuggestions bool     `json:"accept_suggestions,omitempty"`
+	AcceptConfident   bool     `json:"accept_confident"`
+	ForceImport       []string `json:"force_import,omitempty"`
 }
 
-// ApplyReview patches staged rows.
 func (s *Service) ApplyReview(batchID string, p ReviewPatch) error {
 	return s.DB.WithTx(func(tx *sql.Tx) error {
-		if p.SetCategory != nil {
-			for _, rowID := range p.SetCategory.RowIDs {
-				if _, err := tx.Exec(`UPDATE import_staging SET proposed_category_id = ?, category_source = 'user',
-					category_confidence = NULL, needs_review = 0 WHERE id = ? AND batch_id = ?`,
-					p.SetCategory.CategoryID, rowID, batchID); err != nil {
-					return err
-				}
-			}
-		}
 		if p.ForceImport != nil {
 			for _, rowID := range p.ForceImport {
 				if _, err := tx.Exec(`UPDATE import_staging SET duplicate_of = NULL WHERE id = ? AND batch_id = ?`,
@@ -711,13 +741,123 @@ func (s *Service) ApplyReview(batchID string, p ReviewPatch) error {
 					return err
 				}
 			}
+			if err := syncForcedRows(tx, batchID, p.ForceImport); err != nil {
+				return err
+			}
+		}
+		if p.SetCategory != nil {
+			ids, err := expandToGroups(tx, batchID, p.SetCategory.RowIDs)
+			if err != nil {
+				return err
+			}
+			for _, rowID := range ids {
+				var err error
+				if p.SetCategory.CategoryID == "" {
+					_, err = tx.Exec(`UPDATE import_staging SET proposed_category_id = NULL, category_source = 'none',
+						category_confidence = NULL, needs_review = 1 WHERE id = ? AND batch_id = ?`, rowID, batchID)
+				} else {
+					_, err = tx.Exec(`UPDATE import_staging SET proposed_category_id = ?, category_source = 'user',
+						category_confidence = NULL, needs_review = 0 WHERE id = ? AND batch_id = ?`,
+						p.SetCategory.CategoryID, rowID, batchID)
+				}
+				if err != nil {
+					return err
+				}
+			}
+		}
+		if p.AcceptSuggestions {
+			if _, err := tx.Exec(`UPDATE import_staging SET proposed_category_id = suggested_category_id,
+				category_source = 'ai', category_confidence = suggested_confidence, needs_review = 0
+				WHERE batch_id = ? AND needs_review = 1 AND suggested_category_id IS NOT NULL`, batchID); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 }
 
-// Confirm commits the batch (doc 06 §9): one transaction, one audit entry.
-func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
+type stagedKey struct {
+	id, key   string
+	duplicate bool
+}
+
+func loadStagedKeys(tx *sql.Tx, batchID string) ([]stagedKey, error) {
+	rows, err := tx.Query(`SELECT id, description, destination_text, amount_minor, duplicate_of IS NOT NULL
+		FROM import_staging WHERE batch_id = ?`, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []stagedKey
+	for rows.Next() {
+		var k stagedKey
+		var desc, dest string
+		var amount int64
+		if err := rows.Scan(&k.id, &desc, &dest, &amount, &k.duplicate); err != nil {
+			return nil, err
+		}
+		k.key = GroupKey(desc, dest, amount)
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+func expandToGroups(tx *sql.Tx, batchID string, rowIDs []string) ([]string, error) {
+	all, err := loadStagedKeys(tx, batchID)
+	if err != nil {
+		return nil, err
+	}
+	want := map[string]bool{}
+	for _, id := range rowIDs {
+		want[id] = true
+	}
+	keys := map[string]bool{}
+	for _, k := range all {
+		if want[k.id] {
+			keys[k.key] = true
+		}
+	}
+	out := []string{}
+	for _, k := range all {
+		if want[k.id] || (keys[k.key] && !k.duplicate) {
+			out = append(out, k.id)
+		}
+	}
+	return out, nil
+}
+
+func syncForcedRows(tx *sql.Tx, batchID string, rowIDs []string) error {
+	all, err := loadStagedKeys(tx, batchID)
+	if err != nil {
+		return err
+	}
+	forced := map[string]bool{}
+	for _, id := range rowIDs {
+		forced[id] = true
+	}
+	sibling := map[string]string{}
+	for _, k := range all {
+		if !forced[k.id] && !k.duplicate {
+			sibling[k.key] = k.id
+		}
+	}
+	for _, k := range all {
+		src, ok := sibling[k.key]
+		if !forced[k.id] || !ok {
+			continue
+		}
+		if _, err := tx.Exec(`UPDATE import_staging SET
+			(proposed_category_id, category_source, category_confidence, needs_review, suggested_category_id, suggested_confidence) =
+			(SELECT proposed_category_id, category_source, category_confidence, needs_review, suggested_category_id, suggested_confidence
+			 FROM import_staging WHERE id = ?)
+			WHERE id = ?`, src, k.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error) {
 	batch, err := s.getBatch(batchID)
 	if err != nil {
 		return nil, err
@@ -766,7 +906,7 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 		var firstDate, lastDate string
 		for _, r := range rowsData {
 			if r.duplicateOf != nil {
-				continue // duplicates skipped by default (doc 06 §7)
+				continue
 			}
 			t := &core.Transaction{
 				AccountID: accountID, Date: r.date, Description: r.desc,
@@ -798,7 +938,6 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 		if imported == 0 {
 			return &ValidationError{Message: "Nothing to import — all rows are duplicates"}
 		}
-		// Audit entry with per-category diff (prototype History parity).
 		diff := []audit.DiffLine{}
 		for name, n := range perCategory {
 			diff = append(diff, audit.Add(fmt.Sprintf("%d → %s", n, name)))
@@ -821,8 +960,8 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Post-commit hooks (doc 06 §9): detections + retrain + merchant
-	// enrichment (doc 09 §6.4).
+	// The import is committed; a schema failure must not undo that.
+	_ = s.rememberSchema(batchID, batch, accountID, schemaName)
 	if s.AfterCommit != nil {
 		s.AfterCommit(batchID)
 	}
@@ -830,8 +969,63 @@ func (s *Service) Confirm(batchID string, accountID string) (*Batch, error) {
 	return s.Get(batchID)
 }
 
-// enrichMerchants calls the optional merchant_extraction capability for
-// imported transactions without a merchant (doc 09 §6.4). Best-effort.
+func (s *Service) rememberSchema(batchID string, batch *core.ImportBatch, accountID, name string) error {
+	name = strings.TrimSpace(name)
+	now := util.NowStr()
+	if batch.SchemaID != nil {
+		_, err := s.DB.Exec(`UPDATE import_schemas SET account_id = ?, name = COALESCE(NULLIF(?, ''), name),
+			use_count = use_count + 1, last_used_at = ?, updated_at = ? WHERE id = ?`,
+			accountID, name, now, now, *batch.SchemaID)
+		return err
+	}
+	if batch.Detection == nil {
+		return nil
+	}
+	var det Detection
+	if err := json.Unmarshal([]byte(*batch.Detection), &det); err != nil {
+		return err
+	}
+	if len(det.Sample) == 0 || len(det.Columns) == 0 {
+		return nil
+	}
+	if name == "" {
+		name = s.defaultSchemaName(&det, accountID, batch.Filename)
+	}
+	m := importer.Mapping{
+		Kind: importer.Kind(det.Kind), Sheet: det.Sheet,
+		HasHeader: det.HasHeader, Delimiter: det.Delimiter,
+		Columns: det.Columns, BankHint: det.BankHint,
+		DateFormat: det.DateFormat, Confidence: det.Confidence,
+	}
+	schema, err := s.saveSchema(name, det.BankHint, &m, det.Sample[0], det.Confidence, &accountID)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(`UPDATE import_schemas SET use_count = use_count + 1, last_used_at = ? WHERE id = ?`, now, schema.ID)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(`UPDATE import_batches SET schema_id = ? WHERE id = ?`, schema.ID, batchID)
+	return err
+}
+
+func (s *Service) defaultSchemaName(det *Detection, accountID, filename string) string {
+	if det != nil && strings.TrimSpace(det.ProposedName) != "" {
+		return strings.TrimSpace(det.ProposedName)
+	}
+	kind := ""
+	if det != nil {
+		kind = strings.ToUpper(det.Kind)
+	}
+	if accountID != "" {
+		var acct string
+		if err := s.DB.QueryRow(`SELECT name FROM accounts WHERE id = ?`, accountID).Scan(&acct); err == nil && acct != "" {
+			return strings.TrimSpace(acct + " " + kind)
+		}
+	}
+	return filename
+}
+
 func (s *Service) enrichMerchants(batchID string) {
 	if s.Provider == nil {
 		return
@@ -864,7 +1058,7 @@ func (s *Service) enrichMerchants(batchID string) {
 		PromptJSON: map[string]any{"descriptions": items},
 	})
 	if err != nil {
-		return // degrade silently (doc 09 §9)
+		return
 	}
 	var parsed struct {
 		Items []struct {
@@ -907,7 +1101,6 @@ func typeFor(amount int64) string {
 	return core.TypeExpense
 }
 
-// Cancel discards the batch (audit import.cancelled).
 func (s *Service) Cancel(batchID string) error {
 	batch, err := s.getBatch(batchID)
 	if err != nil {
@@ -926,10 +1119,11 @@ func (s *Service) Cancel(batchID string) error {
 	})
 }
 
-// Schemas CRUD (doc 03 §7).
-
-// SaveSchema persists the confirmed mapping (AI name pre-filled, doc 06 §5.3).
 func (s *Service) SaveSchema(name, bankHint string, m *importer.Mapping, sampleHeader []string, confidence float64) (*core.ImportSchema, error) {
+	return s.saveSchema(name, bankHint, m, sampleHeader, confidence, nil)
+}
+
+func (s *Service) saveSchema(name, bankHint string, m *importer.Mapping, sampleHeader []string, confidence float64, accountID *string) (*core.ImportSchema, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, &ValidationError{Message: "Schema name is required"}
 	}
@@ -942,6 +1136,7 @@ func (s *Service) SaveSchema(name, bankHint string, m *importer.Mapping, sampleH
 		Name: name, BankHint: bankHint, Kind: string(m.Kind),
 		Mapping: string(mappingJSON), Columns: cols,
 		SampleHash: schemaHash(m.Kind, sampleHeader), Confidence: confidence,
+		AccountID: accountID,
 	}
 	err := s.DB.WithTx(func(tx *sql.Tx) error {
 		schema.ID = util.NewID()
@@ -950,15 +1145,15 @@ func (s *Service) SaveSchema(name, bankHint string, m *importer.Mapping, sampleH
 		var existing string
 		err := tx.QueryRow(`SELECT id FROM import_schemas WHERE sample_hash = ?`, schema.SampleHash).Scan(&existing)
 		if err == nil {
-			_, err = tx.Exec(`UPDATE import_schemas SET name=?, bank_hint=?, mapping=?, columns=?, confidence=?, updated_at=? WHERE id=?`,
-				schema.Name, schema.BankHint, schema.Mapping, strings.Join(schema.Columns, ","), schema.Confidence, schema.UpdatedAt, existing)
+			_, err = tx.Exec(`UPDATE import_schemas SET name=?, bank_hint=?, mapping=?, columns=?, confidence=?, account_id=COALESCE(?, account_id), updated_at=? WHERE id=?`,
+				schema.Name, schema.BankHint, schema.Mapping, strings.Join(schema.Columns, ","), schema.Confidence, nullStr(accountID), schema.UpdatedAt, existing)
 			schema.ID = existing
 			return err
 		}
-		_, err = tx.Exec(`INSERT INTO import_schemas (id, name, bank_hint, kind, mapping, columns, sample_hash, confidence, created_at, updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		_, err = tx.Exec(`INSERT INTO import_schemas (id, name, bank_hint, kind, mapping, columns, sample_hash, confidence, account_id, created_at, updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 			schema.ID, schema.Name, schema.BankHint, schema.Kind, schema.Mapping,
-			strings.Join(schema.Columns, ","), schema.SampleHash, schema.Confidence, schema.CreatedAt, schema.UpdatedAt)
+			strings.Join(schema.Columns, ","), schema.SampleHash, schema.Confidence, nullStr(accountID), schema.CreatedAt, schema.UpdatedAt)
 		if err != nil {
 			return err
 		}
@@ -977,10 +1172,11 @@ func (s *Service) SaveSchema(name, bankHint string, m *importer.Mapping, sampleH
 	return schema, nil
 }
 
-// ListSchemas returns saved schemas.
 func (s *Service) ListSchemas() ([]*core.ImportSchema, error) {
-	rows, err := s.DB.Query(`SELECT id, name, bank_hint, kind, mapping, columns, sample_hash, confidence, use_count, last_used_at, created_at, updated_at
-		FROM import_schemas ORDER BY use_count DESC, created_at DESC`)
+	rows, err := s.DB.Query(`SELECT s.id, s.name, s.bank_hint, s.kind, s.mapping, s.columns, s.sample_hash, s.confidence, s.use_count, s.last_used_at, s.created_at, s.updated_at,
+		a.id, COALESCE(a.name, '')
+		FROM import_schemas s LEFT JOIN accounts a ON a.id = s.account_id AND a.deleted_at IS NULL
+		ORDER BY s.use_count DESC, s.created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -988,8 +1184,9 @@ func (s *Service) ListSchemas() ([]*core.ImportSchema, error) {
 	var out []*core.ImportSchema
 	for rows.Next() {
 		var sch core.ImportSchema
-		var mapping, cols, lastUsed sql.NullString
-		if err := rows.Scan(&sch.ID, &sch.Name, &sch.BankHint, &sch.Kind, &mapping, &cols, &sch.SampleHash, &sch.Confidence, &sch.UseCount, &lastUsed, &sch.CreatedAt, &sch.UpdatedAt); err != nil {
+		var mapping, cols, lastUsed, accountID sql.NullString
+		if err := rows.Scan(&sch.ID, &sch.Name, &sch.BankHint, &sch.Kind, &mapping, &cols, &sch.SampleHash, &sch.Confidence, &sch.UseCount, &lastUsed, &sch.CreatedAt, &sch.UpdatedAt,
+			&accountID, &sch.AccountName); err != nil {
 			return nil, err
 		}
 		if cols.Valid && cols.String != "" {
@@ -999,12 +1196,15 @@ func (s *Service) ListSchemas() ([]*core.ImportSchema, error) {
 			s := lastUsed.String
 			sch.LastUsedAt = &s
 		}
+		if accountID.Valid {
+			s := accountID.String
+			sch.AccountID = &s
+		}
 		out = append(out, &sch)
 	}
 	return out, rows.Err()
 }
 
-// DeleteSchema removes a saved schema (audit schema.deleted).
 func (s *Service) DeleteSchema(id string) error {
 	return s.DB.WithTx(func(tx *sql.Tx) error {
 		var name string

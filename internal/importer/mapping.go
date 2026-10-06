@@ -8,7 +8,6 @@ import (
 	"glowworm/internal/money"
 )
 
-// Column mapping roles (doc 06 §5.2).
 const (
 	RoleDate        = "date"
 	RoleDesc        = "description"
@@ -24,19 +23,17 @@ const (
 	RoleIgnore      = "ignore"
 )
 
-// ColumnMap maps one source column to a role.
 type ColumnMap struct {
 	Source     string `json:"source"`
 	Role       string `json:"role"`
 	DateFormat string `json:"date_format,omitempty"`
 	DecimalSep string `json:"decimal_separator,omitempty"`
-	Negatives  string `json:"negatives,omitempty"` // signed|paren|dr_cr
+	Negatives  string `json:"negatives,omitempty"`
 }
 
-// Mapping is the full column mapping (doc 06 §5.2).
 type Mapping struct {
 	Kind         Kind        `json:"kind"`
-	Sheet        string      `json:"sheet,omitempty"` // xlsx only
+	Sheet        string      `json:"sheet,omitempty"`
 	HasHeader    bool        `json:"has_header"`
 	Delimiter    string      `json:"delimiter,omitempty"`
 	Columns      []ColumnMap `json:"columns"`
@@ -46,16 +43,13 @@ type Mapping struct {
 	DateFormat   string      `json:"date_format,omitempty"`
 }
 
-// ParseRows applies a mapping to tabular input and returns parsed rows.
-// The first error (unparseable date) fails the stage per doc 06 §6.
 func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
-	// Column index lookup by source name.
 	idx := map[string]int{}
 	for i, name := range tableHeader(table, m) {
 		idx[strings.TrimSpace(name)] = i
 	}
 	rows := []Row{}
-	// Report real source lines: the header occupies line 1, data starts at 2.
+	// Report real file lines: the header is line 1.
 	lineOffset := 1
 	if m.HasHeader {
 		lineOffset = 2
@@ -142,14 +136,13 @@ func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
 			row.Currency = currency
 		}
 		if !amountSet || row.Date == "" {
-			continue // skip blank/no-amount lines
+			continue
 		}
 		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
-// tableHeader returns the header row (first non-empty row) or synthetic names.
 func tableHeader(table [][]string, m *Mapping) []string {
 	if len(table) == 0 {
 		return nil
@@ -165,7 +158,6 @@ func tableHeader(table [][]string, m *Mapping) []string {
 	return out
 }
 
-// tableRecords returns the data records (skipping the header).
 func tableRecords(table [][]string, m *Mapping) [][]string {
 	if len(table) == 0 {
 		return nil
@@ -176,8 +168,6 @@ func tableRecords(table [][]string, m *Mapping) [][]string {
 	return table
 }
 
-// parseAmount converts a cell value to minor units honouring the column's
-// negative convention (doc 06 §5.2).
 func parseAmount(col ColumnMap, val string) (int64, error) {
 	v := strings.TrimSpace(val)
 	if col.DecimalSep == "," {
@@ -207,7 +197,7 @@ func parseAmount(col ColumnMap, val string) (int64, error) {
 		v = v[1:]
 	}
 	v = strings.TrimPrefix(v, "+")
-	minor, err := money.Parse(v, "GBP") // exponent-only use; symbol handling above
+	minor, err := money.Parse(v, "GBP")
 	if err != nil {
 		return 0, fmt.Errorf("couldn't read the amount %q", val)
 	}
@@ -217,8 +207,6 @@ func parseAmount(col ColumnMap, val string) (int64, error) {
 	return minor, nil
 }
 
-// AutoMapping proposes a mapping from a header row using common bank column
-// names (the non-AI fallback pre-fill, doc 06 §5.1 step 3).
 func AutoMapping(kind Kind, headers []string, sample [][]string) *Mapping {
 	m := &Mapping{Kind: kind, HasHeader: true, Delimiter: ",", Confidence: 0.5}
 	for _, h := range headers {

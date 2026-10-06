@@ -1,10 +1,3 @@
-// Package server hosts the HTTP layer.
-//
-// sessions.go implements stateless HMAC-signed session cookies (30-day
-// expiry, rotated on login). Deviation note: doc 14 §3 describes a
-// server-side session record; a signed stateless cookie provides the same
-// guarantees (HttpOnly, Secure-in-TLS, SameSite=Lax, expiry, rotation)
-// without extra schema. Revisit if revocation lists become necessary.
 package server
 
 import (
@@ -21,10 +14,10 @@ import (
 const (
 	sessionCookie = "glowworm_session"
 	csrfCookie    = "glowworm_csrf"
+	privacyCookie = "glowworm_privacy"
 	sessionTTL    = 30 * 24 * time.Hour
 )
 
-// Session is the decoded session cookie.
 type Session struct {
 	UserID  string
 	Expires time.Time
@@ -50,7 +43,6 @@ func decodeToken(secret *crypto.Secret, token string) (string, bool) {
 	return string(raw), true
 }
 
-// issueSession sets the session + CSRF cookies (secure when TLS detected).
 func issueSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret, userID string) {
 	secure := isTLS(r)
 	payload := fmt.Sprintf("%s|%d|%s", userID, time.Now().Add(sessionTTL).Unix(), randomHex(8))
@@ -66,7 +58,6 @@ func issueSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret,
 	})
 }
 
-// clearSession removes both cookies.
 func clearSession(w http.ResponseWriter, r *http.Request) {
 	secure := isTLS(r)
 	for _, name := range []string{sessionCookie, csrfCookie} {
@@ -77,7 +68,6 @@ func clearSession(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// readSession validates the cookie and returns the session.
 func readSession(r *http.Request, secret *crypto.Secret) (*Session, bool) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
@@ -101,7 +91,6 @@ func readSession(r *http.Request, secret *crypto.Secret) (*Session, bool) {
 	return &Session{UserID: parts[0], Expires: time.Unix(exp, 0)}, true
 }
 
-// CSRFToken returns the current CSRF token (issuing one if absent).
 func CSRFToken(w http.ResponseWriter, r *http.Request, secret *crypto.Secret) string {
 	if c, err := r.Cookie(csrfCookie); err == nil && c.Value != "" {
 		return c.Value
@@ -116,7 +105,6 @@ func CSRFToken(w http.ResponseWriter, r *http.Request, secret *crypto.Secret) st
 	return tok
 }
 
-// checkCSRF validates the double-submit token on unsafe methods.
 func checkCSRF(r *http.Request) bool {
 	c, err := r.Cookie(csrfCookie)
 	if err != nil || c.Value == "" {
@@ -124,7 +112,6 @@ func checkCSRF(r *http.Request) bool {
 	}
 	h := r.Header.Get("X-CSRF-Token")
 	if h == "" {
-		// Form-encoded fallback.
 		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") ||
 			strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 			h = r.PostFormValue("csrf_token")

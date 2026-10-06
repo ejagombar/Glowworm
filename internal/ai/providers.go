@@ -8,14 +8,11 @@ import (
 	"time"
 )
 
-// --- OpenAI-compatible (also serves the "custom" endpoint and OpenRouter,
-// doc 09 §3) ---
-
 type OpenAI struct {
-	BaseURL      string // default https://api.openai.com/v1
+	BaseURL      string
 	APIKey       string
 	Model        string
-	ExtraHeaders map[string]string // e.g. OpenRouter attribution headers
+	ExtraHeaders map[string]string
 }
 
 func (p *OpenAI) Name() string { return "openai" }
@@ -100,12 +97,10 @@ func validJSON(s string) error {
 	return json.Unmarshal([]byte(s), &v)
 }
 
-// --- Anthropic ---
-
 type Anthropic struct {
 	APIKey  string
 	Model   string
-	BaseURL string // default https://api.anthropic.com
+	BaseURL string
 }
 
 func (p *Anthropic) Name() string { return "anthropic" }
@@ -177,12 +172,10 @@ func (p *Anthropic) CompleteStructured(req *StructuredRequest) (string, *Usage, 
 	}, validJSON)
 }
 
-// --- Google Gemini ---
-
 type Gemini struct {
 	APIKey  string
 	Model   string
-	BaseURL string // default https://generativelanguage.googleapis.com
+	BaseURL string
 }
 
 func (p *Gemini) Name() string { return "google" }
@@ -265,10 +258,8 @@ func (p *Gemini) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}, validJSON)
 }
 
-// --- Ollama (local, doc 09 §3) ---
-
 type Ollama struct {
-	BaseURL string // default http://localhost:11434
+	BaseURL string
 	Model   string
 }
 
@@ -286,7 +277,7 @@ func (p *Ollama) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}
 	timeout := req.Timeout
 	if timeout == 0 {
-		timeout = 120 * time.Second // local models are slower
+		timeout = 120 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -326,9 +317,6 @@ func (p *Ollama) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 	}, validJSON)
 }
 
-// EffectiveModel reports the model a provider will actually call — the
-// configured one, or the per-provider default that New fills in for "Auto".
-// Useful in error messages so 404s point at a concrete model ID.
 func EffectiveModel(p Provider) string {
 	switch v := p.(type) {
 	case *OpenAI:
@@ -344,14 +332,11 @@ func EffectiveModel(p Provider) string {
 	}
 }
 
-// New builds a provider from config (doc 09 §4).
 func New(provider, model, baseURL, apiKey string) (Provider, error) {
 	switch provider {
 	case "openai":
 		return &OpenAI{APIKey: apiKey, Model: model, BaseURL: baseURL}, nil
 	case "openrouter":
-		// OpenRouter speaks the OpenAI chat-completions dialect; its model IDs
-		// are "vendor/model". Attribution headers are recommended by OpenRouter.
 		base := baseURL
 		if base == "" {
 			base = "https://openrouter.ai/api/v1"

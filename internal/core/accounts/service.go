@@ -1,5 +1,3 @@
-// Package accounts implements the account service (doc 02 §3, doc 03 §4):
-// CRUD with audit, masked list API, and point-in-time valuations.
 package accounts
 
 import (
@@ -16,20 +14,18 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Service owns account business rules.
 type Service struct {
-	DB        *store.DB
-	Repos     *repos.Accounts
-	Txs       *repos.Transactions
-	Audit     *audit.Writer
-	Clock     *clock.Clock
-	DisplayCC string // display currency (settings)
+	DB          *store.DB
+	Repos       *repos.Accounts
+	Txs         *repos.Transactions
+	Audit       *audit.Writer
+	Clock       *clock.Clock
+	DisplayCC   string
+	AfterChange func()
 }
 
-// ErrNotFound mirrors repos.
 var ErrNotFound = repos.ErrNotFound
 
-// ValidationError is a user-facing validation failure.
 type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
@@ -38,7 +34,6 @@ func validType(t string) bool {
 	return t == core.AccountDebit || t == core.AccountCredit || t == core.AccountSavings
 }
 
-// Enrich computes balance/counts for list responses (doc 03 §4).
 func (s *Service) enrich(a *core.Account, txCounts map[string]int) (*core.Account, error) {
 	b, err := balances.Account(s.DB.DB, a.ID, "")
 	if err != nil {
@@ -52,7 +47,6 @@ func (s *Service) enrich(a *core.Account, txCounts map[string]int) (*core.Accoun
 	return a, nil
 }
 
-// List returns live accounts enriched for list views (masked identifiers).
 func (s *Service) List(txCounts map[string]int) ([]*core.Account, error) {
 	list, err := s.Repos.List()
 	if err != nil {
@@ -69,7 +63,6 @@ func (s *Service) List(txCounts map[string]int) ([]*core.Account, error) {
 	return out, nil
 }
 
-// Get returns full detail (identifiers unmasked — edit modal only, doc 03 §4).
 func (s *Service) Get(id string) (*core.Account, error) {
 	a, err := s.Repos.Get(id)
 	if err != nil {
@@ -78,7 +71,6 @@ func (s *Service) Get(id string) (*core.Account, error) {
 	return s.enrich(a, nil)
 }
 
-// Input is the create/update payload.
 type Input struct {
 	Name                string `json:"name"`
 	Type                string `json:"type"`
@@ -93,7 +85,6 @@ type Input struct {
 	Color               string `json:"color"`
 }
 
-// Validate checks create/update input (doc 02 §3.1).
 func (in *Input) Validate() error {
 	if strings.TrimSpace(in.Name) == "" {
 		return &ValidationError{Message: "Account name is required"}
@@ -115,7 +106,6 @@ func accountSnapshot(a *core.Account) map[string]any {
 	}
 }
 
-// Create adds an account (audit account.created).
 func (s *Service) Create(in Input) (*core.Account, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
@@ -158,7 +148,6 @@ func (s *Service) Create(in Input) (*core.Account, error) {
 	return created, nil
 }
 
-// Update modifies an account (audit account.updated with field diffs).
 func (s *Service) Update(id string, in Input) (*core.Account, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
@@ -211,42 +200,18 @@ func (s *Service) Update(id string, in Input) (*core.Account, error) {
 	return s.Repos.Get(id)
 }
 
-// Delete removes an account and its data (destructive, confirmed in UI).
-func (s *Service) Delete(id string) error {
-	a, err := s.Repos.Get(id)
-	if err != nil {
-		return err
-	}
-	return s.DB.WithTx(func(tx *sql.Tx) error {
-		if err := s.Repos.Delete(id); err != nil {
-			return err
-		}
-		_, err := s.Audit.Write(tx, audit.Input{
-			Actor: core.ActorUser, Action: "account.deleted",
-			EntityType: "account", EntityID: id,
-			Title: "Deleted account", Sub: a.Name,
-			Before: accountSnapshot(a),
-		})
-		return err
-	})
-}
-
-// ValuationInput creates a point-in-time correction.
 type ValuationInput struct {
 	ValueMinor int64  `json:"value_minor"`
 	Date       string `json:"date"`
 	Note       string `json:"note"`
 }
 
-// ValuationResult returns the correction + computed drift for the UI hint.
 type ValuationResult struct {
 	Valuation     *core.Valuation `json:"valuation"`
 	ComputedMinor int64           `json:"computed_minor"`
 	DriftMinor    int64           `json:"drift_minor"`
 }
 
-// CreateValuation records a known balance at a date (doc 11 §6): computes the
-// pre-correction balance, stores drift, audits valuation.created.
 func (s *Service) CreateValuation(accountID string, in ValuationInput, source string) (*ValuationResult, error) {
 	a, err := s.Repos.Get(accountID)
 	if err != nil {
@@ -265,7 +230,6 @@ func (s *Service) CreateValuation(accountID string, in ValuationInput, source st
 	drift := in.ValueMinor - computed
 	var res *ValuationResult
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
-		// Write the audit entry first so the valuation can reference it.
 		auditID, err := s.Audit.Write(tx, audit.Input{
 			Actor: core.ActorUser, Action: "valuation.created",
 			EntityType: "valuation", EntityID: "",
@@ -288,7 +252,6 @@ func (s *Service) CreateValuation(accountID string, in ValuationInput, source st
 		if err := s.Repos.CreateValuation(tx, v); err != nil {
 			return err
 		}
-		// Backfill the valuation id into the audit entry (entity_id + revert).
 		if err := fillValuationAudit(tx, auditID, v.ID); err != nil {
 			return err
 		}
@@ -304,7 +267,6 @@ func fillValuationAudit(tx *sql.Tx, auditID int64, valuationID string) error {
 	return err
 }
 
-// Valuations lists corrections.
 func (s *Service) Valuations(accountID string) ([]*core.Valuation, error) {
 	return s.Repos.Valuations(accountID)
 }

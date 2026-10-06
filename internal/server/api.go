@@ -29,14 +29,12 @@ import (
 
 func timeNow() time.Time { return time.Now() }
 
-// repos_ListFilter aliases the repo filter type for handlers.
 type repos_ListFilter = repos.ListFilter
 
 func verifyPassword(password, hash string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
-// apiError writes the standard error envelope (doc 01 §8).
 func apiError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -45,7 +43,6 @@ func apiError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// writeJSON is the success helper.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
@@ -56,7 +53,6 @@ func decodeBody(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
-// serviceError maps validation/not-found to HTTP responses.
 func serviceError(w http.ResponseWriter, err error) bool {
 	var ve *accounts.ValidationError
 	if errors.As(err, &ve) {
@@ -83,6 +79,11 @@ func serviceError(w http.ResponseWriter, err error) bool {
 		apiError(w, http.StatusBadRequest, "validation_failed", ae.Message)
 		return true
 	}
+	var ie *imports.ValidationError
+	if errors.As(err, &ie) {
+		apiError(w, http.StatusBadRequest, "validation_failed", ie.Message)
+		return true
+	}
 	if errors.Is(err, transactions.ErrNotFound) {
 		apiError(w, http.StatusNotFound, "not_found", "Not found")
 		return true
@@ -90,7 +91,6 @@ func serviceError(w http.ResponseWriter, err error) bool {
 	return false
 }
 
-// registerAPI mounts /api/v1 (doc 03).
 func (a *App) registerAPI(mux *http.ServeMux) {
 	j := func(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -104,29 +104,32 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 		}
 	}
 
-	// Accounts (doc 03 §4).
 	mux.HandleFunc("GET /api/v1/accounts", j(a.apiAccountsList))
 	mux.HandleFunc("POST /api/v1/accounts", j(a.apiAccountCreate))
 	mux.HandleFunc("GET /api/v1/accounts/{id}", j(a.apiAccountGet))
 	mux.HandleFunc("PATCH /api/v1/accounts/{id}", j(a.apiAccountUpdate))
 	mux.HandleFunc("DELETE /api/v1/accounts/{id}", j(a.apiAccountDelete))
+	mux.HandleFunc("GET /api/v1/accounts/backup", j(a.apiAccountsBackup))
+	mux.HandleFunc("GET /api/v1/accounts/{id}/backup", j(a.apiAccountBackup))
+	mux.HandleFunc("POST /api/v1/accounts/restore", j(a.apiAccountsRestore))
+	mux.HandleFunc("GET /api/v1/accounts/archives", j(a.apiAccountArchives))
+	mux.HandleFunc("GET /api/v1/accounts/archives/{id}/backup", j(a.apiAccountArchiveBackup))
+	mux.HandleFunc("POST /api/v1/accounts/archives/{id}/restore", j(a.apiAccountArchiveRestore))
+	mux.HandleFunc("DELETE /api/v1/accounts/archives/{id}", j(a.apiAccountArchivePurge))
 	mux.HandleFunc("GET /api/v1/accounts/{id}/valuations", j(a.apiValuationsList))
 	mux.HandleFunc("POST /api/v1/accounts/{id}/valuations", j(a.apiValuationCreate))
 
-	// Transactions (doc 03 §5).
 	mux.HandleFunc("GET /api/v1/transactions", j(a.apiTransactionsList))
 	mux.HandleFunc("POST /api/v1/transactions", j(a.apiTransactionCreate))
 	mux.HandleFunc("GET /api/v1/transactions/{id}", j(a.apiTransactionGet))
 	mux.HandleFunc("PATCH /api/v1/transactions/{id}", j(a.apiTransactionUpdate))
 	mux.HandleFunc("DELETE /api/v1/transactions/{id}", j(a.apiTransactionDelete))
 
-	// Categories (doc 03 §6).
 	mux.HandleFunc("GET /api/v1/categories", j(a.apiCategoriesList))
 	mux.HandleFunc("POST /api/v1/categories", j(a.apiCategoryCreate))
 	mux.HandleFunc("PATCH /api/v1/categories/{id}", j(a.apiCategoryUpdate))
 	mux.HandleFunc("DELETE /api/v1/categories/{id}", j(a.apiCategoryDelete))
 
-	// Settings + AI (doc 03 §13).
 	mux.HandleFunc("GET /api/v1/settings", j(a.apiSettingsGet))
 	mux.HandleFunc("PUT /api/v1/settings", j(a.apiSettingsPatch))
 	mux.HandleFunc("GET /api/v1/setup/status", j(a.apiSetupStatus))
@@ -134,11 +137,9 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/setup/complete", j(a.apiSetupComplete))
 	mux.HandleFunc("POST /api/v1/account/password", j(a.apiChangePassword))
 
-	// Timeline + reconciliation (doc 03 §10).
 	mux.HandleFunc("GET /api/v1/snapshot", j(a.apiSnapshot))
 	mux.HandleFunc("GET /api/v1/reconcile/status", j(a.apiReconcileStatus))
 
-	// Audit (doc 03 §10).
 	mux.HandleFunc("GET /api/v1/audit", j(a.apiAuditList))
 	mux.HandleFunc("GET /api/v1/audit/{id}", j(a.apiAuditGet))
 	mux.HandleFunc("GET /api/v1/audit/{id}/capabilities", j(a.apiAuditCapabilities))
@@ -147,14 +148,16 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/audit/paths/{path}/restore", j(a.apiAuditRestorePath))
 	mux.HandleFunc("DELETE /api/v1/audit/{id}", j(a.apiAuditDelete))
 
-	// Dashboard summary (doc 03 §3).
 	mux.HandleFunc("GET /api/v1/dashboard/summary", j(a.apiDashboardSummary))
 
-	// Imports (doc 03 §7).
 	mux.HandleFunc("POST /api/v1/imports", j(a.apiImportUpload))
 	mux.HandleFunc("GET /api/v1/imports/{id}", j(a.apiImportGet))
 	mux.HandleFunc("POST /api/v1/imports/{id}/schema", j(a.apiImportApplySchema))
+	mux.HandleFunc("POST /api/v1/imports/{id}/schema/ai-detect", j(a.apiImportAIDetect))
+	mux.HandleFunc("POST /api/v1/imports/preview-date", j(a.apiImportPreviewDate))
 	mux.HandleFunc("POST /api/v1/imports/{id}/schema/save", j(a.apiImportSaveSchema))
+	mux.HandleFunc("GET /api/v1/imports/{id}/categorise/stream", a.apiImportCategoriseStream)
+	mux.HandleFunc("GET /api/v1/imports/{id}/categorise/ai/stream", a.apiImportCategoriseAIStream)
 	mux.HandleFunc("GET /api/v1/imports/{id}/review", j(a.apiImportReview))
 	mux.HandleFunc("PATCH /api/v1/imports/{id}/review", j(a.apiImportReviewPatch))
 	mux.HandleFunc("POST /api/v1/imports/{id}/confirm", j(a.apiImportConfirm))
@@ -162,30 +165,25 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/schemas", j(a.apiSchemasList))
 	mux.HandleFunc("DELETE /api/v1/schemas/{id}", j(a.apiSchemaDelete))
 
-	// Transfers (doc 03 §5.2).
 	mux.HandleFunc("POST /api/v1/transactions/{id}/link", j(a.apiTransferLink))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/unlink", j(a.apiTransferUnlink))
 	mux.HandleFunc("GET /api/v1/transactions/{id}/transfer-suggestions", j(a.apiTransferSuggestions))
 	mux.HandleFunc("POST /api/v1/transfers/detect", j(a.apiTransferDetect))
 
-	// Recurring (doc 03 §12).
 	mux.HandleFunc("GET /api/v1/recurring", j(a.apiRecurringList))
 	mux.HandleFunc("GET /api/v1/recurring/{key}/transactions", j(a.apiRecurringSeries))
 	mux.HandleFunc("POST /api/v1/recurring/refresh", j(a.apiRecurringRefresh))
 
-	// Categoriser (doc 03 §11).
 	mux.HandleFunc("GET /api/v1/categoriser/status", j(a.apiCategoriserStatus))
 	mux.HandleFunc("POST /api/v1/categoriser/retrain", j(a.apiCategoriserRetrain))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/categorise", j(a.apiCategoriseTx))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/set-category", j(a.apiSetCategory))
 
-	// AI settings (doc 03 §13).
 	mux.HandleFunc("GET /api/v1/settings/ai", j(a.apiAIGet))
 	mux.HandleFunc("PUT /api/v1/settings/ai", j(a.apiAISet))
 	mux.HandleFunc("POST /api/v1/settings/ai/test", j(a.apiAITest))
 	mux.HandleFunc("POST /api/v1/settings/ai/models", j(a.apiAIModels))
 
-	// NL query + conversations (doc 03 §9).
 	mux.HandleFunc("GET /api/v1/queries/days", j(a.apiQueryDays))
 	mux.HandleFunc("POST /api/v1/query", j(a.apiQuery))
 	mux.HandleFunc("POST /api/v1/query/stream", j(a.apiQueryStream))
@@ -194,15 +192,12 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/conversations/{id}/messages", j(a.apiConversationMessages))
 	mux.HandleFunc("DELETE /api/v1/conversations/{id}", j(a.apiConversationDelete))
 
-	// Pinned widgets (doc 03 §8).
 	mux.HandleFunc("GET /api/v1/widgets/pinned", j(a.apiWidgetsGet))
 	mux.HandleFunc("PUT /api/v1/widgets/pinned", j(a.apiWidgetsReorder))
 	mux.HandleFunc("POST /api/v1/widgets/pinned", j(a.apiWidgetPin))
 	mux.HandleFunc("PATCH /api/v1/widgets/pinned/{id}", j(a.apiWidgetPatch))
 	mux.HandleFunc("DELETE /api/v1/widgets/pinned/{id}", j(a.apiWidgetUnpin))
 }
-
-// --- accounts ---
 
 func (a *App) apiAccountsList(w http.ResponseWriter, r *http.Request) error {
 	list, err := a.Accounts.List(nil)
@@ -250,10 +245,11 @@ func (a *App) apiAccountUpdate(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (a *App) apiAccountDelete(w http.ResponseWriter, r *http.Request) error {
-	if err := a.Accounts.Delete(r.PathValue("id")); err != nil {
+	arc, err := a.Accounts.Delete(r.PathValue("id"))
+	if err != nil {
 		return err
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "archive": arc})
 	return nil
 }
 
@@ -278,8 +274,6 @@ func (a *App) apiValuationCreate(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, res)
 	return nil
 }
-
-// --- transactions ---
 
 func (a *App) txFilter(r *http.Request) (repos_ListFilter, string) {
 	q := r.URL.Query()
@@ -328,9 +322,6 @@ func (a *App) apiTransactionGet(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	// Include the linked leg so the editor can show transfer details for
-	// existing transfers too (the fields previously vanished on edit).
-	// t.TransferID references the transfers row; resolve the other leg.
 	if t.TransferID != nil {
 		if cp, err := a.Transfers.CounterpartOf(t.ID); err == nil && cp != nil {
 			m := map[string]any{
@@ -387,8 +378,6 @@ func (a *App) apiTransactionDelete(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-// --- categories ---
-
 func (a *App) apiCategoriesList(w http.ResponseWriter, r *http.Request) error {
 	cats, err := a.Categories.List(r.URL.Query().Get("from"), r.URL.Query().Get("to"))
 	if err != nil {
@@ -432,8 +421,6 @@ func (a *App) apiCategoryDelete(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
-
-// --- settings / setup ---
 
 func (a *App) apiSettingsGet(w http.ResponseWriter, r *http.Request) error {
 	m, err := a.Settings.All()
@@ -488,15 +475,12 @@ func (a *App) apiSetupComplete(w http.ResponseWriter, r *http.Request) error {
 	if err := a.Setup.Complete(); err != nil {
 		return err
 	}
-	// Seed the default dashboard once (doc 10 §11).
 	if err := a.SeedDefaultWidgets(); err != nil {
 		a.Log.Error("seed widgets", "err", err)
 	}
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
-
-// --- audit ---
 
 func (a *App) apiAuditList(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
@@ -610,8 +594,6 @@ func (a *App) apiAuditDelete(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// --- dashboard summary (doc 03 §3) ---
-
 func (a *App) apiDashboardSummary(w http.ResponseWriter, r *http.Request) error {
 	counts, _ := a.Repos.Transactions.CountByAccount("", "")
 	list, err := a.Accounts.List(counts)
@@ -634,8 +616,6 @@ func (a *App) apiDashboardSummary(w http.ResponseWriter, r *http.Request) error 
 	})
 	return nil
 }
-
-// --- imports (doc 06 pipeline) ---
 
 func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
 	r.Body = http.MaxBytesReader(w, r.Body, int64(a.Cfg.UploadMaxMB)<<20)
@@ -776,6 +756,7 @@ func (a *App) apiImportReview(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, map[string]any{
 		"batch": batch, "rows": rows,
 		"confident": confident, "needs_review": needsReview, "duplicates": duplicates,
+		"ai_available": a.Imports.AIAvailable(),
 	})
 	return nil
 }
@@ -786,6 +767,9 @@ func (a *App) apiImportReviewPatch(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	if err := a.Imports.ApplyReview(r.PathValue("id"), p); err != nil {
+		if serviceError(w, err) {
+			return nil
+		}
 		return err
 	}
 	rows, confident, needsReview, duplicates, err := a.Imports.Review(r.PathValue("id"))
@@ -799,7 +783,8 @@ func (a *App) apiImportReviewPatch(w http.ResponseWriter, r *http.Request) error
 func (a *App) apiImportConfirm(w http.ResponseWriter, r *http.Request) error {
 	batchID := r.PathValue("id")
 	var in struct {
-		AccountID string `json:"account_id"`
+		AccountID  string `json:"account_id"`
+		SchemaName string `json:"schema_name"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
@@ -816,8 +801,11 @@ func (a *App) apiImportConfirm(w http.ResponseWriter, r *http.Request) error {
 		apiError(w, http.StatusBadRequest, "validation_failed", "Choose the account to import into")
 		return nil
 	}
-	b, err := a.Imports.Confirm(batchID, accountID)
+	b, err := a.Imports.Confirm(batchID, accountID, in.SchemaName)
 	if err != nil {
+		if serviceError(w, err) {
+			return nil
+		}
 		return err
 	}
 	writeJSON(w, b)
@@ -849,7 +837,6 @@ func (a *App) apiSchemaDelete(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// importFileBytes reads the stored upload from import_files.
 func (a *App) importFileBytes(batchID string) ([]byte, error) {
 	var data []byte
 	err := a.DB.QueryRow(`SELECT content FROM import_files WHERE batch_id = ?`, batchID).Scan(&data)
@@ -858,8 +845,6 @@ func (a *App) importFileBytes(batchID string) ([]byte, error) {
 	}
 	return data, nil
 }
-
-// --- transfers ---
 
 func (a *App) apiTransferLink(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
@@ -902,8 +887,6 @@ func (a *App) apiTransferDetect(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// --- recurring ---
-
 func (a *App) apiRecurringList(w http.ResponseWriter, r *http.Request) error {
 	keys, err := a.Repos.Transactions.RecurringKeys()
 	if err != nil {
@@ -939,8 +922,6 @@ func (a *App) apiRecurringRefresh(w http.ResponseWriter, r *http.Request) error 
 	writeJSON(w, map[string]any{"series": n})
 	return nil
 }
-
-// --- categoriser ---
 
 func (a *App) apiCategoriserStatus(w http.ResponseWriter, r *http.Request) error {
 	s := a.Settings.Get()
@@ -997,8 +978,6 @@ func (a *App) apiSetCategory(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// --- AI settings (doc 09 §4) ---
-
 func (a *App) apiAIGet(w http.ResponseWriter, r *http.Request) error {
 	row, err := a.Repos.AIConfig.Get()
 	if err != nil {
@@ -1019,7 +998,7 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Provider string            `json:"provider"`
 		APIKey   string            `json:"api_key"`
-		BaseURL  *string           `json:"base_url"` // nil = keep the stored endpoint
+		BaseURL  *string           `json:"base_url"`
 		ClearKey bool              `json:"clear_key"`
 		Models   map[string]string `json:"models"`
 	}
@@ -1030,7 +1009,7 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	baseURL := row.BaseURL // switching providers keeps the stored endpoint
+	baseURL := row.BaseURL
 	if in.BaseURL != nil {
 		baseURL = *in.BaseURL
 	}
@@ -1043,10 +1022,10 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 		keyCipher = cipher
 	}
 	if in.ClearKey {
-		keyCipher = "" // explicit clear keeps the provider
+		keyCipher = ""
 	}
 	if in.Provider == "" {
-		keyCipher = "" // disabling the provider clears the stored key
+		keyCipher = ""
 	}
 	models := row.Models
 	if in.Models != nil {
@@ -1068,10 +1047,6 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
-	// Re-resolve the live provider and apply it to every consumer — the
-	// queries page, categorisation and imports. Only Cat was refreshed here:
-	// a stale Query.Provider meant the queries page kept calling with the
-	// boot-time provider (e.g. an old model ID → 404) until restart.
 	p, _ := ai.New(in.Provider, models["default"], baseURL, decodeKey(a.Secret, keyCipher))
 	a.Cat.Provider = p
 	a.Imports.Provider = p
@@ -1080,10 +1055,6 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// apiAIModels lists the models a provider currently offers so the settings
-// UI can offer real choices. Accepts the in-progress provider/base/key so it
-// works before saving; empty fields fall back to the stored config. The API
-// key is only accepted in the JSON body (never the query string).
 func (a *App) apiAIModels(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Provider string `json:"provider"`
@@ -1109,8 +1080,6 @@ func (a *App) apiAIModels(w http.ResponseWriter, r *http.Request) error {
 	if apiKey == "" && row != nil {
 		apiKey = decodeKey(a.Secret, row.KeyCipher)
 	}
-	// Providers whose catalogue needs auth: don't even call them without a
-	// key — an expected 401 is not an error worth showing.
 	needsKey := provider == "openai" || provider == "anthropic" || provider == "google"
 	if needsKey && apiKey == "" {
 		writeJSON(w, map[string]any{"ok": true, "source": "needs-key", "provider": provider, "models": ai.FallbackModels(provider)})
@@ -1126,8 +1095,6 @@ func (a *App) apiAIModels(w http.ResponseWriter, r *http.Request) error {
 		source = "fallback"
 	}
 	out := map[string]any{"ok": true, "source": source, "provider": provider, "models": models}
-	// Only surface the upstream error when a key was actually configured —
-	// without one, an auth failure is the expected state, not a problem.
 	if source == "fallback" && apiKey != "" {
 		out["error"] = err.Error()
 	}
@@ -1175,8 +1142,6 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 	})
 	latency := int(timeNow().Sub(start).Milliseconds())
 	if err != nil {
-		// Include the model actually used so 404s point at the config, not
-		// just the provider's raw response.
 		modelLabel := model
 		if modelLabel == "" {
 			modelLabel = ai.EffectiveModel(p)
@@ -1189,9 +1154,6 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// --- snapshot / timeline / reconcile (doc 03 §10) ---
-
-// apiSnapshot reconstructs per-account balances at a date (doc 11 §5.3).
 func (a *App) apiSnapshot(w http.ResponseWriter, r *http.Request) error {
 	date := r.URL.Query().Get("date")
 	if date == "" {
@@ -1278,7 +1240,6 @@ func balancesAll(db *store.DB, date string) (map[string]int64, error) {
 	return out, nil
 }
 
-// apiReconcileStatus aggregates the reconciliation card (doc 11 §6).
 func (a *App) apiReconcileStatus(w http.ResponseWriter, r *http.Request) error {
 	status, label, hint := a.reconcileSummary()
 	writeJSON(w, map[string]any{"status": status, "label": label, "hint": hint})

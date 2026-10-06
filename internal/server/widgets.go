@@ -1,5 +1,3 @@
-// Widgets service methods on App (doc 05 §7): pinned CRUD + dashboard render
-// with plan re-execution.
 package server
 
 import (
@@ -14,10 +12,8 @@ import (
 	"glowworm/internal/util"
 )
 
-// query_Plan aliases the query plan type.
 type query_Plan = query.Plan
 
-// defaultSpanCol mirrors the prototype spanCol.
 func defaultSpanCol(t string) int {
 	switch t {
 	case "number", "text", "pie":
@@ -40,7 +36,6 @@ func defaultSpanRows(t string) int {
 	}
 }
 
-// WidgetView is the template projection of a pinned widget (doc 05 §2).
 type WidgetView struct {
 	ID            string        `json:"id"`
 	Type          string        `json:"type"`
@@ -58,16 +53,14 @@ type WidgetView struct {
 	Stale         bool          `json:"stale"`
 }
 
-// WidgetTxRow is one rendered transaction-list row.
 type WidgetTxRow struct {
 	Date        string
 	Description string
 	Category    string
 	Amount      string
-	Class       string // pos | neg | transfer
+	Class       string
 }
 
-// WidgetsList returns dashboard widgets with fresh data (plans re-executed).
 func (a *App) WidgetsList() ([]*WidgetView, error) {
 	rows, err := a.DB.Query(`SELECT id, position, col, rows, title, type, dataset, plan FROM pinned_widgets ORDER BY position ASC, created_at ASC`)
 	if err != nil {
@@ -117,7 +110,6 @@ func spanOr(v int, typ string, def func(string) int) int {
 	return def(typ)
 }
 
-// applyPresentation extracts the template-friendly fields from the data JSON.
 func applyPresentation(v *WidgetView, typ, dataJSON string) {
 	var data map[string]any
 	if json.Unmarshal([]byte(dataJSON), &data) != nil {
@@ -202,9 +194,6 @@ func str(v any) string {
 	return string(b)
 }
 
-// PinWidget persists a pinned widget (from chat). dataJSON is the
-// presentation payload (labels/series/values/…) the dashboard renders;
-// planJSON, when present, re-executes on dashboard refresh.
 func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (string, error) {
 	id := util.NewID()
 	if col == 0 {
@@ -219,9 +208,8 @@ func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (
 	if planJSON != "" && planJSON != "null" {
 		plan = planJSON
 	}
-	// Idempotent pin: re-pinning the same widget (page reload loses the
-	// client's pinned-id state) returns the existing row instead of a
-	// duplicate dashboard card.
+	// Re-pinning returns the existing row: a page reload loses the client's
+	// pinned id, which otherwise duplicated dashboard cards.
 	var existing string
 	err := a.DB.QueryRow(`SELECT id FROM pinned_widgets
 		WHERE title = ? AND type = ? AND dataset = ? AND COALESCE(plan,'') = COALESCE(?, '') LIMIT 1`,
@@ -235,9 +223,6 @@ func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (
 	return id, err
 }
 
-// WidgetPatch updates title/type/presentation data for a pinned widget
-// [D13]. dataJSON is the client-converted presentation payload (the client
-// converts between chart types via convertWidgetData); empty keeps current.
 func (a *App) WidgetPatch(id, title, typ, dataJSON string) error {
 	var curTitle, curType, curData string
 	err := a.DB.QueryRow(`SELECT title, type, COALESCE(dataset,'') FROM pinned_widgets WHERE id = ?`, id).
@@ -259,14 +244,11 @@ func (a *App) WidgetPatch(id, title, typ, dataJSON string) error {
 	return err
 }
 
-// WidgetUnpin removes a pinned widget.
 func (a *App) WidgetUnpin(id string) error {
 	_, err := a.DB.Exec(`DELETE FROM pinned_widgets WHERE id = ?`, id)
 	return err
 }
 
-// SeedDefaultWidgets creates the prototype's default dashboard (doc 10 §11)
-// once, on setup completion.
 func (a *App) SeedDefaultWidgets() error {
 	var n int
 	if err := a.DB.QueryRow(`SELECT COUNT(*) FROM pinned_widgets`).Scan(&n); err != nil || n > 0 {

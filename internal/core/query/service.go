@@ -1,6 +1,3 @@
-// Package query implements the natural-language pipeline (doc 10):
-// question → LLM plan → validation/entity resolution → whitelisted SQL
-// compilation → dataset → widget + reasoning steps.
 package query
 
 import (
@@ -18,7 +15,6 @@ import (
 	"glowworm/internal/util"
 )
 
-// Service runs queries.
 type Service struct {
 	DB       *store.DB
 	Provider ai.Provider
@@ -26,20 +22,16 @@ type Service struct {
 	Repo     ConversationRepo
 }
 
-// ConversationRepo persists conversations + messages (doc 02 §8.2).
 type ConversationRepo interface {
 	CreateConversation(title string) (*core.Conversation, error)
 	AddMessage(conversationID, role, text string, steps []string, widget *string, dataset *string, plan *string) (*core.Message, error)
 	ListConversations() ([]*core.Conversation, error)
 	Messages(conversationID string) ([]*core.Message, error)
-	// MessagesPage pages history backwards (doc 10 §8): the newest page when
-	// before is nil, else the page ending before the "created_at|id" cursor.
 	MessagesPage(conversationID string, before *string, limit int) ([]*core.Message, error)
 	GetConversation(id string) (*core.Conversation, error)
 	DeleteConversation(id string) error
 }
 
-// Plan is the validated query plan (doc 10 §3).
 type Plan struct {
 	V            int     `json:"v"`
 	Metric       string  `json:"metric"`
@@ -58,9 +50,6 @@ type Plan struct {
 	Title        string  `json:"title"`
 }
 
-// Answer is the full query response (doc 10 §2). Multiple widgets per
-// answer are supported (doc 10 §8); Plan/Dataset refer to the first widget
-// when the legacy plan pipeline produced the answer.
 type Answer struct {
 	Text    string            `json:"text"`
 	Steps   []string          `json:"steps"`
@@ -69,8 +58,6 @@ type Answer struct {
 	Dataset *widgets.Dataset  `json:"dataset,omitempty"`
 }
 
-// CompilePublic executes an already-validated plan (pinned widget refresh,
-// doc 10 §11) — no LLM involved.
 func (s *Service) CompilePublic(p *Plan) (*widgets.Dataset, string, error) {
 	if err := s.resolveTime(p); err != nil {
 		return nil, "", err
@@ -81,21 +68,14 @@ func (s *Service) CompilePublic(p *Plan) (*widgets.Dataset, string, error) {
 	return s.compile(p)
 }
 
-// Ask runs the full pipeline: the agent first, the legacy plan compiler as
-// fallback. See AskStream for the progressive version.
 func (s *Service) Ask(question string) (*Answer, error) {
 	return s.AskStreamWindow(question, nil, nil)
 }
 
-// AskStream answers with the agent loop (query tool + rich text/widgets),
-// streaming reasoning steps through onStep as they happen.
 func (s *Service) AskStream(question string, onStep func(string)) (*Answer, error) {
 	return s.AskStreamWindow(question, nil, onStep)
 }
 
-// AskStreamWindow is AskStream with the user's current view period. If the
-// agent fails on its protocol, the legacy plan pipeline takes over (doc 10
-// §2 stays as the fallback; a provider that is down cannot be rescued).
 func (s *Service) AskStreamWindow(question string, win *TimeWindow, onStep func(string)) (*Answer, error) {
 	if s.Provider == nil {
 		return nil, &ClarifyError{Message: "Connect an AI provider in Settings to ask questions."}
@@ -124,8 +104,6 @@ func (s *Service) AskStreamWindow(question string, win *TimeWindow, onStep func(
 	return ans2, nil
 }
 
-// askLegacy is the original plan pipeline (doc 10 §2): question → plan →
-// whitelisted SQL → dataset → templated widget answer.
 func (s *Service) askLegacy(question string) (*Answer, error) {
 	plan, err := s.plan(question)
 	if err != nil {
@@ -150,8 +128,6 @@ func (s *Service) askLegacy(question string) (*Answer, error) {
 	return &Answer{Text: text, Steps: steps, Widgets: []*widgets.Widget{widget}, Plan: plan, Dataset: ds}, nil
 }
 
-// UnmarshalJSON accepts both the nested entity shape ({entity:{kind,...}})
-// and the flattened internal shape.
 func (p *Plan) UnmarshalJSON(b []byte) error {
 	type alias Plan
 	var a alias
@@ -176,7 +152,6 @@ func (p *Plan) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MarshalJSON re-nests the entity (doc 10 §3 shape).
 func (p Plan) MarshalJSON() ([]byte, error) {
 	type alias Plan
 	a := alias(p)
@@ -200,16 +175,12 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 	return json.Marshal(a)
 }
 
-// TimeWindow is the view period the user is currently browsing (the global
-// period selector). The agent restricts answers to it unless the question
-// specifies a different range (doc 10 §2a).
 type TimeWindow struct {
-	From  string // YYYY-MM-DD, empty = unbounded
+	From  string
 	To    string
-	Label string // e.g. "Last 12 months" — shown in the prompt
+	Label string
 }
 
-// ClarifyError asks the user to disambiguate (doc 10 §9).
 type ClarifyError struct {
 	Message     string   `json:"message"`
 	Suggestions []string `json:"suggestions"`
@@ -217,7 +188,6 @@ type ClarifyError struct {
 
 func (e *ClarifyError) Error() string { return e.Message }
 
-// plan asks the LLM for a query plan (doc 10 §4).
 func (s *Service) plan(question string) (*Plan, error) {
 	cats, _ := s.nameList(`SELECT name FROM categories WHERE deleted_at IS NULL AND is_system = 0`)
 	accounts, _ := s.nameList(`SELECT name FROM accounts WHERE deleted_at IS NULL`)
@@ -263,8 +233,6 @@ func (s *Service) nameList(q string, args ...any) ([]string, error) {
 	return out, rows.Err()
 }
 
-// resolve validates + fuzzy-resolves the entity against the user's own data
-// (doc 10 §3 validation; never trusts the LLM's ids).
 func (s *Service) resolve(p *Plan) error {
 	if p.EntityKind == "" || p.EntityKind == "none" {
 		p.EntityKind = ""
@@ -283,7 +251,6 @@ func (s *Service) resolve(p *Plan) error {
 			p.EntityID, p.EntityMatch = id, "exact"
 			return nil
 		}
-		// Fuzzy.
 		var candidates []string
 		rows, e := s.DB.Query(`SELECT name FROM categories WHERE deleted_at IS NULL AND name LIKE ?`, "%"+name+"%")
 		if e == nil {
@@ -340,13 +307,11 @@ func (s *Service) resolve(p *Plan) error {
 	return nil
 }
 
-// resolveTime fills from/to from the preset (doc 10 §3).
 func (s *Service) resolveTime(p *Plan) error {
 	today := s.Clock.Today()
 	tt, _ := time.Parse("2006-01-02", today)
 	from, to, _ := periods.Resolve(pickString(p.TimePreset, "last-12m"), p.From, p.To, tt)
 	if p.From == "" && p.To == "" && from == "" {
-		// "all" preset on a metric question defaults to last-12m (doc 10 §4).
 		from, to, _ = periods.Resolve(periods.Last12M, "", "", tt)
 	}
 	p.From, p.To = from, to
@@ -360,7 +325,6 @@ func pickString(p *string, def string) string {
 	return *p
 }
 
-// validate clamps + normalises the plan (doc 10 §3 hard rules).
 func (s *Service) validate(p *Plan) error {
 	switch p.Metric {
 	case "spend", "income", "net", "balance", "count", "list":
@@ -375,7 +339,7 @@ func (s *Service) validate(p *Plan) error {
 		return fmt.Errorf("query: unknown breakdown %q", p.Breakdown)
 	}
 	if p.Metric == "balance" && p.Breakdown == "none" && p.EntityKind == "" {
-		p.Breakdown = "month" // balance needs a series or an entity
+		p.Breakdown = "month"
 	}
 	if p.Limit <= 0 {
 		p.Limit = 12
@@ -395,8 +359,6 @@ func (s *Service) validate(p *Plan) error {
 	return nil
 }
 
-// compile executes the whitelisted query for (metric, breakdown) and builds
-// the dataset (doc 10 §5 — fixed table, bound parameters only).
 func (s *Service) compile(p *Plan) (*widgets.Dataset, string, error) {
 	switch p.Metric {
 	case "spend", "income", "net":
@@ -426,7 +388,6 @@ func (s *Service) accountFilter(p *Plan) (string, []any) {
 
 func (s *Service) compileMoney(p *Plan) (*widgets.Dataset, string, error) {
 	if p.Breakdown == "none" {
-		// Single scalar: SELECT SUM.
 		where, args := s.metricWhere(p)
 		sign := signFor(p.Metric)
 		sqlDisplay := fmt.Sprintf("SELECT %s(amount_minor) FROM tx WHERE %s", sumExpr(p.Metric), where)
@@ -452,7 +413,7 @@ func (s *Service) compileMoney(p *Plan) (*widgets.Dataset, string, error) {
 	sign := sumExpr(p.Metric)
 	limit := p.Limit
 	if p.Breakdown == "month" || p.Breakdown == "week" || p.Breakdown == "day" {
-		limit = 0 // time series: no limit
+		limit = 0
 	}
 	sqlDisplay := fmt.Sprintf("SELECT %s, SUM(%s) FROM tx WHERE 1=1%s GROUP BY %s", dim, sign, strings.TrimPrefix(where, " AND 1=1"), groupCol)
 	q := fmt.Sprintf(`SELECT %s AS bucket, COALESCE(SUM(%s),0) AS total FROM transactions t
@@ -484,7 +445,6 @@ func (s *Service) compileMoney(p *Plan) (*widgets.Dataset, string, error) {
 		ds.Rows = append(ds.Rows, []any{bucket, float64(v)})
 	}
 	if p.Sort == "value_desc" && (p.Breakdown == "category" || p.Breakdown == "merchant") {
-		// already ordered
 	}
 	ds.Meta.Currency = s.currency()
 	ds.Meta.EntityLabel = entityLabel(p)
@@ -501,7 +461,7 @@ func (s *Service) metricWhere(p *Plan) (string, []any) {
 		typeClause = ` AND t.type = 'expense'`
 	case "income":
 		typeClause = ` AND t.type = 'income'`
-	default: // net: income minus spend
+	default:
 		typeClause = ` AND t.type != 'transfer'`
 	}
 	where := ` AND 1=1` + typeClause
@@ -539,7 +499,6 @@ func signFor(metric string) string {
 	}
 }
 
-// sumExpr builds the SQL sum expression per metric (net folds spend+income).
 func sumExpr(metric string) string {
 	switch metric {
 	case "spend":
@@ -563,7 +522,7 @@ func breakdownFor(b string) (dim, groupCol, labelCol string) {
 		return "Category", `t.category_id`, `COALESCE((SELECT name FROM categories WHERE id = t.category_id), 'Uncategorised')`
 	case "account":
 		return "Account", `t.account_id`, `COALESCE((SELECT name FROM accounts WHERE id = t.account_id), 'Unknown')`
-	default: // merchant
+	default:
 		return "Merchant", `COALESCE(NULLIF(t.merchant,''), t.description)`, `COALESCE(NULLIF(t.merchant,''), t.description)`
 	}
 }
@@ -619,10 +578,8 @@ func (s *Service) currency() string {
 	return cc
 }
 
-// compileBalance uses the balance replay per month (doc 11 §5).
 func (s *Service) compileBalance(p *Plan) (*widgets.Dataset, string, error) {
 	if p.Breakdown == "none" {
-		// Current balance for an account or totals.
 		accounts := []string{}
 		if p.EntityKind == "account" && p.EntityID != "" {
 			accounts = append(accounts, p.EntityID)
@@ -669,7 +626,6 @@ func (s *Service) compileBalance(p *Plan) (*widgets.Dataset, string, error) {
 		sqlDisplay := "SELECT SUM(balance) FROM accounts"
 		return ds, sqlDisplay, nil
 	}
-	// Series: month-end balances over the range.
 	from := p.From
 	if len(from) > 7 {
 		from = from[:7]
@@ -774,7 +730,6 @@ func atoi(s string) int {
 	return n
 }
 
-// compileCount counts transactions matching the plan.
 func (s *Service) compileCount(p *Plan) (*widgets.Dataset, string, error) {
 	where, args := s.metricWhere(p)
 	where = strings.Replace(where, "type = 'expense'", "type != ''", 1)
@@ -795,7 +750,6 @@ func (s *Service) compileCount(p *Plan) (*widgets.Dataset, string, error) {
 	return ds, sqlDisplay, nil
 }
 
-// compileList returns recent transaction display rows (doc 03 §5.1).
 func (s *Service) compileList(p *Plan) (*widgets.Dataset, string, error) {
 	limit := p.Limit
 	if limit > 20 {
@@ -843,7 +797,6 @@ func (s *Service) compileList(p *Plan) (*widgets.Dataset, string, error) {
 	return ds, sqlDisplay, nil
 }
 
-// steps builds the reasoning highlights (doc 10 §7, prototype parity).
 func (s *Service) steps(p *Plan, sqlDisplay string, ds *widgets.Dataset) []string {
 	var out []string
 	if p.EntityName != "" {
@@ -880,9 +833,6 @@ func entityKindLabel(kind string) string {
 	return "an entity"
 }
 
-// present selects the presentation (doc 10 §6). The plan rides along so the
-// client can pin the widget with its resolved period (doc 05: pinned widgets
-// store plans; the dashboard re-executes them).
 func (s *Service) present(p *Plan, ds *widgets.Dataset) *widgets.Widget {
 	w := s.presentBody(p, ds)
 	w.ID = "w-" + util.NewID()
@@ -922,7 +872,6 @@ func (s *Service) presentBody(p *Plan, ds *widgets.Dataset) *widgets.Widget {
 	return widgets.Derive(kind, ds, p.Title)
 }
 
-// answer builds the templated sentence (doc 10 §6 — no second LLM call).
 func (s *Service) answer(p *Plan, ds *widgets.Dataset) string {
 	if ds == nil {
 		return "I couldn't compute that."
@@ -991,6 +940,5 @@ func humanMonth(v string) string {
 }
 
 func moneyFmt(minor int64, currency string) string {
-	// Delegate to the shared formatter to avoid duplication.
 	return fmtMoney(minor, currency)
 }

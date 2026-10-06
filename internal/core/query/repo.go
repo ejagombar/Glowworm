@@ -1,4 +1,3 @@
-// Conversation/message persistence (doc 02 §8.2).
 package query
 
 import (
@@ -11,7 +10,6 @@ import (
 	"glowworm/internal/util"
 )
 
-// ConvRepo implements ConversationRepo over SQL.
 type ConvRepo struct{ DB *store.DB }
 
 func (r *ConvRepo) CreateConversation(title string) (*core.Conversation, error) {
@@ -50,10 +48,8 @@ func derefP(s *string) any {
 	return *s
 }
 
-// MessagesPage returns up to limit messages ending just before the cursor
-// "created_at|id" — the newest page when before is nil. Results are ascending
-// (oldest first). The row-value tiebreak keeps pages stable when messages
-// share a created_at second (a user question and its assistant reply do).
+// The (created_at, id) tiebreak keeps pages stable: a question and its reply
+// often share a created_at second.
 func (r *ConvRepo) MessagesPage(conversationID string, before *string, limit int) ([]*core.Message, error) {
 	if limit <= 0 {
 		limit = 20
@@ -88,14 +84,12 @@ func (r *ConvRepo) MessagesPage(conversationID string, before *string, limit int
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	// Reverse DESC → ascending (oldest first) for rendering.
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, nil
 }
 
-// scanMessage scans one message row (shared by Messages and MessagesPage).
 func scanMessage(rows *sql.Rows) (*core.Message, error) {
 	var m core.Message
 	var steps, widget, dataset, plan sql.NullString
@@ -158,7 +152,6 @@ func (r *ConvRepo) Messages(conversationID string) ([]*core.Message, error) {
 		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Text, &steps, &widget, &dataset, &plan, &m.CreatedAt); err != nil {
 			return nil, err
 		}
-		// steps is stored as a JSON array; scan as a string and decode.
 		if steps.Valid && steps.String != "" {
 			var s []string
 			if err := json.Unmarshal([]byte(steps.String), &s); err == nil {

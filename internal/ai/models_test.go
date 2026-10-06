@@ -61,7 +61,6 @@ func TestListModelsUnknownProvider(t *testing.T) {
 }
 
 func TestListModelsOpenAIWithoutKey(t *testing.T) {
-	// No Authorization header is sent when no key is provided (public catalogues).
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -120,8 +119,6 @@ func TestFallbackModels(t *testing.T) {
 }
 
 func TestOpenRouterProviderRoundTrip(t *testing.T) {
-	// ai.New("openrouter") must produce an OpenAI-compatible provider whose
-	// default base is OpenRouter's and which sends attribution headers.
 	var gotPath, gotTitle, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -151,7 +148,6 @@ func TestOpenRouterProviderRoundTrip(t *testing.T) {
 	if !strings.Contains(gotBody, "openai/gpt-4o-mini") {
 		t.Errorf("request body missing model: %q", gotBody)
 	}
-	// Empty base falls back to OpenRouter's default URL.
 	p2, err := New("openrouter", "", "", "k")
 	if err != nil {
 		t.Fatal(err)
@@ -163,13 +159,9 @@ func TestOpenRouterProviderRoundTrip(t *testing.T) {
 	if o.BaseURL != "https://openrouter.ai/api/v1" {
 		t.Errorf("default base = %q", o.BaseURL)
 	}
-	// "Auto" on OpenRouter must default to a vendor-prefixed model — the
-	// OpenAI-only default ("gpt-4o-mini") is not a valid OpenRouter ID and
-	// the API answers 404 for it.
 	if o.Model != "openai/gpt-4o-mini" {
 		t.Errorf("default model = %q, want openai/gpt-4o-mini", o.Model)
 	}
-	// A trailing slash in the endpoint must not produce a double slash.
 	p3, err := New("openrouter", "openai/gpt-4o-mini", srv.URL+"/", "k")
 	if err != nil {
 		t.Fatal(err)

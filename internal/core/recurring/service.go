@@ -1,4 +1,3 @@
-// Package recurring implements automatic recurring/bill detection (doc 08 §6).
 package recurring
 
 import (
@@ -17,19 +16,16 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Service detects recurring series.
 type Service struct {
 	DB    *store.DB
 	Txs   *repos.Transactions
 	Audit *audit.Writer
 }
 
-// ValidationError is user-facing.
 type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
-// cadence windows (doc 08 §6.1).
 var cadenceWindows = []struct {
 	name   string
 	lo, hi float64
@@ -38,14 +34,11 @@ var cadenceWindows = []struct {
 	{"quarterly", 88, 95}, {"annually", 360, 370},
 }
 
-// Detect scans all live transactions and upserts recurring_keys (doc 08 §6.1).
-// Idempotent; member edits drop out on the next sweep.
 func (s *Service) Detect() (int, error) {
 	txs, err := s.Txs.List(repos.ListFilter{Limit: 0})
 	if err != nil {
 		return 0, err
 	}
-	// Exclude linked-transfer legs from series detection (doc 08 §6.1).
 	pool := []*core.Transaction{}
 	for _, t := range txs {
 		if t.TransferID != nil && t.Type == core.TypeTransfer {
@@ -53,7 +46,6 @@ func (s *Service) Detect() (int, error) {
 		}
 		pool = append(pool, t)
 	}
-	// Group by normalised description + amount bucket.
 	type group struct {
 		key   string
 		label string
@@ -70,7 +62,6 @@ func (s *Service) Detect() (int, error) {
 		if t.AmountMinor > 0 {
 			dir = "in"
 		}
-		// Amount bucket: ±1% tolerance via rounding to 1% of magnitude.
 		amount := math.Abs(float64(t.AmountMinor))
 		bucket := int64(math.Round(amount / math.Max(amount*0.01, 100)))
 		key := label + "|" + fmt.Sprint(bucket) + "|" + dir
@@ -112,9 +103,8 @@ func (s *Service) Detect() (int, error) {
 				}
 			}
 			if cadence == "" {
-				continue // irregular (doc 08 §6.1)
+				continue
 			}
-			// Regularity: stdev/mean ≤ 0.2.
 			mean := 0.0
 			for _, g2 := range gaps {
 				mean += g2
@@ -129,7 +119,6 @@ func (s *Service) Detect() (int, error) {
 			if mean > 0 && stdev/mean > 0.2 {
 				continue
 			}
-			// Stable key (doc 02 §6.1).
 			amountBucket := medianAmount(g.txs)
 			h := sha256.Sum256([]byte(g.label + "|" + fmt.Sprint(amountBucket) + "|" + cadence))
 			key := hex.EncodeToString(h[:8])
@@ -155,7 +144,6 @@ func (s *Service) Detect() (int, error) {
 			if err := s.Txs.UpsertRecurringKey(tx, k); err != nil {
 				return err
 			}
-			// Stamp members.
 			for _, t := range g.txs {
 				if _, err := tx.Exec(`UPDATE transactions SET recurring_key = ? WHERE id = ?`, key, t.ID); err != nil {
 					return err
@@ -163,7 +151,6 @@ func (s *Service) Detect() (int, error) {
 			}
 			keysDetected = append(keysDetected, key)
 		}
-		// One audit entry per sweep (doc 08 §6.1).
 		if len(keysDetected) > 0 {
 			if _, err := s.Audit.Write(tx, audit.Input{
 				Actor: core.ActorSystem, Action: "recurring.detected",
@@ -220,8 +207,6 @@ func nextOf(last string, intervalDays int) string {
 	return t.AddDate(0, 0, intervalDays).Format("2006-01-02")
 }
 
-// Series returns the series metadata + member transactions (grouped for
-// transfer series), powering the recurring modal (doc 08 §6.2).
 func (s *Service) Series(key string) (*core.RecurringKey, []*repos.DisplayRow, error) {
 	k, err := s.Txs.RecurringKey(key)
 	if err != nil {
@@ -231,7 +216,6 @@ func (s *Service) Series(key string) (*core.RecurringKey, []*repos.DisplayRow, e
 	if err != nil {
 		return nil, nil, err
 	}
-	// Group transfer legs (prototype recurringRowEl parity).
 	rowsMap := map[string][]*core.Transaction{}
 	var order []string
 	for _, t := range txs {

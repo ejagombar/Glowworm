@@ -14,7 +14,6 @@ import (
 	"glowworm/internal/money"
 )
 
-// ReadCSV parses CSV/TSV (delimiter sniffed) into a table (doc 06 §2).
 func ReadCSV(data []byte) ([][]string, string, error) {
 	delim := sniffDelimiter(data)
 	r := csv.NewReader(bytes.NewReader(data))
@@ -29,36 +28,127 @@ func ReadCSV(data []byte) ([][]string, string, error) {
 		}
 		if err != nil {
 			if len(out) > 0 {
-				break // tolerate a malformed trailing line
+				break
 			}
 			return nil, "", err
 		}
 		out = append(out, rec)
 	}
+	out = trimPreambleRows(out)
 	return out, string(delim), nil
 }
 
-func sniffDelimiter(data []byte) rune {
-	line := data
-	if i := bytes.IndexByte(data, '\n'); i >= 0 {
-		line = data[:i]
+func trimPreambleRows(table [][]string) [][]string {
+	if len(table) < 2 {
+		return table
 	}
-	counts := map[rune]int{}
-	for _, c := range []rune{',', ';', '\t', '|'} {
-		counts[c] = bytes.Count(line, []byte{byte(c)})
+	window := len(table)
+	if window > 10 {
+		window = 10
+	}
+	counts := map[int]int{}
+	maxCells := 0
+	for _, row := range table[:window] {
+		n := nonEmptyCells(row)
+		counts[n]++
+		if n > maxCells {
+			maxCells = n
+		}
+	}
+	target := 0
+	best := 0
+	for n, c := range counts {
+		if n < 2 {
+			continue
+		}
+		if c > best || (c == best && n > target) {
+			target, best = n, c
+		}
+	}
+	if target == 0 {
+		target = maxCells
+	}
+	if target < 2 {
+		return table
+	}
+	skip := 0
+	for skip < len(table)-1 {
+		if nonEmptyCells(table[skip]) >= target {
+			break
+		}
+		skip++
+	}
+	if skip == 0 {
+		return table
+	}
+	return table[skip:]
+}
+
+func nonEmptyCells(row []string) int {
+	n := 0
+	for _, c := range row {
+		if strings.TrimSpace(c) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+func sniffDelimiter(data []byte) rune {
+	const maxLines = 10
+	lines := make([][]byte, 0, maxLines)
+	rest := data
+	for len(rest) > 0 && len(lines) < maxLines {
+		i := bytes.IndexByte(rest, '\n')
+		var line []byte
+		if i < 0 {
+			line = rest
+			rest = nil
+		} else {
+			line = rest[:i]
+			rest = rest[i+1:]
+		}
+		line = bytes.TrimRight(line, "\r")
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ','
 	}
 	best := ','
-	bestN := 0
-	for c, n := range counts {
-		if n > bestN {
-			best, bestN = c, n
+	bestScore := -1
+	for _, c := range []rune{',', ';', '\t', '|'} {
+		modeCount, modeFreq := delimiterMode(lines, byte(c))
+		if modeCount == 0 {
+			continue
+		}
+		score := modeCount * modeFreq
+		if score > bestScore {
+			best, bestScore = c, score
 		}
 	}
 	return best
 }
 
-// ReadXLSX parses an xlsx workbook (doc 06 §2 — v1 priority): returns the
-// sheet names and the selected sheet's table.
+func delimiterMode(lines [][]byte, sep byte) (count, freq int) {
+	counts := map[int]int{}
+	for _, line := range lines {
+		n := bytes.Count(line, []byte{sep})
+		if n == 0 {
+			continue
+		}
+		counts[n]++
+	}
+	for n, f := range counts {
+		if f > freq || (f == freq && n > count) {
+			count, freq = n, f
+		}
+	}
+	return count, freq
+}
+
 func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err error) {
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
@@ -70,7 +160,6 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 		return nil, nil, fmt.Errorf("the workbook has no sheets")
 	}
 	if sheet == "" {
-		// First non-empty sheet.
 		for _, s := range sheets {
 			rows, _ := f.GetRows(s)
 			if len(rows) > 0 {
@@ -96,7 +185,6 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 	return sheets, table, nil
 }
 
-// ReadQIF parses QIF records (doc 06 §2).
 func ReadQIF(data []byte, currency string) ([]Row, error) {
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	var rows []Row
@@ -109,7 +197,7 @@ func ReadQIF(data []byte, currency string) ([]Row, error) {
 			continue
 		}
 		if strings.HasPrefix(ln, "!") {
-			cur = nil // section header; rows are pushed on D
+			cur = nil
 			continue
 		}
 		if len(ln) < 2 {
@@ -126,7 +214,6 @@ func ReadQIF(data []byte, currency string) ([]Row, error) {
 		case 'D':
 			iso, _ := tryDate(val)
 			if iso == "" {
-				// QIF US format m/d/yyyy
 				if t, err := timeParseQIF(val); err == nil {
 					iso = t.Format("2006-01-02")
 				}
@@ -135,7 +222,6 @@ func ReadQIF(data []byte, currency string) ([]Row, error) {
 				return nil, &ParseError{Line: lineNo, Message: fmt.Sprintf("couldn't read the date %q", val)}
 			}
 			if cur.Date != "" {
-				// A new D without a '^' terminator starts a new record.
 				rows = append(rows, *cur)
 				cur = &Row{Line: lineNo, Currency: currency, Raw: map[string]string{}}
 			}
@@ -177,7 +263,6 @@ func timeParseQIF(s string) (t timeT, err error) {
 	return timeT{}, fmt.Errorf("unparseable")
 }
 
-// ReadOFX parses OFX v1/v2 STMTTRN blocks (doc 06 §2).
 var (
 	reTag   = regexp.MustCompile(`<(DTPOSTED|TRNAMT|NAME|PAYEE|MEMO|FITID|TRNTYPE)>([^<\r\n]*)`)
 	reBlock = regexp.MustCompile(`(?s)<STMTTRN>(.*?)</STMTTRN>`)
@@ -234,14 +319,10 @@ func ReadOFX(data []byte, currency string) ([]Row, error) {
 	return rows, nil
 }
 
-// ExtractPDFText pulls the text layer from a PDF (doc 06 §2). Implementations
-// use the embedded extraction helper; scanned PDFs fall to the optional
-// vision path (not built in v1).
 func ExtractPDFText(data []byte) (string, error) {
 	return extractPDFText(data)
 }
 
-// convert helpers shared by parsers
 func atoi(s string) int {
 	n := 0
 	for i := 0; i < len(s); i++ {

@@ -1,10 +1,3 @@
-// Package store owns the database connection, migrations and transaction helper.
-//
-// Migrations follow the golang-migrate file convention (NNNN_name.up.sql /
-// .down.sql) embedded via go:embed, applied in order inside a transaction
-// (doc 01 §2, doc 02 §11). A purpose-built runner is used instead of the
-// golang-migrate library to keep the dependency set minimal and cgo-free
-// (pure-Go SQLite); the file convention and semantics match.
 package store
 
 import (
@@ -23,14 +16,11 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// DB wraps the sql.DB handle.
 type DB struct {
 	*sql.DB
-	Dialect string // "sqlite" | "postgres"
+	Dialect string
 }
 
-// Open opens (and creates, for SQLite) the database, applies pending
-// migrations and returns the handle.
 func Open(dialect, dsn string) (*DB, error) {
 	if dialect == "" {
 		dialect = "sqlite"
@@ -39,8 +29,6 @@ func Open(dialect, dsn string) (*DB, error) {
 	var err error
 	switch dialect {
 	case "sqlite":
-		// busy_timeout + foreign keys are also set via PRAGMA below;
-		// keep DSN plain so file paths are simple.
 		db, err = sql.Open("sqlite", dsn)
 	case "postgres":
 		err = fmt.Errorf("postgres: dsn %q not supported in this build (set GLOWWORM_DB=sqlite)", dsn)
@@ -51,12 +39,13 @@ func Open(dialect, dsn string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// WAL allows concurrent readers; writes serialize via busy_timeout.
-	// A small pool avoids hard deadlocks when a tx-holding goroutine issues
-	// a read on a second connection (it busy-waits instead of hanging).
+	// More than one connection: a goroutine holding a tx that reads via
+	// s.DB (not the tx) would deadlock on a single-connection pool.
 	db.SetMaxOpenConns(4)
 	s := &DB{DB: db, Dialect: dialect}
 	if dialect == "sqlite" {
+		// These run on one pooled connection only; the others do not enforce
+		// foreign keys, so deletes must not rely on ON DELETE CASCADE.
 		for _, pragma := range []string{
 			"PRAGMA journal_mode=WAL",
 			"PRAGMA busy_timeout=5000",
@@ -74,7 +63,6 @@ func Open(dialect, dsn string) (*DB, error) {
 	return s, nil
 }
 
-// WithTx runs fn inside a database transaction; a panic or error rolls back.
 func (s *DB) WithTx(fn func(tx *sql.Tx) error) error {
 	tx, err := s.Begin()
 	if err != nil {
@@ -97,43 +85,26 @@ type mig struct {
 	version int
 	name    string
 	up      string
-	down    string
 }
 
 func loadMigrations() ([]mig, error) {
-	entries, err := fs.Glob(migrationsFS, "migrations/*.sql")
+	entries, err := fs.Glob(migrationsFS, "migrations/*.up.sql")
 	if err != nil {
 		return nil, err
 	}
-	byVersion := map[int]*mig{}
+	out := make([]mig, 0, len(entries))
 	for _, e := range entries {
-		base := strings.TrimSuffix(strings.TrimPrefix(e, "migrations/"), ".sql")
+		base := strings.TrimSuffix(strings.TrimPrefix(e, "migrations/"), ".up.sql")
 		parts := strings.SplitN(base, "_", 2)
 		v, err := strconv.Atoi(parts[0])
-		if err != nil {
+		if err != nil || len(parts) != 2 {
 			return nil, fmt.Errorf("store: bad migration name %q", e)
 		}
-		name := parts[1]
-		name = strings.TrimSuffix(name, ".up")
-		name = strings.TrimSuffix(name, ".down")
 		body, err := migrationsFS.ReadFile(e)
 		if err != nil {
 			return nil, err
 		}
-		m := byVersion[v]
-		if m == nil {
-			m = &mig{version: v, name: name}
-			byVersion[v] = m
-		}
-		if strings.HasSuffix(e, ".up.sql") {
-			m.up = string(body)
-		} else {
-			m.down = string(body)
-		}
-	}
-	out := make([]mig, 0, len(byVersion))
-	for _, m := range byVersion {
-		out = append(out, *m)
+		out = append(out, mig{version: v, name: parts[1], up: string(body)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].version < out[j].version })
 	return out, nil
@@ -151,6 +122,9 @@ func (s *DB) migrate() error {
 	all, err := loadMigrations()
 	if err != nil {
 		return err
+	}
+	if latest := all[len(all)-1].version; current > latest {
+		return fmt.Errorf("store: database schema is version %d but this build only knows up to %d — it was created by a newer or pre-release build; start with a fresh data directory", current, latest)
 	}
 	for _, m := range all {
 		if m.version <= current {

@@ -8,7 +8,6 @@ import (
 
 func TestTrainPredictRoundtrip(t *testing.T) {
 	samples := []Sample{}
-	// Fixture: groceries → food, commuting → transport (10+ examples each).
 	groceries := []string{"tesco express", "tesco stores", "sainsburys local", "asda superstore", "morrisons daily", "aldi"}
 	transport := []string{"transport for london", "uber trip", "tfl travel charge", "national rail", "uber ride", "lime scooter"}
 	for i := 0; i < 8; i++ {
@@ -34,12 +33,10 @@ func TestTrainPredictRoundtrip(t *testing.T) {
 	if len(transportPred) == 0 || transportPred[0].CategoryID != "transport" || transportPred[0].Confidence < 0.75 {
 		t.Errorf("transport prediction = %+v", transportPred)
 	}
-	// Type masking: only transport allowed → renormalised confidence 1.
 	only := m.Predict("tesco express", map[string]bool{"transport": true})
 	if len(only) != 1 || only[0].CategoryID != "transport" || only[0].Confidence != 1 {
 		t.Errorf("masked prediction = %+v", only)
 	}
-	// Round-trip through encode/decode.
 	enc, err := m.Encode()
 	if err != nil {
 		t.Fatal(err)

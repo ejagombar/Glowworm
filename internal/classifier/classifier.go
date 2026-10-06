@@ -1,6 +1,3 @@
-// Package classifier implements the pure-Go local categoriser
-// (doc 07 §5): TF-IDF (unigrams + bigrams) → multinomial logistic
-// regression (softmax over type-masked candidates). No dependencies.
 package classifier
 
 import (
@@ -11,31 +8,26 @@ import (
 	"strings"
 )
 
-// Model is the persisted model (doc 02 §6.2 payload JSON).
 type Model struct {
 	Version       int            `json:"version"`
-	Vocab         map[string]int `json:"vocab"`      // term → feature index
-	IDF           []float64      `json:"idf"`        // per feature
-	Weights       [][]float64    `json:"weights"`    // class → feature
-	Bias          []float64      `json:"bias"`       // per class
-	Categories    []string       `json:"categories"` // class index → category id
+	Vocab         map[string]int `json:"vocab"`
+	IDF           []float64      `json:"idf"`
+	Weights       [][]float64    `json:"weights"`
+	Bias          []float64      `json:"bias"`
+	Categories    []string       `json:"categories"`
 	TrainedAt     string         `json:"trained_at"`
 	TrainingCount int            `json:"training_count"`
 }
 
-// Sample is one training example.
 type Sample struct {
 	Text       string
 	CategoryID string
 }
 
-// Train builds a model from samples (doc 07 §5.2: mini-batch SGD + Adam,
-// L2 λ=1e-4, ≤30 epochs). minDF=2, vocab cap 20000.
 func Train(samples []Sample, version int, trainedAt string) (*Model, error) {
 	if len(samples) == 0 {
 		return nil, fmt.Errorf("classifier: no training data")
 	}
-	// Document frequencies.
 	df := map[string]int{}
 	docs := make([]map[string]int, len(samples))
 	for i, s := range samples {
@@ -48,7 +40,6 @@ func Train(samples []Sample, version int, trainedAt string) (*Model, error) {
 			df[tok]++
 		}
 	}
-	// Vocab: df ≥ 2, top 20000 by df.
 	type term struct {
 		tok string
 		df  int
@@ -67,7 +58,6 @@ func Train(samples []Sample, version int, trainedAt string) (*Model, error) {
 	for i, t := range terms {
 		vocab[t.tok] = i
 	}
-	// Classes.
 	classIdx := map[string]int{}
 	classes := []string{}
 	for _, s := range samples {
@@ -81,27 +71,23 @@ func Train(samples []Sample, version int, trainedAt string) (*Model, error) {
 	if V == 0 || K == 0 {
 		return nil, fmt.Errorf("classifier: empty features or classes")
 	}
-	// IDF.
 	idf := make([]float64, V)
 	N := float64(len(samples))
 	for tok, idx := range vocab {
 		idf[idx] = math.Log((N + 1) / (float64(df[tok]) + 1))
 	}
-	// Feature vectors (sparse, L2-normalised sublinear TF-IDF).
 	feats := make([][]feature, len(samples))
 	labels := make([]int, len(samples))
 	for i, s := range samples {
 		feats[i] = featurizeSparse(docs[i], vocab, idf)
 		labels[i] = classIdx[s.CategoryID]
 	}
-	// Weights.
 	W := make([][]float64, K)
 	for k := range W {
 		W[k] = make([]float64, V)
 	}
 	bias := make([]float64, K)
 
-	// Adam state.
 	mW := make([][]float64, K)
 	vW := make([][]float64, K)
 	for k := range W {
@@ -178,7 +164,6 @@ type feature struct {
 	v float64
 }
 
-// nz returns the non-zero entries of a dense gradient slice.
 func nz(vec []float64) []feature {
 	out := []feature{}
 	for i, v := range vec {
@@ -189,7 +174,6 @@ func nz(vec []float64) []feature {
 	return out
 }
 
-// featurizeSparse builds a sublinear TF-IDF L2-normalised sparse vector.
 func featurizeSparse(tf map[string]int, vocab map[string]int, idf []float64) []feature {
 	pairs := make([]feature, 0, len(tf))
 	norm := 0.0
@@ -240,21 +224,17 @@ func softmax(x []feature, W [][]float64, bias []float64) []float64 {
 	return out
 }
 
-// Prediction is one scored candidate.
 type Prediction struct {
 	CategoryID string
 	Confidence float64
 }
 
-// Predict scores the text; only categories in `allowed` are considered
-// (type masking, doc 07 §1). Predictions are renormalised over candidates.
 func (m *Model) Predict(text string, allowed map[string]bool) []Prediction {
 	tf := map[string]int{}
 	for _, tok := range Tokenize(text) {
 		tf[tok]++
 	}
 	x := featurizeSparse(tf, m.Vocab, m.IDF)
-	// Candidate subset.
 	candIdx := []int{}
 	for k, c := range m.Categories {
 		if allowed == nil || allowed[c] {
@@ -264,7 +244,6 @@ func (m *Model) Predict(text string, allowed map[string]bool) []Prediction {
 	if len(candIdx) == 0 {
 		return nil
 	}
-	// Softmax restricted to candidates: compute full logits then renormalise.
 	all := softmax(x, m.Weights, m.Bias)
 	var sum float64
 	for _, k := range candIdx {
@@ -281,9 +260,7 @@ func (m *Model) Predict(text string, allowed map[string]bool) []Prediction {
 	return out
 }
 
-// Tokenize splits text into unigrams + bigrams over normalised text.
 func Tokenize(text string) []string {
-	// normalize.Text is applied by callers; here we just split + bigram.
 	fields := strings.Fields(strings.ToLower(text))
 	out := make([]string, 0, len(fields)*2)
 	out = append(out, fields...)
@@ -293,7 +270,6 @@ func Tokenize(text string) []string {
 	return out
 }
 
-// Encode serialises the model for the classifier_models payload column.
 func (m *Model) Encode() (string, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -302,7 +278,6 @@ func (m *Model) Encode() (string, error) {
 	return string(b), nil
 }
 
-// DecodeModel parses a stored payload.
 func DecodeModel(payload string) (*Model, error) {
 	var m Model
 	if err := json.Unmarshal([]byte(payload), &m); err != nil {
@@ -312,7 +287,6 @@ func DecodeModel(payload string) (*Model, error) {
 }
 
 func seedShuffle(idx []int) {
-	// Deterministic LCG shuffle (reproducible models, doc 07 §5.2).
 	s := uint32(12345)
 	for i := len(idx) - 1; i > 0; i-- {
 		s = s*1664525 + 1013904223

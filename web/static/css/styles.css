@@ -1,29 +1,19 @@
-/* ============================================================
-   Glowworm — application stylesheet
-   A restrained, geometric fintech interface. No framework.
-   Sharp corners, hairline rules, dense but readable.
-   ============================================================ */
-
 :root {
   color-scheme: light;
 
-  /* Surfaces */
   --bg: #eef0f3;
   --surface: #ffffff;
   --surface-2: #f7f8fa;
   --surface-3: #eef0f3;
 
-  /* Text */
   --text: #14171c;
   --text-2: #39404a;
   --muted: #5c6672;
   --muted-2: #8a939e;
 
-  /* Lines */
   --line: #d8dce2;
   --line-2: #c4cad2;
 
-  /* Brand */
   --primary: #0b5d43;
   --primary-600: #094d37;
   --primary-soft: #e6f0eb;
@@ -31,7 +21,6 @@
   --primary-tint-line: #b7d5c9;
   --accent: #2fbf7f;
 
-  /* Semantic */
   --income: #0e7a4d;
   --expense: #b5343f;
   --transfer: #3f4aa8;
@@ -53,11 +42,9 @@
   --toast-bg: #14171c;
   --toast-fg: #ffffff;
 
-  /* Elevation (used only for floating surfaces) */
   --shadow-2: 0 6px 20px rgba(15, 23, 34, 0.14);
   --shadow-3: 0 24px 56px rgba(15, 23, 34, 0.24);
 
-  /* Geometry — deliberately tight */
   --r-xs: 2px;
   --r: 3px;
   --r-lg: 4px;
@@ -68,7 +55,6 @@
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* Dark theme */
 [data-theme="dark"] {
   color-scheme: dark;
 
@@ -155,7 +141,6 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .small { font-size: 12px; }
 .num, .stat-value, .tx-amount, .cat-amount, .num-value { font-variant-numeric: tabular-nums; }
 
-/* Ledger numerals — mono accents for a financial-terminal feel */
 .stat-value, .num-value, .tx-amount, .cat-amount,
 .tx-table .num, .table-widget td.num { font-family: var(--mono); letter-spacing: -0.01em; }
 
@@ -172,11 +157,9 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   outline-offset: 1px;
 }
 
-/* ---------- Layout ---------- */
 .app { min-height: 100%; }
 .main { display: flex; flex-direction: column; min-width: 0; }
 
-/* ---------- Masthead (single row: brand + tabs + period + actions) ---------- */
 .masthead {
   position: sticky; top: 0; z-index: 40;
   display: flex; align-items: center;
@@ -267,7 +250,6 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .masthead-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: 12px; align-self: stretch; }
 .masthead-actions .icon-btn.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 
-/* Privacy — blur monetary text, not chart shapes or individual transactions */
 body.privacy .stat-value,
 body.privacy .account-balance,
 body.privacy .cat-amount,
@@ -278,7 +260,6 @@ body.privacy .stat-trend,
 body.privacy .account-row p,
 body.privacy .settings-account-balance,
 body.privacy .table-widget td.num { filter: blur(5px); }
-/* Exempt non-monetary stats (reconciliation status, counts) from blurring */
 body.privacy .stat-value.no-blur,
 body.privacy .stat-trend.no-blur { filter: none; }
 body.privacy .chart-y-label,
@@ -303,7 +284,6 @@ body.privacy .pie-total { filter: blur(4px); }
 }
 .avatar .icon { width: 16px; height: 16px; }
 
-/* ---------- Tab navigation (inline in the masthead) ---------- */
 .tabnav {
   display: flex; align-items: stretch; gap: 2px;
   flex: 1; min-width: 0;
@@ -336,7 +316,6 @@ body.privacy .pie-total { filter: blur(4px); }
 .tabnav-item.tabnav-icon { height: 100%; padding: 0 8px; }
 .tabnav-item.tabnav-icon .icon { width: 16px; height: 16px; }
 
-/* ---------- Buttons ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   border: 1px solid transparent; border-radius: 3px;
@@ -357,7 +336,6 @@ body.privacy .pie-total { filter: blur(4px); }
 .link { border: none; background: none; color: var(--primary); font-weight: 500; padding: 0; }
 .link:hover { text-decoration: underline; }
 
-/* ---------- Content ---------- */
 .content { padding: 20px 22px 40px; width: 100%; }
 .view { display: none; animation: fade 0.16s ease; }
 .view.active { display: block; }
@@ -372,7 +350,6 @@ body.privacy .pie-total { filter: blur(4px); }
 .view-head .sub { color: var(--muted); margin-top: 2px; font-size: 12.5px; }
 .view-head > .btn { margin-left: auto; }
 
-/* Dashboard query bar */
 .query-head { align-items: center; }
 .query-wrap { flex: 1; min-width: 0; }
 .query-bar {
@@ -397,7 +374,6 @@ body.privacy .pie-total { filter: blur(4px); }
 .query-submit { height: 32px; padding: 0 12px; }
 .query-submit .icon { width: 15px; height: 15px; }
 
-/* Queries page */
 #view-queries.active {
   display: flex;
   flex-direction: column;
@@ -522,7 +498,6 @@ body.privacy .pie-total { filter: blur(4px); }
 }
 .section-head-actions { display: flex; align-items: center; gap: 10px; }
 
-/* ---------- Stat cards ---------- */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -562,7 +537,6 @@ body.privacy .pie-total { filter: blur(4px); }
 .stat-trend.up { color: var(--income); }
 .stat-trend.down { color: var(--expense); }
 
-/* Dashboard overview hero */
 .overview {
   display: grid;
   grid-template-columns: 300px 1fr;
@@ -579,7 +553,6 @@ body.privacy .pie-total { filter: blur(4px); }
 }
 .overview-chart .chart-host svg { width: 100%; height: auto; }
 
-/* ---------- Chips ---------- */
 .chip {
   border: 1px solid var(--line-2); background: var(--surface);
   border-radius: 3px; padding: 4px 11px; font-size: 12px;
@@ -589,7 +562,6 @@ body.privacy .pie-total { filter: blur(4px); }
 .chip:hover { border-color: var(--muted-2); color: var(--text); }
 .chip.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-600); }
 
-/* ---------- Widgets ---------- */
 .widgets-grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
@@ -671,7 +643,6 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .chart-host svg { display: block; width: 100%; height: auto; }
 .chart-tooltip { font-size: 10.5px; fill: var(--muted); font-family: var(--font); }
 
-/* Line-chart hover popup (nearest point to the pointer) */
 .chart-hover-tip {
   position: fixed; z-index: 1200; pointer-events: none;
   background: var(--surface); color: var(--text);
@@ -680,7 +651,6 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
   padding: 7px 10px; font-size: 12px; line-height: 1.35;
   white-space: nowrap; font-family: var(--font);
 }
-/* Caret pointing at the pin the popup represents */
 .chart-hover-tip::after {
   content: ""; position: absolute; left: 50%; bottom: -5px; margin-left: -5px;
   border-left: 5px solid transparent; border-right: 5px solid transparent;
@@ -697,7 +667,6 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .chart-hover-tip .chart-tip-value { font-weight: 600; font-variant-numeric: tabular-nums; }
 body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 
-/* History pane skeleton (shown while a mode/filter fragment loads) */
 .pane-skeleton { display: flex; flex-direction: column; gap: 12px; }
 .sk-block {
   border: 1px solid var(--line); border-radius: var(--r);
@@ -751,7 +720,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   border: 1px solid var(--line); border-radius: 2px; padding: 1px 5px; color: var(--text-2);
 }
 
-/* ---------- Panels & lists ---------- */
 .panel {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r);
@@ -795,7 +763,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .badge-btn:hover { filter: brightness(0.96); }
 .category-dot { width: 8px; height: 8px; border-radius: 1px; flex: none; display: inline-block; }
 
-/* ---------- Filters ---------- */
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; }
 .field {
   border: 1px solid var(--line-2); border-radius: 3px;
@@ -815,8 +782,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .key-row .field { flex: 1; min-width: 0; }
 .key-row .btn { flex: none; }
 
-/* Settings > Account: stacked actions with breathing room (name, password,
-   sign-out are separate actions — not a cramped single row) */
 .account-actions {
   display: flex; flex-direction: column; align-items: stretch;
   gap: 10px; margin: 12px 0 4px; max-width: 300px;
@@ -845,7 +810,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .field-unit .field:last-child { border-radius: 0 3px 3px 0; }
 .field-unit .field-date { flex: 0 0 150px; }
 
-/* ---------- Table ---------- */
 .table-panel { padding: 0; overflow: hidden; }
 .tx-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tx-table th {
@@ -863,7 +827,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .tx-table .row-actions { opacity: 0; transition: opacity 0.12s; }
 .tx-table tr:hover .row-actions { opacity: 1; }
 
-/* Inline transaction editor */
 .tx-table tr.editing td { background: var(--primary-soft); }
 .tx-table tr.editing .row-actions { opacity: 1; }
 .tx-editor-row td { padding: 0 14px 12px !important; background: var(--surface-2); border-bottom: 1px solid var(--line); }
@@ -887,7 +850,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .tx-editor-actions { display: flex; gap: 6px; margin-left: auto; }
 .tx-table tr.linked .cell-merchant { font-weight: 500; }
 
-/* ---------- Categories ---------- */
 .category-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -921,7 +883,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .category-card .cat-amount { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .category-card .cat-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
-/* ---------- Accounts ---------- */
 .stat-card.clickable { cursor: pointer; }
 .stat-card.clickable:hover { background: var(--surface-2); }
 .stat-card.clickable.selected { outline: 1px solid var(--primary); outline-offset: -1px; }
@@ -949,7 +910,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .account-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
 .account-tx-panel { margin-top: 0; }
 
-/* ---------- Import ---------- */
 .dropzone {
   border: 1px dashed var(--line-2); border-radius: var(--r);
   background: var(--surface); padding: 30px 22px; text-align: center;
@@ -985,8 +945,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 11.5px;
 }
 
-/* ---------- Timeline ---------- */
-/* ---------- History: mode segmented control + timeline date picker ---------- */
 .segmented {
   display: inline-flex; align-items: center;
   border: 1px solid var(--line-2); border-radius: 4px;
@@ -1007,7 +965,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   box-shadow: 0 1px 3px rgba(15, 23, 34, 0.1);
 }
 
-/* History page mode switcher — bold, full-width, equal halves */
 .history-mode {
   display: grid; grid-template-columns: 1fr 1fr;
   width: 100%; margin-bottom: 14px;
@@ -1027,7 +984,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   background: var(--surface-2); border: 1px solid var(--line);
   border-radius: 20px; padding: 3px 9px; white-space: nowrap;
 }
-/* Timeline slider — custom styled, scales to any date range */
 .timeline-slider-wrap { padding: 14px 15px 8px; }
 .timeline-slider-wrap input[type="range"] {
   -webkit-appearance: none; appearance: none;
@@ -1075,7 +1031,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .timeline-account .account-balance { font-family: var(--mono); font-weight: 600; font-size: 13.5px; }
 .timeline-account .account-balance.neg { color: var(--expense); }
 
-/* ---------- History ---------- */
 .history-list {
   display: flex; flex-direction: column;
   gap: 1px; background: var(--line); border: 1px solid var(--line);
@@ -1109,7 +1064,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .history-restore { flex: none; align-self: center; margin-left: 2px; }
 .history-mode { margin-bottom: 12px; }
 
-/* ---------- Settings ---------- */
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
@@ -1173,7 +1127,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 .modal-foot .spacer { flex: 1; }
 
-/* ---------- Switch (rectangular) ---------- */
 .switch-label { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
 .switch-label input { display: none; }
 .switch {
@@ -1187,7 +1140,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .switch-label input:checked + .switch { background: var(--primary); }
 .switch-label input:checked + .switch::after { transform: translateX(16px); }
 
-/* ---------- Modal (wizard) ---------- */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(15, 23, 34, 0.5);
@@ -1257,7 +1209,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .wizard-footer { display: flex; align-items: center; gap: 8px; margin-top: 20px; }
 .wizard-footer .spacer { flex: 1; }
 
-/* ---------- Drawer ---------- */
 .drawer-backdrop {
   position: fixed; inset: 0; z-index: 55;
   background: rgba(15, 23, 34, 0.4); opacity: 0; transition: opacity 0.2s;
@@ -1278,7 +1229,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .drawer-body { padding: 16px 18px; flex: 1; overflow-y: auto; }
 .drawer-foot { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 9px; }
 
-/* ---------- Toast ---------- */
 .toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
   z-index: 80; background: var(--toast-bg); color: var(--toast-fg); border-radius: 3px;
@@ -1288,7 +1238,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .toast .icon { color: var(--accent); width: 14px; height: 14px; }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
-/* ---------- Responsive ---------- */
 @media (max-width: 1100px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .overview { grid-template-columns: 1fr; }
@@ -1302,7 +1251,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 @media (max-width: 760px) {
   .masthead { padding: 0 10px; }
-  .brand-name { display: none; }
+  .masthead .brand-name { display: none; }
   .period-select { max-width: 118px; }
   .tabnav-item { padding: 0 9px; }
   .content { padding: 16px 14px 36px; }
@@ -1313,18 +1262,13 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   .tx-table:not(.account-view) th:nth-child(4), .tx-table:not(.account-view) td:nth-child(4) { display: none; }
 }
 
-/* ============================================================
-   Glowworm mascot & AI chat
-   ============================================================ */
 .gw { width: 26px; height: 26px; display: block; }
 
 .brand-mark.lg .gw { width: 26px; height: 26px; }
 
-/* Dashboard shell + docked chat */
 .dash-shell.docked { display: flex; gap: 14px; align-items: flex-start; }
 .dash-shell.docked .dash-main { flex: 1; min-width: 0; }
 
-/* Chat panel */
 .chat-panel {
   display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--line);
@@ -1373,9 +1317,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   scroll-behavior: smooth;
 }
 
-/* Chat scrollbar — hidden; the panel auto-scrolls to the latest message,
-   and wheel/trackpad scrolling still works. Guarantees nothing touches
-   the message bubbles in any browser (Firefox included). */
 .chat-messages {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -1421,7 +1362,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .msg-reason[open] summary::before { transform: rotate(90deg); }
 .msg-reason .reason-steps { margin-top: 7px; display: flex; flex-direction: column; gap: 5px; }
 
-/* Widgets inside the chat */
 .chat-panel .widget {
   border: 1px solid var(--line); border-radius: 3px;
   padding: 11px 13px; box-shadow: none; margin: 0;
@@ -1444,7 +1384,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .chat-send { width: 38px; height: 38px; padding: 0; border-radius: 3px; flex: none; }
 .chat-send .icon { width: 15px; height: 15px; }
 
-/* Glowworm loader: slides in, then wriggles in place */
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
@@ -1462,19 +1401,16 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   display: block;
 }
 
-/* Slide in from the left, head first */
 .glow-worm {
   animation: glow-crawl 0.9s cubic-bezier(0.22, 0.85, 0.35, 1) both;
 }
 
-/* Gentle whole-body rock while it waits */
 .glow-body {
   animation: glow-rock 0.5s ease-in-out infinite alternate;
   transform-box: view-box;
   transform-origin: 50% 61%;
 }
 
-/* Each segment bumps up and down, wave travelling head to tail */
 .glow-worm .seg,
 .glow-worm .glow-head {
   animation: glow-wriggle 0.42s ease-in-out infinite alternate;
@@ -1502,7 +1438,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   to   { transform: translateY(2.4px) scaleY(0.96); }
 }
 
-/* Message entrance & worm exit — kept deliberately short */
 .msg.msg-in { animation: msg-in 0.22s ease-out both; }
 .msg.msg-in .widget { animation: msg-in 0.28s ease-out 0.1s both; }
 .glowworm-loader.worm-out { animation: worm-out 0.3s ease-in forwards; }
@@ -1529,25 +1464,18 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   }
 }
 
-/* Chat responsiveness */
 @media (max-width: 760px) {
   .chat-panel.floating { top: var(--masthead-h); width: 100vw; border-radius: 0; }
   .dash-shell.docked { flex-direction: column; }
   .chat-panel.docked { position: static; width: 100%; height: auto; max-height: 72vh; }
 }
 
-/* Chat control active states */
 .chat-actions .icon-btn.active {
   border-color: var(--primary);
   color: var(--primary);
   background: var(--primary-soft);
 }
 
-/* ============================================================
-   ===== v1 additions (docs/design/04 §3.1) =====
-   Only documented additions: self-hosted fonts, import-review UI,
-   transfer counterpart selector, needs-review badge.
-   ============================================================ */
 @font-face {
   font-family: "Inter";
   font-style: normal;
@@ -1566,7 +1494,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 .badge-needsreview { background: var(--bill-soft); color: var(--bill); }
 .badge-stale { background: var(--surface-3); color: var(--muted); }
-/* Collapsed audit groups (doc 04 §5.7) */
 .history-group { background: var(--surface); border: 1px solid var(--line); border-radius: 2px; }
 .history-group > summary {
   cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
@@ -1578,17 +1505,44 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .history-group[open] > summary::before { transform: rotate(90deg); }
 .history-group .history-item { background: var(--surface-2); }
 .history-group .history-item .history-main { opacity: 0.75; }
-/* Login page (doc 04 §5.9) */
+.progress-bar { position: relative; width: 100%; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.progress-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--primary); transition: width 150ms linear; }
+
+.info-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font-size: 11px; font-weight: 600;
+  margin-left: 6px; cursor: pointer; line-height: 1;
+}
+.info-btn:hover { color: var(--text); border-color: var(--text); }
+.info-popover {
+  margin-top: 8px; padding: 12px; border: 1px solid var(--line);
+  background: var(--surface); border-radius: 4px; box-shadow: var(--shadow-2);
+}
+.info-popover p { margin: 4px 0 8px; font-size: 12.5px; }
+.info-popover code { font-family: ui-monospace, monospace; background: var(--line); padding: 1px 4px; border-radius: 3px; }
+.date-format-list { list-style: none; padding: 0; margin: 6px 0 0; display: grid; grid-template-columns: 1fr; gap: 4px; }
+.date-format-list button { font-family: ui-monospace, monospace; background: none; border: 1px dashed var(--line); border-radius: 3px; padding: 2px 6px; cursor: pointer; margin-right: 6px; }
+.date-format-list button:hover { border-color: var(--primary); color: var(--primary); }
+.date-preview { margin-top: 6px; font-size: 12.5px; min-height: 16px; }
+.date-preview-ok { color: var(--primary); }
+.date-preview-fail { color: var(--expense); }
+
+.ai-progress { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 4px; }
+.ai-progress-head { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ai-progress-steps { list-style: none; padding: 0; margin: 10px 0 6px; display: flex; flex-direction: column; gap: 4px; }
+.ai-progress-steps li { color: var(--muted); font-size: 13px; padding-left: 18px; position: relative; }
+.ai-progress-steps li::before { content: "·"; position: absolute; left: 6px; }
+.ai-progress-steps li.active { color: var(--text); font-weight: 500; }
+.ai-progress-steps li.active::before { content: "▸"; color: var(--primary); }
 .login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .login-card { width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 26px 26px 22px; box-shadow: var(--shadow-2); }
 .login-card .brand { justify-content: center; display: flex; margin-bottom: 6px; }
 .login-card h1 { text-align: center; font-size: 16px; margin: 8px 0 16px; }
 .login-card .field { width: 100%; margin-bottom: 10px; }
 .login-error { color: var(--expense); font-size: 12.5px; margin: 0 0 10px; }
-/* Transfer counterpart selector row (doc 04 §5.2.4) */
 .tx-editor .tx-field select.field { min-width: 200px; }
-/* v1 additions: standalone pages (login) drop the content padding */
-/* v1 additions: audit entry action menu (popover, replaces native prompt) */
 .audit-menu {
   position: fixed; z-index: 60; min-width: 300px; max-width: 340px;
   background: var(--panel-bg, #fff); border: 1px solid var(--border);
@@ -1604,36 +1558,23 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .audit-menu-item .audit-menu-desc { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
 .audit-menu-item.danger .audit-menu-label { color: var(--red, #c0392b); }
 
-/* v1 additions: query error text (assistant error results render red) */
 .msg-error { color: var(--danger); font-weight: 500; }
-/* v1 additions: when the history sidebar is collapsed, the floating expand
-   button sits over the message area — reserve space for it. */
 .queries-sidebar.collapsed ~ .queries-main .queries-messages { padding-top: 46px; }
-/* v1 additions: chart hosts need an intrinsic height for client-side
-   drawing (redrawChartHost bails below 80px — hosts were 0px tall). */
 .overview-chart .chart-host { height: 240px; }
 .queries-messages .chart-host { height: 260px; }
 .msg-error .msg-text, .msg-text.msg-error { color: var(--danger); }
-/* v1 additions: history page balance-over-time chart needs a height */
 #timelineChart { height: 240px; }
 
-/* ---------- Agent-era chat fixes ---------- */
-/* Chat message widget cards are auto-height (no grid row spans like the
-   dashboard), so the flex:1 chain in .widget-body/.chart-host collapses to
-   0px and charts never draw. Give the bodies intrinsic sizes here. */
 .queries-messages .widget-body { flex: none; min-height: 0; overflow: visible; }
 .queries-messages .widget .chart-host { flex: none; min-height: 260px; height: 260px; }
 .queries-messages .widget .chart-host svg { max-height: 360px; }
 .queries-messages .widget .table-widget { flex: none; min-height: 0; overflow: auto; max-height: 360px; }
 
-/* Assistant text: agent answers are multi-line; render line breaks. */
 .msg-text { white-space: pre-wrap; overflow-wrap: break-word; }
 
-/* Widget settings drawer: pin checkbox row. */
 .w-drawer-pin { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; user-select: none; }
 .w-drawer-pin input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
 
-/* History paging: loading row prepended while older messages fetch. */
 .history-loading {
   align-self: center;
   font-size: 11px; color: var(--muted);
@@ -1642,3 +1583,119 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   border-radius: 3px;
   background: var(--surface);
 }
+
+#view-import.import-active .import-idle { display: none; }
+.schema-card .schema-account {
+  flex: none; font-size: 11.5px; font-weight: 500; color: var(--text-2);
+  background: var(--surface-3); border-radius: var(--r-xs); padding: 2px 7px;
+  max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ai-review-banner {
+  border: 1px solid var(--line); border-left: 3px solid var(--transfer);
+  background: var(--transfer-soft); border-radius: var(--r);
+  padding: 9px 12px; margin: 0 0 12px; font-size: 12.5px; color: var(--text-2);
+}
+.ai-review-banner strong { color: var(--text); }
+#mappingRows tr.mapping-changed td { background: var(--transfer-soft); }
+#mappingRows .badge { margin-left: 8px; }
+
+.import-review { padding: 16px 18px; }
+.import-review-head { margin-bottom: 12px; }
+.import-review-head .category-form-title { margin-bottom: 2px; }
+.import-review-head p { margin: 0; font-size: 12.5px; }
+.cat-pipeline {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+}
+.cat-pipeline li {
+  display: flex; align-items: flex-start; gap: 10px; min-width: 0;
+  padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--surface-2); font-size: 13px;
+  transition: background 0.14s, border-color 0.14s;
+}
+.cat-pipeline li > div { min-width: 0; }
+.cat-pipeline li strong { display: block; font-weight: 600; }
+.cat-pipeline .step-note { display: block; color: var(--muted); font-size: 12px; }
+.cat-pipeline li[data-state="active"] { border-color: var(--primary-tint-line); background: var(--primary-soft); }
+.cat-pipeline li[data-state="done"] .step-num { background: var(--primary); color: var(--on-primary); }
+.cat-pipeline li[data-state="skipped"] { opacity: 0.7; }
+.cat-pipeline li[data-state="failed"] .step-num { background: var(--danger-soft); color: var(--danger); }
+.import-review .progress-bar { margin-top: 10px; }
+
+.review-cols {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px; margin-top: 16px; align-items: start;
+}
+.review-col { min-width: 0; }
+.review-col-head {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 0 2px 7px; margin-bottom: 8px; border-bottom: 2px solid var(--line);
+}
+.review-col-todo .review-col-head { border-bottom-color: var(--bill); }
+.review-col-done .review-col-head { border-bottom-color: var(--primary); }
+.review-col-head h4 { margin: 0; font-size: 13px; font-weight: 600; }
+.review-col-head .count { color: var(--muted); font-size: 12px; }
+.review-col-head .btn { margin-left: auto; align-self: center; }
+.review-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 62vh; overflow-y: auto; padding-right: 2px;
+}
+.review-empty {
+  color: var(--muted); font-size: 12.5px; text-align: center;
+  padding: 18px 12px; border: 1px dashed var(--line-2); border-radius: var(--r);
+}
+.review-group {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
+  padding: 9px 11px;
+}
+.review-group[data-state="pending"] { background: var(--surface-2); }
+.review-col-todo .review-group[data-state="review"] { border-left: 3px solid var(--bill); }
+.review-group-main { min-width: 0; }
+.review-group-desc { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-group-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-group-cat { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-group-cat .field.select { flex: 1 1 170px; min-width: 0; max-width: 260px; }
+.review-checking, .review-note { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.review-checking .spinner { width: 11px; height: 11px; }
+.review-suggest {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--transfer);
+  background: var(--transfer-soft); border: 1px dashed var(--transfer);
+  border-radius: var(--r); padding: 4px 8px;
+}
+.review-suggest:hover { border-style: solid; }
+.review-suggest .icon { width: 12px; height: 12px; }
+.review-group-rows { grid-column: 1 / -1; font-size: 12px; }
+.review-group-rows summary { cursor: pointer; color: var(--muted); width: max-content; }
+.review-group-rows table { width: 100%; margin-top: 4px; border-collapse: collapse; }
+.review-group-rows td { padding: 3px 0; border-top: 1px solid var(--line); color: var(--text-2); }
+.review-group-rows td.num { text-align: right; }
+.review-dups { margin-top: 14px; font-size: 13px; }
+.review-dups summary { cursor: pointer; color: var(--muted); }
+.review-dups .tx-table { margin-top: 6px; }
+.review-footer {
+  display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.review-footer .field-row { margin: 0; min-width: 200px; }
+.review-footer .review-schema-name { min-width: 240px; }
+.review-footer .spacer { flex: 1; }
+@media (max-width: 900px) {
+  .review-cols, .cat-pipeline { grid-template-columns: 1fr; }
+  .review-list { max-height: none; }
+}
+
+.settings-accounts-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.deleted-accounts { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.deleted-accounts h3 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.deleted-accounts > .muted { margin: 0 0 10px; font-size: 12px; }
+.deleted-accounts-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.deleted-accounts-list li {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 12px; border: 1px dashed var(--line-2); border-radius: var(--r); background: var(--surface-2);
+}
+.deleted-account-main { flex: 1; min-width: 180px; }
+.deleted-account-main .settings-account-name { color: var(--text-2); }
+.btn.danger-text { color: var(--danger); }
+.btn.danger-text:hover { border-color: var(--danger); }

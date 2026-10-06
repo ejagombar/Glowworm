@@ -17,8 +17,6 @@ func timeParse(layout, value string) (time.Time, error) {
 
 type timeT = time.Time
 
-// extractPDFText extracts the text layer with the ledongthuc/pdf reader
-// (pure Go). Requires word-by-word iteration to preserve column spacing.
 func extractPDFText(data []byte) (string, error) {
 	pdfReader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -45,7 +43,6 @@ func extractPDFText(data []byte) (string, error) {
 	return out, nil
 }
 
-// extractPageLines renders one page's words grouped into text lines.
 func extractPageLines(p pdf.Page) (string, error) {
 	rows, err := p.GetTextByRow()
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 	"glowworm/internal/util"
 )
 
-// Accounts is the accounts + valuations repo (doc 02 §3).
 type Accounts struct{ DB *store.DB }
 
 const accountCols = `id, name, type, color, currency, opening_balance_minor, COALESCE(opening_balance_date,''),
@@ -35,7 +34,6 @@ func scanAccount(sc Scanner) (*core.Account, error) {
 	return &a, nil
 }
 
-// Last4 masks an identifier to its last 4 digits (doc 02 §3.1).
 func Last4(s string) string {
 	digits := strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
@@ -49,7 +47,6 @@ func Last4(s string) string {
 	return digits[len(digits)-4:]
 }
 
-// List returns live accounts ordered by creation.
 func (r *Accounts) List() ([]*core.Account, error) {
 	rows, err := r.DB.Query(`SELECT ` + accountCols + ` FROM accounts WHERE deleted_at IS NULL ORDER BY created_at ASC, id ASC`)
 	if err != nil {
@@ -67,19 +64,16 @@ func (r *Accounts) List() ([]*core.Account, error) {
 	return out, rows.Err()
 }
 
-// Get returns one live account (full identifiers — edit modal only, doc 03 §4).
 func (r *Accounts) Get(id string) (*core.Account, error) {
 	return scanAccount(r.DB.QueryRow(`SELECT `+accountCols+` FROM accounts WHERE id = ? AND deleted_at IS NULL`, id))
 }
 
-// NextColor assigns the palette colour cycling by creation order (doc 02 §3.1).
 func (r *Accounts) NextColor() string {
 	var n int
 	_ = r.DB.QueryRow(`SELECT COUNT(*) FROM accounts WHERE deleted_at IS NULL`).Scan(&n)
 	return core.Palette[n%len(core.Palette)]
 }
 
-// Create inserts the account (tx may be nil).
 func (r *Accounts) Create(tx *sql.Tx, a *core.Account) error {
 	a.ID = util.NewID()
 	a.CreatedAt = util.NowStr()
@@ -95,7 +89,6 @@ func (r *Accounts) Create(tx *sql.Tx, a *core.Account) error {
 	return err
 }
 
-// Update persists the mutable fields (tx may be nil).
 func (r *Accounts) Update(tx *sql.Tx, a *core.Account) error {
 	a.UpdatedAt = util.NowStr()
 	_, err := exec(r.DB, tx, `UPDATE accounts SET name=?, type=?, color=?, currency=?, opening_balance_minor=?,
@@ -105,7 +98,6 @@ func (r *Accounts) Update(tx *sql.Tx, a *core.Account) error {
 	return err
 }
 
-// SoftDelete / Restore for the history engine (doc 11 §4.5).
 func (r *Accounts) SoftDelete(tx *sql.Tx, id string) error {
 	_, err := exec(r.DB, tx, `UPDATE accounts SET deleted_at = ? WHERE id = ?`, util.NowStr(), id)
 	return err
@@ -116,13 +108,11 @@ func (r *Accounts) Restore(tx *sql.Tx, id string) error {
 	return err
 }
 
-// Delete hard-deletes an account (explicit destructive endpoint, doc 02 §3.1).
 func (r *Accounts) Delete(id string) error {
 	_, err := r.DB.Exec(`DELETE FROM accounts WHERE id = ?`, id)
 	return err
 }
 
-// CreateValuation inserts a correction (tx may be nil).
 func (r *Accounts) CreateValuation(tx *sql.Tx, v *core.Valuation) error {
 	v.ID = util.NewID()
 	v.CreatedAt = util.NowStr()
@@ -140,7 +130,6 @@ func (r *Accounts) CreateValuation(tx *sql.Tx, v *core.Valuation) error {
 	return err
 }
 
-// Valuations lists an account's corrections.
 func (r *Accounts) Valuations(accountID string) ([]*core.Valuation, error) {
 	rows, err := r.DB.Query(`SELECT id, account_id, value_minor, date, note, source, drift_minor, audit_log_id, created_at, updated_at
 		FROM valuations WHERE account_id = ? AND deleted_at IS NULL ORDER BY date ASC, created_at ASC`, accountID)
@@ -182,19 +171,16 @@ func scanValuation(sc Scanner) (*core.Valuation, error) {
 	return &v, nil
 }
 
-// GetValuation returns one correction by id.
 func (r *Accounts) GetValuation(id string) (*core.Valuation, error) {
 	return scanValuation(r.DB.QueryRow(`SELECT id, account_id, value_minor, date, note, source, drift_minor, audit_log_id, created_at, updated_at, deleted_at
 		FROM valuations WHERE id = ?`, id))
 }
 
-// DeleteValuation soft-deletes a correction (tx may be nil).
 func (r *Accounts) DeleteValuation(tx *sql.Tx, id string) error {
 	_, err := exec(r.DB, tx, `UPDATE valuations SET deleted_at = ? WHERE id = ?`, util.NowStr(), id)
 	return err
 }
 
-// RestoreValuation un-deletes a correction (path restore).
 func (r *Accounts) RestoreValuation(tx *sql.Tx, id string) error {
 	_, err := exec(r.DB, tx, `UPDATE valuations SET deleted_at = NULL WHERE id = ?`, id)
 	return err

@@ -1,8 +1,3 @@
-// Day entries + LLM summaries for the queries history sidebar (doc 10 §8):
-// one entry per local calendar day the chat was used — date label, message
-// count and a ≤50-char summary of what was talked about. Summaries are
-// generated at midnight by the server scheduler, or on catch-up at next
-// load if the app wasn't running.
 package query
 
 import (
@@ -15,19 +10,17 @@ import (
 	"glowworm/internal/ai"
 )
 
-// DayEntry is one sidebar row.
 type DayEntry struct {
-	Date           string `json:"date"`  // YYYY-MM-DD (local)
-	Label          string `json:"label"` // Today | Yesterday | 3 Oct 2026
-	Count          int    `json:"count"` // messages that day
+	Date           string `json:"date"`
+	Label          string `json:"label"`
+	Count          int    `json:"count"`
 	Summary        string `json:"summary"`
-	ConversationID string `json:"conversation_id"` // most recent conversation touched that day
+	ConversationID string `json:"conversation_id"`
 	HasSummary     bool   `json:"-"`
 }
 
 const daySummaryMaxChars = 50
 
-// DayEntries lists sidebar entries (newest first), joining stored summaries.
 func (s *Service) DayEntries() ([]*DayEntry, error) {
 	rows, err := s.DB.Query(`SELECT day, n, conversation_id FROM (
 		SELECT substr(date(created_at,'localtime'),1,10) AS day, COUNT(*) AS n,
@@ -75,13 +68,9 @@ func dayEntryLabel(date string, now time.Time) string {
 	return t.Format("2 Jan 2006")
 }
 
-// summaryMu serialises summary generation and de-dupes concurrent catch-ups.
 var summaryMu sync.Mutex
 var summarising = map[string]bool{}
 
-// CatchUpSummaries generates summaries for every past day that has messages
-// but no summary yet. Called by the midnight scheduler and (async, bounded)
-// on page load — covering "app wasn't running at midnight".
 func (s *Service) CatchUpSummaries() {
 	summaryMu.Lock()
 	if s.Provider == nil {
@@ -118,13 +107,10 @@ func (s *Service) CatchUpSummaries() {
 	summaryMu.Unlock()
 }
 
-// SummariseDay generates and stores one day's summary (idempotent: it
-// overwrites). Returns the summary.
 func (s *Service) SummariseDay(day string) (string, error) {
 	if s.Provider == nil {
 		return "", nil
 	}
-	// The day's conversation, oldest first, mostly the user's questions.
 	rows, err := s.DB.Query(`SELECT role, text FROM messages
 		WHERE substr(date(created_at,'localtime'),1,10) = ?
 		ORDER BY created_at ASC, id ASC LIMIT 40`, day)
@@ -191,7 +177,6 @@ func (s *Service) SummariseDay(day string) (string, error) {
 
 func util_now() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// logCall appends to ai_calls (doc 09 §8) — best effort.
 func (s *Service) logCall(capability string, started time.Time, usage *ai.Usage, err error) {
 	model := ""
 	pt, ct := 0, 0

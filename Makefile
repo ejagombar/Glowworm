@@ -1,4 +1,3 @@
-# Glowworm — build + release (doc 13 §1)
 BINARY := glowworm
 VERSION ?= $(shell git describe --tags 2>/dev/null || echo dev)
 

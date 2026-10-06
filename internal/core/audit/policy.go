@@ -2,19 +2,15 @@ package audit
 
 import "strings"
 
-// Policy decides what is possible for each audit entry (doc 11 §4.3).
-// The engine owns these verdicts — handlers and the UI render only what
-// Evaluate permits and surface Reason as a tooltip.
 type Policy struct{}
 
-// Evaluate returns the capability verdict for an entry.
 func (p *Policy) Evaluate(action, state string) Capabilities {
-	c := Capabilities{JumpBack: true} // all entries participate in jump-back as markers
+	c := Capabilities{JumpBack: true}
 	switch {
 	case strings.HasPrefix(action, "account."):
 		c.Revert = action == "account.created" || action == "account.updated"
 		c.Forget = true
-		c.Delete = action != "account.deleted" || true // tombstone removal allowed
+		c.Delete = action != "account.deleted" || true
 	case strings.HasPrefix(action, "valuation."):
 		c.Revert, c.Forget, c.Delete = true, true, true
 	case strings.HasPrefix(action, "category."):
@@ -47,8 +43,6 @@ func (p *Policy) Evaluate(action, state string) Capabilities {
 		c.Revert, c.Forget, c.Delete = true, true, true
 	}
 	if state == "inactive" {
-		// Inactive entries: revert is meaningless (effect already shelved);
-		// Forget/Delete remove the record from the shelved range.
 		c.Revert = false
 		if c.Reason == "" {
 			c.Reason = "already inactive — restore the path instead"

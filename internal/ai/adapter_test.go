@@ -1,7 +1,3 @@
-// Adapter tests: the agent transcript (System + Messages) must actually
-// reach the wire for every provider — single-shot capabilities must keep
-// using the capability prompt. This guards the multi-turn path end-to-end
-// (a mock provider alone cannot catch an adapter dropping the transcript).
 package ai
 
 import (
@@ -47,8 +43,6 @@ func expectContains(t *testing.T, body string, needles ...string) {
 	}
 }
 
-// serve spins a test server returning provider-appropriate JSON and hands
-// back the captured request body.
 func serve(t *testing.T, respond func(path string) string, captured *string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +166,6 @@ func TestOllamaTranscript(t *testing.T) {
 	if out != `{"ok":true}` {
 		t.Errorf("out = %q", out)
 	}
-	// Flattened transcript: system + Human/Assistant turns in order.
 	sysIdx := strings.Index(captured, transcriptSystem)
 	userIdx := strings.Index(captured, "Human: "+transcriptUser)
 	asstIdx := strings.Index(captured, "Assistant: "+transcriptAssistant)

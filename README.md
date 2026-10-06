@@ -60,7 +60,7 @@ SQLite (WAL) lives in `GLOWWORM_DATA_DIR`:
 cmd/glowworm/          entrypoint (serve | healthcheck | version)
 internal/              config, store (+migrations), repos, core services,
                        classifier, importer, ai, server (HTTP + templates)
-web/static/            css (prototype stylesheet verbatim), js, fonts
+web/static/            css, js, fonts
 docs/design/           the normative design documentation
 deploy/                Dockerfile, compose, NGINX, systemd
 ```
@@ -68,8 +68,8 @@ deploy/                Dockerfile, compose, NGINX, systemd
 ## Design & development
 
 The product is specified in `docs/design/` — start at
-[`docs/design/README.md`](docs/design/README.md). The prototype UI in the
-repo root (`index.html`, `js/`, `css/`) is the authoritative visual spec.
+[`docs/design/README.md`](docs/design/README.md). The running app
+(`web/static/` + `internal/render/templates/`) is the visual reference.
 
 ## License
 

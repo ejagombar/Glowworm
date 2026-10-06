@@ -1,4 +1,3 @@
-# Glowworm — systemd unit (doc 13 §7)
 [Unit]
 Description=Glowworm finance tracker
 After=network-online.target

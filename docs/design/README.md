@@ -19,7 +19,7 @@ Where documents conflict, the following precedence applies (highest first):
 
 | Priority | Source | Role |
 |---|---|---|
-| 1 | **Prototype UI** — `index.html`, `js/app.js`, `js/widgets.js`, `js/data.js`, `css/styles.css` (repo root) | Authoritative for **looks, layout, interactions and micro-behaviour**. The production UI must reproduce this pixel-for-pixel and behaviour-for-behaviour. |
+| 1 | **Production UI** — `web/static/` + `internal/render/templates/` | Authoritative for **looks, layout, interactions and micro-behaviour**. (The original static prototype has been retired; "the prototype" in these docs now means this UI.) |
 | 2 | **`ui_requirements.md`** | Model corrections that **override** the prototype where they disagree (transaction source/destination model, transfer linking, description-not-merchant column, removal of the filter account dropdown). |
 | 3 | **`backend_requirements.md`** | The backend specification: data model, API, categorisation cascade, audit, AI abstraction. |
 | 4 | **`Requirements.md`** | The original vision. Older; superseded where 2–3 differ, but still authoritative for goals and the feature list. |
@@ -86,11 +86,9 @@ framework), SQLite by default, Postgres supported, AI-provider agnostic
 
 ## 5. Building with this documentation
 
-- The prototype's `css/styles.css` is **copied verbatim** into the product.
-  Never restyle; extend only via documented additions (see 04 §3).
-- `js/widgets.js` (the chart/widget engine) is reused nearly verbatim.
-- `js/data.js` is mock data only — it defines *shapes*, never ships.
+- `web/static/css/styles.css` is the stylesheet. Extend it via documented
+  additions (see 04 §3) rather than restyling.
 - Every doc has a **Scope** header and an **Acceptance criteria** section.
   Agents MUST satisfy the acceptance criteria and SHOULD satisfy the body.
-- When a doc says "the prototype does X", verify against the actual files in
-  the repo root before changing behaviour.
+- When a doc says "the prototype does X", verify against the production UI
+  before changing behaviour.

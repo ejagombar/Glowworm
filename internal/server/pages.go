@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"glowworm/internal/core"
+	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/periods"
 	"glowworm/internal/core/query"
@@ -19,7 +20,6 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// queryMessageView renders one chat message server-side.
 type queryMessageView struct {
 	Role       string
 	Text       string
@@ -30,10 +30,9 @@ type queryMessageView struct {
 	CreatedAt  string
 }
 
-// viewBase is the data every view shares (masthead, settings, period).
 type viewBase struct {
 	Title       string
-	View        string // dashboard|queries|transactions|categories|import|history|settings
+	View        string
 	Period      string
 	PeriodLabel string
 	PeriodFrom  string
@@ -43,7 +42,7 @@ type viewBase struct {
 	UserName    string
 	Privacy     bool
 	CSRFToken   string
-	SetupOpen   bool // open the wizard on load
+	SetupOpen   bool
 	SetupDone   bool
 	AuthMode    string
 	Palette     []string
@@ -63,17 +62,20 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	if label == "" {
 		label = periods.Labels[periods.All]
 	}
+	privacy := s.PrivacyDefault
+	if c, err := r.Cookie(privacyCookie); err == nil {
+		privacy = c.Value == "1"
+	}
 	return &viewBase{
 		Title: title, View: view, Period: period, PeriodLabel: label,
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
-		Privacy: s.PrivacyDefault, CSRFToken: CSRFToken(w, r, a.Secret),
+		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
 		SetupDone: s.SetupCompleted, AuthMode: a.Cfg.AuthMode,
 		Palette: core.Palette,
 	}, nil
 }
 
-// accountCard is the template projection of an account (doc 04 §5.2).
 type accountCard struct {
 	ID           string
 	Name         string
@@ -117,7 +119,6 @@ func typeLabel(t string) string {
 	}
 }
 
-// handleDashboard renders the dashboard view (doc 04 §5.1).
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "dashboard", "Dashboard")
 	if err != nil {
@@ -140,12 +141,10 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	// Income / spend this calendar month (doc 03 §3).
 	incomeMinor, spendMinor := a.monthTotals()
 	incomeTrendLabel, incomeTrendDate := a.lastIncomeTrend()
 	spendPct, spendDir := a.spendTrend()
 
-	// Hero chart series over the period.
 	seriesData := a.balanceSeriesFor(base, "all")
 
 	widgetViews, err := a.WidgetsList()
@@ -165,7 +164,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		SpendMinor      int64
 		SpendPct        string
 		SpendDir        string
-		HeroChart       string // JSON chart data (bar/line)
+		HeroChart       string
 		HeroRangeLabel  string
 		Widgets         []*WidgetView
 	}{
@@ -194,7 +193,6 @@ func lowerFirst(s string) string {
 	return string(b)
 }
 
-// monthTotals computes income/spend for the current calendar month.
 func (a *App) monthTotals() (income, spend int64) {
 	from, to := periods.ThisMonth(a.Clock.TodayTime())
 	var i, sp any
@@ -207,7 +205,6 @@ func (a *App) monthTotals() (income, spend int64) {
 	return income, spend
 }
 
-// lastIncomeTrend mirrors "Salary · 1 May": latest recurring income label+date.
 func (a *App) lastIncomeTrend() (string, string) {
 	var label, date string
 	err := a.DB.QueryRow(`SELECT rk.label, t.date FROM transactions t
@@ -226,7 +223,6 @@ func (a *App) lastIncomeTrend() (string, string) {
 	return label, date
 }
 
-// spendTrend compares this month vs last (pct + direction).
 func (a *App) spendTrend() (string, string) {
 	_, to := periods.ThisMonth(a.Clock.TodayTime())
 	pf, pt := periods.PrevMonth(a.Clock.TodayTime())
@@ -251,11 +247,7 @@ func (a *App) spendTrend() (string, string) {
 	return fmt.Sprintf("%s%d%% vs last month", sign, pct), dir
 }
 
-// balanceSeriesFor returns JSON chart data for the hero chart (all scope).
 func (a *App) balanceSeriesFor(base *viewBase, scope string) string {
-	// The hero chart is the prototype's all-time balance view (doc 04 §4:
-	// "Balance overview" — line chart over the full account history),
-	// independent of the period selector (which drives the stat cards).
 	from := seriesStart(a)
 	to := a.Clock.Today()
 	labels, values, err := balancesSeries(a, from, to)
@@ -267,8 +259,6 @@ func (a *App) balanceSeriesFor(base *viewBase, scope string) string {
 		jsonSlice(labels), name, color, jsonInts(values))
 }
 
-// seriesStart is the earliest date that matters for balance history: the
-// earliest transaction or the earliest opening balance, whichever comes first.
 func seriesStart(a *App) string {
 	var txMin, opMin any
 	_ = a.DB.QueryRow(`SELECT MIN(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&txMin)
@@ -291,16 +281,6 @@ func balancesSeries(a *App, from, to string) ([]string, []int64, error) {
 	return balancePointSeries(a, from, to)
 }
 
-// balancePointSeries builds the balance history at **transaction resolution**:
-// one point on every day the balance can change (opening balances,
-// valuations, transactions) plus today. Between points the balance is flat,
-// so the line shows every individual transaction's up/down movement.
-//
-// The checkpoint replay (doc 02 §6) is swept in memory per account: each
-// account's per-day transaction sums and valuations are fetched once, then
-// replayed across the sorted point list. This keeps the query count constant
-// per account instead of three per (account, day) — which dominated page
-// load on long histories.
 func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 	if from > to {
 		from, to = to, from
@@ -335,7 +315,6 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 		sorted = append(sorted, d)
 	}
 	sort.Strings(sorted)
-	// Cap density: beyond ~370 points, keep every Nth day so the SVG stays sane.
 	if len(sorted) > 370 {
 		step := (len(sorted) + 369) / 370
 		kept := []string{sorted[0]}
@@ -348,7 +327,6 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 		sorted = kept
 	}
 	values := make([]int64, len(sorted))
-	// All non-deleted accounts with their opening baselines.
 	arows, err := a.DB.Query(`SELECT id, opening_balance_minor, COALESCE(opening_balance_date,'') FROM accounts WHERE deleted_at IS NULL`)
 	if err != nil {
 		return nil, nil, err
@@ -369,12 +347,6 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		// Checkpoint replay swept across the point list (same semantics as
-		// the per-day replay): the opening balance is always the baseline —
-		// even when its date is empty or in the future (a future opening
-		// date simply excludes every earlier transaction); the latest
-		// valuation at or before the point replaces the checkpoint; only
-		// transactions strictly after the checkpoint count.
 		base := opening
 		since := openingDate
 		var txAfter int64
@@ -383,7 +355,7 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 			for vi < len(vals) && vals[vi].date <= d {
 				base = vals[vi].value
 				since = vals[vi].date
-				txi, txAfter = 0, 0 // re-count: only transactions after the new checkpoint
+				txi, txAfter = 0, 0
 				vi++
 			}
 			for txi < len(txs) && txs[txi].date <= d {
@@ -398,21 +370,16 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 	return sorted, values, nil
 }
 
-// txDay is one account's net transaction movement on a single day.
 type txDay struct {
 	date string
 	sum  int64
 }
 
-// valuationPoint is one account's recorded value on a single day.
 type valuationPoint struct {
 	date  string
 	value int64
 }
 
-// accountTxSums returns the account's per-day net movements up to `until`,
-// ascending. No lower bound: checkpoints may reach back before the series
-// start, mirroring the original per-day replay.
 func accountTxSums(a *App, accountID, until string) ([]txDay, error) {
 	rows, err := a.DB.Query(`SELECT date, SUM(amount_minor) FROM transactions
 		WHERE account_id=? AND deleted_at IS NULL AND date<=? GROUP BY date ORDER BY date`, accountID, until)
@@ -434,9 +401,6 @@ func accountTxSums(a *App, accountID, until string) ([]txDay, error) {
 	return out, rows.Err()
 }
 
-// accountValuations returns the account's valuations up to `until`, ascending
-// by date then creation (latest creation wins per day, as the old per-day
-// `LIMIT 1` replay did).
 func accountValuations(a *App, accountID, until string) ([]valuationPoint, error) {
 	rows, err := a.DB.Query(`SELECT date, value_minor FROM valuations
 		WHERE account_id=? AND deleted_at IS NULL AND date<=? ORDER BY date, created_at`, accountID, until)
@@ -502,10 +466,8 @@ func jsonInts(items []int64) string {
 	return out + "]"
 }
 
-// Rows per infinite-scroll page on /transactions.
 const transactionsPageSize = 50
 
-// handleTransactions renders the transactions view (doc 04 §5.2).
 func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "transactions", "Transactions")
 	if err != nil {
@@ -576,9 +538,6 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	return a.Render.Render(w, "transactions", data)
 }
 
-// handleTransactionsRows serves one page of transaction rows as an HTML
-// fragment (tbody <tr> elements), used by the infinite-scroll loader. Writes
-// an X-Has-More: 1 header when there's a next page.
 func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Set("Cache-Control", "no-store")
 	base, err := a.base(w, r, "transactions", "Transactions")
@@ -611,7 +570,7 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	if offset >= len(allRows) {
-		return nil // empty body = client stops paging
+		return nil
 	}
 	end := offset + limit
 	if end > len(allRows) {
@@ -634,7 +593,6 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
-// handleCategories renders the categories view (doc 04 §5.5).
 func (a *App) handleCategories(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "categories", "Categories")
 	if err != nil {
@@ -656,7 +614,6 @@ func (a *App) handleCategories(w http.ResponseWriter, r *http.Request) error {
 	return a.Render.Render(w, "categories", data)
 }
 
-// handleImport renders the import view (doc 04 §5.6).
 func (a *App) handleImport(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "import", "Import")
 	if err != nil {
@@ -684,7 +641,6 @@ func (a *App) handleImport(w http.ResponseWriter, r *http.Request) error {
 	return a.Render.Render(w, "import", data)
 }
 
-// handleHistory renders the history view (doc 04 §5.7).
 func (a *App) handleHistory(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "history", "History")
 	if err != nil {
@@ -698,12 +654,7 @@ func (a *App) handleHistory(w http.ResponseWriter, r *http.Request) error {
 	return a.Render.Render(w, "history", data)
 }
 
-// handleHistoryPane renders only the active history pane (transactions
-// timeline or audit log) as a fragment. The client switches modes with this
-// so the page itself appears instantly (skeleton) while the data loads.
 func (a *App) handleHistoryPane(w http.ResponseWriter, r *http.Request) error {
-	// The pane is injected client-side after mode/filter changes — never
-	// serve a heuristically cached copy.
 	w.Header().Set("Cache-Control", "no-store")
 	base, err := a.base(w, r, "history", "History")
 	if err != nil {
@@ -717,7 +668,6 @@ func (a *App) handleHistoryPane(w http.ResponseWriter, r *http.Request) error {
 	return a.Render.RenderFragment(w, "history-pane-content", data)
 }
 
-// historyParams reads the mode/filter from the query string.
 func historyParams(r *http.Request) (mode, filter string) {
 	mode = r.URL.Query().Get("mode")
 	if mode != "audit" {
@@ -730,9 +680,6 @@ func historyParams(r *http.Request) (mode, filter string) {
 	return mode, filter
 }
 
-// historyData assembles everything the history view (or pane fragment) needs.
-// The expensive part — the transaction-resolution balance series — is only
-// computed for the transactions pane; audit mode never needs it.
 func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 	months := []string{}
 	latestBalance := int64(0)
@@ -741,7 +688,6 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 	series := ""
 	reconStatus, reconLabel, reconHint := "", "", ""
 	if mode != "audit" {
-		// Timeline months (min tx month → today).
 		var minDate any
 		_ = a.DB.QueryRow(`SELECT MIN(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&minDate)
 		start := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
@@ -784,8 +730,6 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 			return nil, err
 		}
 		entryViews = toEntryViews(entries)
-		// Capability checks in one query + in-memory policy evaluation
-		// (was one query per entry).
 		if len(entries) > 0 {
 			args := make([]any, len(entries))
 			for i, e := range entries {
@@ -838,7 +782,6 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 	return data, nil
 }
 
-// reconcileSummary aggregates the reconciliation card (doc 11 §6).
 func (a *App) reconcileSummary() (string, string, string) {
 	rows, err := a.DB.Query(`SELECT account_id, drift_minor FROM valuations
 		WHERE deleted_at IS NULL AND date <= ?
@@ -874,7 +817,6 @@ func (a *App) reconcileSummary() (string, string, string) {
 	}
 }
 
-// handleSettings renders the settings view (doc 04 §5.8).
 func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "settings", "Settings")
 	if err != nil {
@@ -891,9 +833,14 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	if aiRow != nil && aiRow.Provider != "" {
 		aiMasked = maskKey(aiRow.KeyCipher)
 	}
+	archives, err := a.Accounts.Archives()
+	if err != nil {
+		return err
+	}
 	data := struct {
 		*viewBase
 		Accounts   []*accountCard
+		Archives   []*accounts.Archive
 		AIProvider string
 		AIKeyMask  string
 		AIHasKey   bool
@@ -901,7 +848,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		AIModel    string
 		SetupDone  bool
 	}{
-		viewBase: base, Accounts: cards,
+		viewBase: base, Accounts: cards, Archives: archives,
 		AIProvider: aiProviderLabel(aiRow), AIKeyMask: aiMasked, SetupDone: s.SetupCompleted,
 	}
 	if aiRow != nil {
@@ -926,15 +873,11 @@ func maskKey(cipher string) string {
 	return "sk-••••••••••••••••"
 }
 
-// handleQueries renders the queries view (doc 04 §5.4).
 func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "queries", "Queries")
 	if err != nil {
 		return err
 	}
-	// Sidebar: one entry per day the chat was used (doc 10 §8). Summaries
-	// for days that lack one are generated async — midnight job covers the
-	// usual case; this catch-up covers "app wasn't running".
 	days, err := a.Query.DayEntries()
 	if err != nil {
 		return err
@@ -964,8 +907,6 @@ func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 			convID = ""
 		}
 	}
-	// History is paged (doc 10 §8): render only the newest window; the client
-	// loads older messages as the user scrolls up.
 	const initialPage = 20
 	var msgs []queryMessageView
 	hasMore := false
@@ -973,7 +914,7 @@ func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 	if conv != nil {
 		if raw, err := a.Query.Repo.MessagesPage(conv.ID, nil, initialPage); err == nil && len(raw) > 0 {
 			msgs = toMessageViews(raw)
-			oldest = raw[0].CreatedAt + "|" + raw[0].ID // ascending: [0] is oldest
+			oldest = raw[0].CreatedAt + "|" + raw[0].ID
 			hasMore = len(raw) == initialPage
 		}
 	}
@@ -992,13 +933,10 @@ func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 	return a.Render.Render(w, "queries", data)
 }
 
-// toMessageViews projects persisted messages (widget HTML re-rendered
-// server-side from the stored widget JSON).
 func toMessageViews(msgs []*core.Message) []queryMessageView {
 	out := make([]queryMessageView, 0, len(msgs))
 	lastDay := ""
 	for _, m := range msgs {
-		// Day badge only when the day changes (user request: not every message).
 		d := dayKey(m.CreatedAt)
 		var dayLabel string
 		if d != lastDay {
@@ -1019,10 +957,8 @@ func toMessageViews(msgs []*core.Message) []queryMessageView {
 	return out
 }
 
-// dayLabelFor labels a message's day badge. Everything is computed in the
-// server's local timezone (created_at is UTC RFC3339): grouping by UTC day
-// mislabels messages late in the evening for UTC+ users — the same bug that
-// produced duplicate/incorrect Today badges.
+// Day keys use the server's local timezone, not UTC: grouping by UTC day
+// mislabelled late-evening messages for UTC+ users (duplicate Today badges).
 func dayLabelFor(ts string) string {
 	t, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
@@ -1045,7 +981,6 @@ func sameDay(a, b time.Time) bool {
 	return aY == bY && aM == bM && aD == bD
 }
 
-// dayKey returns the local calendar day of a timestamp (for change detection).
 func dayKey(ts string) string {
 	t, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
@@ -1054,28 +989,18 @@ func dayKey(ts string) string {
 	return t.Local().Format("2006-01-02")
 }
 
-// parseStoredWidgets reads a message's stored widget JSON: an array of
-// widgets (current) or a single widget object (rows written before the
-// agent update).
 func parseStoredWidgets(s string) []*widgets.Widget {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil
 	}
 	var arr []*widgets.Widget
-	if err := json.Unmarshal([]byte(s), &arr); err == nil && len(arr) > 0 {
-		return arr
+	if err := json.Unmarshal([]byte(s), &arr); err != nil {
+		return nil
 	}
-	var one widgets.Widget
-	if err := json.Unmarshal([]byte(s), &one); err == nil && one.Type != "" {
-		return []*widgets.Widget{&one}
-	}
-	return nil
+	return arr
 }
 
-// formatAssistantText renders the assistant's text with minimal formatting:
-// escaped HTML with **bold** and preserved line breaks (white-space:
-// pre-wrap on .msg-text).
 func formatAssistantText(text string) string {
 	esc := template.HTMLEscapeString(text)
 	var b strings.Builder
@@ -1093,7 +1018,6 @@ func formatAssistantText(text string) string {
 	return b.String()
 }
 
-// widgetCardHTML re-renders a widget card server-side (prototype widgetEl).
 func widgetCardHTML(w *widgets.Widget) string {
 	var b strings.Builder
 	b.WriteString(`<article class="widget span-12" data-widget-id="` + w.ID + `" data-widget-type="` + w.Type + `"`)
@@ -1164,7 +1088,7 @@ func widgetCardHTML(w *widgets.Widget) string {
 			}
 			b.WriteString(`</tbody></table></div>`)
 		}
-	default: // bar/line/pie render client-side via the widget engine
+	default:
 		typ := w.Type
 		if typ != "pie" && typ != "line" && typ != "bar" {
 			typ = "bar"
@@ -1204,10 +1128,8 @@ func abs64(v int64) int64 {
 	return v
 }
 
-// moneyFmt is exposed for handlers composing labels.
 func moneyFmt(minor int64, cc string) string { return money.Format(minor, cc) }
 
-// monthRange lists YYYY-MM keys from one month to another (inclusive).
 func monthRange(from, to string) []string {
 	if len(from) < 7 || len(to) < 7 {
 		return nil
@@ -1225,7 +1147,7 @@ func monthRange(from, to string) []string {
 			m = 1
 			y++
 		}
-		if len(out) >= 600 { // safety cap (~50 years)
+		if len(out) >= 600 {
 			break
 		}
 	}

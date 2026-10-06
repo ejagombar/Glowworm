@@ -1,4 +1,3 @@
-// Glowworm — command entrypoint (doc 01 §2): config, store, secret, server.
 package main
 
 import (

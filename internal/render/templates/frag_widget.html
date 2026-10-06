@@ -1,4 +1,4 @@
-{{define "pinned-widgets"}}{{/* Widgets []*core.PinnedWidget; Currency */}}
+{{define "pinned-widgets"}}
 {{range .Widgets}}
 <article class="widget span-{{.Col}}" style="grid-row: span {{.Rows}}" data-widget-id="{{.ID}}" data-widget-type="{{.Type}}"
   data-widget-title="{{.Title}}" data-widget-col="{{.Col}}" data-widget-rows="{{.Rows}}"

@@ -1,24 +1,16 @@
-/* ============================================================
-   Glowworm — dynamic widget engine (UI skeleton)
-   Widgets are JSON-defined and frontend agnostic. This renderer
-   maps that JSON to HTML/CSS + SVG. Charts are drawn with plain
-   SVG — no external libraries.
-   ============================================================ */
 
 const WIDGET_COLORS = ["#0e6f51", "#4f5bc7", "#c9822e", "#c0483f", "#2f7fb0", "#7a58b8", "#2e9d8f", "#6b7280"];
 
 let widgetSeq = 100;
 
-/* ---- helpers ---- */
 function esc(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
-/* Money in widgets is integer minor units + currency (doc 05 §1.3). */
 let WIDGET_CURRENCY = "GBP";
 function fmtMoney(v) {
-  const n = Number(v) / 100; // minor units -> major
+  const n = Number(v) / 100;
   const sym = ({ GBP: "£", USD: "$", EUR: "€" })[WIDGET_CURRENCY] || WIDGET_CURRENCY + " ";
   return sym + Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -31,7 +23,6 @@ function widgetId() {
   return "w-" + (++widgetSeq);
 }
 
-/* ---- data conversion (bar <-> line <-> pie <-> table) ---- */
 function toSeries(data) {
   if (data.series) return { labels: data.labels, series: data.series };
   if (data.values) return { labels: data.labels, series: [{ name: "Value", color: data.colors?.[0] || WIDGET_COLORS[0], values: data.values }] };
@@ -45,7 +36,6 @@ function convertWidgetData(from, to, data) {
   if (to === "text") return { body: data.body ?? "No text available." };
   if (to === "transactions") return { transactions: data.transactions || [] };
 
-  // Anything chart-like -> table
   if (to === "table") {
     const s = toSeries(data);
     const columns = ["Label", ...s.series.map((x) => x.name)];
@@ -55,7 +45,6 @@ function convertWidgetData(from, to, data) {
 
   const s = toSeries(data);
 
-  // -> pie (use first series)
   if (to === "pie") {
     const first = s.series[0];
     return {
@@ -65,11 +54,9 @@ function convertWidgetData(from, to, data) {
     };
   }
 
-  // -> bar or line
   return { labels: s.labels, series: s.series };
 }
 
-/* ---- SVG chart builders ---- */
 function axisTicks(max, count = 4) {
   const step = max <= 0 ? 1 : niceStep(max / count);
   const ticks = [];
@@ -85,7 +72,7 @@ function niceStep(raw) {
 
 function fmtMoneyAxis(v) {
   const sym = ({ GBP: "\u00a3", USD: "$", EUR: "\u20ac" })[WIDGET_CURRENCY] || WIDGET_CURRENCY + " ";
-  const n = Number(v) / 100; // minor -> major units
+  const n = Number(v) / 100;
   const sign = n < 0 ? "\u2212" : "";
   const a = Math.abs(n);
   if (a >= 1000) return sign + sym + (Math.round(a) / 1000).toFixed(a >= 100000 ? 0 : 1).replace(/\.0$/, "") + "k";
@@ -162,18 +149,15 @@ function lineChartSVG(data, width = 640, height = 260) {
       parts.push(`<circle cx="${px(i)}" cy="${py(v)}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(v)}</title></circle>`);
     });
   }
-  // X axis: several evenly spread date labels (2 on narrow charts, up to 6 wide).
   const xTickCount = width < 420 ? 2 : width < 700 ? 4 : 6;
   xTickLabels(labels, xTickCount).forEach(({ i, text }) => {
     const anchor = n === 1 ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle";
     parts.push(`<text x="${px(i)}" y="${H - 8}" text-anchor="${anchor}" class="chart-tooltip">${esc(text)}</text>`);
   });
-  // Transparent overlay on top so the whole chart area tracks the pointer.
   parts.push(`<rect class="chart-hover-layer" x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`);
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="line chart">${parts.join("")}</svg>`;
 }
 
-/* ---- line chart hover popup (nearest point to the pointer) ---- */
 let chartTipEl = null;
 function ensureChartTip() {
   if (chartTipEl || !document.body) return chartTipEl;
@@ -224,8 +208,6 @@ function nearestLinePoint(host, svg, clientX, clientY) {
   return { label: labels[idx], value: vals[idx], name: series.name || "Value", x: px(idx), y: py(vals[idx]) };
 }
 
-/* Parsed chart data cached per host: the hover handler runs on every
-   mousemove, so avoid re-parsing the JSON attribute each time. */
 const chartDataCache = new WeakMap();
 function chartDataFor(host) {
   const src = host.dataset.chartData || "";
@@ -237,12 +219,11 @@ function chartDataFor(host) {
   return data;
 }
 function showChartTip(tip, svg, pt) {
-  // Anchor above the pin the popup represents (viewBox coords -> screen).
   const rect = svg.getBoundingClientRect();
   const vb = svg.viewBox && svg.viewBox.baseVal;
   const W = vb && vb.width ? vb.width : 640;
   const H = vb && vb.height ? vb.height : 260;
-  if (!rect.width || !rect.height) return; // bail before showing at a stale spot
+  if (!rect.width || !rect.height) return;
   tip.style.display = "block";
   tip.innerHTML = `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
     + `<div class="chart-tip-value">${esc(fmtMoneyTip(pt.value))}</div>`;
@@ -253,7 +234,7 @@ function showChartTip(tip, svg, pt) {
   let left = sx - r.width / 2;
   let top = sy - r.height - gap;
   let below = false;
-  if (top < 8) { top = sy + gap; below = true; } // flip under the pin near the top edge
+  if (top < 8) { top = sy + gap; below = true; }
   if (left < 8) left = 8;
   if (left + r.width > window.innerWidth - 8) left = window.innerWidth - 8 - r.width;
   tip.classList.toggle("below", below);
@@ -322,8 +303,6 @@ function shortLabel(l) {
   return s.length > 8 ? s.slice(0, 7) + "…" : s;
 }
 
-/* ---- date/label formatting for line-chart axes + hover popup ---- */
-/* Short form for the x axis: "1 Jun 24", "Jun 24", or a truncated string. */
 function chartAxisLabel(l) {
   const s = String(l ?? "");
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
@@ -336,7 +315,6 @@ function chartAxisLabel(l) {
   }
   return s.length > 12 ? s.slice(0, 11) + "…" : s;
 }
-/* Long form for the hover popup: date and, when present, time. */
 function chartTooltipLabel(l) {
   const s = String(l ?? "");
   let m;
@@ -354,7 +332,6 @@ function chartTooltipLabel(l) {
   }
   return s;
 }
-/* Evenly spread x-axis ticks: indices into labels + their display text. */
 function xTickLabels(labels, count = 6) {
   const n = labels.length;
   if (!n) return [];
@@ -371,7 +348,6 @@ function xTickLabels(labels, count = 6) {
   return out;
 }
 
-/* ---- responsive chart redraw (fills container without distortion) ---- */
 let chartObserver = null;
 
 function redrawChartHost(host) {
@@ -382,7 +358,6 @@ function redrawChartHost(host) {
   if (type === "pie") {
     const rendered = pieChartSVG(data);
     host.innerHTML = rendered.svg;
-    // Place/refresh the legend as a sibling inside the .pie-wrap parent.
     const wrap = host.parentElement;
     if (wrap && wrap.classList.contains("pie-wrap")) {
       const tpl = document.createElement("template");
@@ -396,8 +371,9 @@ function redrawChartHost(host) {
   }
   let w = host.clientWidth;
   let h = host.clientHeight;
-  if (!w || w < 80) w = 640; // hidden/not-yet-laid-out hosts get sane defaults
-  if (!h || h < 80) h = 260; // instead of silently staying empty
+  // Hosts not laid out yet report 0; without defaults they'd stay empty.
+  if (!w || w < 80) w = 640;
+  if (!h || h < 80) h = 260;
   host.innerHTML = type === "line" ? lineChartSVG(data, w, h) : barChartSVG(data, w, h);
 }
 
@@ -420,7 +396,6 @@ function drawChartHosts(scope) {
   });
 }
 
-/* ---- widget DOM ---- */
 function widgetBody(widget) {
   const t = widget.type;
   const data = widget.data || {};
@@ -459,7 +434,6 @@ function widgetBody(widget) {
     return `<div class="pie-wrap"><div class="pie-chart">${rendered.svg}</div>${rendered.legend}</div>`;
   }
   if (t === "line") return `<div class="chart-host" data-chart-type="line" data-chart-data="${esc(JSON.stringify(data))}">${lineChartSVG(data)}</div>`;
-  // default bar
   return `<div class="chart-host" data-chart-type="bar" data-chart-data="${esc(JSON.stringify(data))}">${barChartSVG(data)}</div>`;
 }
 
@@ -489,7 +463,6 @@ function widgetEl(widget, opts = {}) {
   return el;
 }
 
-/* ---- pie legend style (injected once) ---- */
 function ensureWidgetStyles() {
   if (document.getElementById("widget-extra-css")) return;
   const style = document.createElement("style");

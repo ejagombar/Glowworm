@@ -1,7 +1,3 @@
-// Read-only SQL sandbox for the query agent (doc 10 agent loop): the model
-// may ask to run queries; every query is structurally validated to be a
-// single read-only SELECT, wrapped with a hard row cap and executed with a
-// timeout. No user-supplied SQL is ever allowed to mutate the database.
 package query
 
 import (
@@ -13,16 +9,14 @@ import (
 	"glowworm/internal/store"
 )
 
-// Sandbox limits (guardrails, doc 10 §9).
 const (
-	MaxRows      = 200         // rows returned to the model
-	wrapLimit    = MaxRows + 1 // fetch one extra to detect truncation
-	MaxCellLen   = 200         // characters per text cell
+	MaxRows      = 200
+	wrapLimit    = MaxRows + 1
+	MaxCellLen   = 200
 	QueryTimeout = 10 * time.Second
 	MaxSQLLen    = 4000
 )
 
-// QueryResult is what the agent sees: column names + rows as plain values.
 type QueryResult struct {
 	Columns   []string `json:"columns"`
 	Rows      [][]any  `json:"rows"`
@@ -30,9 +24,6 @@ type QueryResult struct {
 	Truncated bool     `json:"truncated"`
 }
 
-// Forbidden tokens anywhere outside string literals. Every SQLite statement
-// that can write or inspect the host goes through one of these keywords
-// (REPLACE only in its `REPLACE INTO` write form).
 var forbiddenTokens = map[string]bool{
 	"insert": true, "update": true, "delete": true, "drop": true,
 	"alter": true, "create": true, "attach": true, "detach": true,
@@ -42,10 +33,6 @@ var forbiddenTokens = map[string]bool{
 	"readfile": true, "writefile": true, "into": true,
 }
 
-// validateReadonly enforces the single read-only SELECT shape. It tokenises
-// the SQL (skipping string literals and quoted identifiers and comments) so
-// keywords inside strings never trigger false rejections and hidden writes
-// never sneak past a naive substring check.
 func validateReadonly(sql string) error {
 	sql = strings.TrimSpace(sql)
 	if sql == "" {
@@ -72,10 +59,6 @@ func validateReadonly(sql string) error {
 	return nil
 }
 
-// tokenizeSQL splits SQL into identifier-ish tokens, treating '…', "…",
-// `…`, […] literals as opaque single tokens and skipping -- / /* */
-// comments. Only ASCII letters, digits and underscore form tokens, which is
-// enough for keyword scanning.
 func tokenizeSQL(sql string) []string {
 	var toks []string
 	i := 0
@@ -83,7 +66,7 @@ func tokenizeSQL(sql string) []string {
 	for i < n {
 		c := sql[i]
 		switch {
-		case c == '\'' || c == '"' || c == '`': // string / quoted identifier
+		case c == '\'' || c == '"' || c == '`':
 			q := c
 			i++
 			for i < n {
@@ -97,23 +80,21 @@ func tokenizeSQL(sql string) []string {
 				}
 				i++
 			}
-			toks = append(toks, "\x00lit") // placeholder: never a keyword
-		case c == '-' && i+1 < n && sql[i+1] == '-': // line comment
+			toks = append(toks, "\x00lit")
+		case c == '-' && i+1 < n && sql[i+1] == '-':
 			for i < n && sql[i] != '\n' {
 				i++
 			}
-		case c == '/' && i+1 < n && sql[i+1] == '*': // block comment
+		case c == '/' && i+1 < n && sql[i+1] == '*':
 			i += 2
 			for i+1 < n && !(sql[i] == '*' && sql[i+1] == '/') {
 				i++
 			}
 			i += 2
 		case c == ';':
-			// A trailing terminator is tolerated; anything else would stack a
-			// second statement, which we never allow.
 			rest := strings.TrimSpace(sql[i+1:])
 			if rest != "" {
-				return nil // signals invalid via empty token list
+				return nil
 			}
 			i = n
 		case isIdentChar(c):
@@ -134,7 +115,6 @@ func isIdentChar(c byte) bool {
 	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
-// truncateCell keeps text cells compact for the transcript.
 func truncateCell(s string) string {
 	if len(s) > MaxCellLen {
 		return s[:MaxCellLen] + "…"
@@ -142,11 +122,8 @@ func truncateCell(s string) string {
 	return s
 }
 
-// RunReadonlyQuery validates and executes one model-authored query against
-// the user's database. The statement is wrapped as
-// `SELECT * FROM (<query>) LIMIT 201` which caps rows regardless of any
-// inner LIMIT and cannot change the query's meaning for pure SELECTs
-// (verified: SQLite accepts WITH clauses inside the wrapped subquery).
+// Wrapping as SELECT * FROM (<query>) LIMIT 201 caps rows regardless of any
+// inner LIMIT; SQLite accepts WITH inside the subquery.
 func RunReadonlyQuery(db *store.DB, sql string) (*QueryResult, error) {
 	if err := validateReadonly(sql); err != nil {
 		return nil, fmt.Errorf("query rejected: %w", err)
@@ -190,7 +167,7 @@ func RunReadonlyQuery(db *store.DB, sql string) (*QueryResult, error) {
 			case nil:
 				row[i] = nil
 			default:
-				row[i] = v // int64/float64 pass through
+				row[i] = v
 			}
 		}
 		res.Rows = append(res.Rows, row)
