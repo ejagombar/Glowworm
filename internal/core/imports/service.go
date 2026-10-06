@@ -964,10 +964,11 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 	}
 	// The import is committed; a schema failure must not undo that.
 	_ = s.rememberSchema(batchID, batch, accountID, schemaName)
+	// Merchants first: the retrain in AfterCommit learns from them.
+	s.enrichMerchants(batchID)
 	if s.AfterCommit != nil {
 		s.AfterCommit(batchID)
 	}
-	s.enrichMerchants(batchID)
 	return s.Get(batchID)
 }
 

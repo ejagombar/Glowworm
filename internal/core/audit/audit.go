@@ -114,6 +114,7 @@ type Capabilities struct {
 	JumpBack bool   `json:"jump_back"`
 	Forget   bool   `json:"forget"`
 	Delete   bool   `json:"delete"`
+	Derived  bool   `json:"derived,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
 
@@ -209,7 +210,7 @@ func (e *Engine) JumpBack(entryID int64, apply ApplyFunc) (JumpResult, error) {
 		for i := range targets {
 			t := targets[i]
 			cap := e.Policy.Evaluate(t.Action, t.State)
-			if !cap.Revert {
+			if !cap.Revert && !cap.Derived {
 				failed = append(failed, map[string]any{"id": t.ID, "reason": cap.Reason})
 				continue
 			}
@@ -447,8 +448,8 @@ func (e *Engine) List(opt ListOptions) ([]core.AuditEntry, string, error) {
 	if opt.Limit <= 0 || opt.Limit > 200 {
 		opt.Limit = 50
 	}
-	q := `SELECT id, timestamp, actor, actor_detail, action, entity_type, entity_id, title, sub, diff, path_id, state
-		FROM audit_entries WHERE 1=1`
+	q := `SELECT id, timestamp, actor, actor_detail, action, entity_type, entity_id, title, sub, diff, path_id, state,
+		COALESCE(caused_by, 0) FROM audit_entries WHERE 1=1`
 	args := []any{}
 	if opt.Actor != "" {
 		q += ` AND actor = ?`
@@ -491,7 +492,7 @@ func (e *Engine) List(opt ListOptions) ([]core.AuditEntry, string, error) {
 	for rows.Next() {
 		var ent core.AuditEntry
 		if err := rows.Scan(&ent.ID, &ent.Timestamp, &ent.Actor, &ent.ActorDetail, &ent.Action,
-			&ent.EntityType, &ent.EntityID, &ent.Title, &ent.Sub, &ent.Diff, &ent.PathID, &ent.State); err != nil {
+			&ent.EntityType, &ent.EntityID, &ent.Title, &ent.Sub, &ent.Diff, &ent.PathID, &ent.State, &ent.CausedBy); err != nil {
 			return nil, "", err
 		}
 		if ent.Diff != "" && ent.Diff != "[]" {

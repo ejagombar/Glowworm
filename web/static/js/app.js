@@ -1865,122 +1865,50 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // History actions: each button confirms, posts, then reloads the log.
+  function auditAction(url, body, title, text, confirmLabel, okMsg) {
+    showConfirm(title, text, confirmLabel, () => {
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: body ? JSON.stringify(body) : undefined,
+      }).then(async (r) => {
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          toast((b.error && b.error.message) || "That didn't work");
+          return;
+        }
+        toast(okMsg);
+        location.reload();
+      }).catch(() => toast("That didn't work"));
+    });
+  }
+  const idsOf = (v) => v.split(",").map(Number).filter(Boolean);
   function wireAuditActions(root) {
-    (root || document).querySelectorAll("[data-jump-back]").forEach((btn) => {
-      if (btn.dataset.wired) return;
-      btn.dataset.wired = "1";
-      btn.addEventListener("click", () => {
-        const id = btn.dataset.jumpBack;
-        showConfirm("Restore to this point?", "Everything after this point is undone. Those entries stay in the log, greyed out and collapsed, and can be redone.", "Restore", () => {
-          fetch(`/api/v1/audit/${id}/jump-back`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
-            .then(async (r) => {
-              if (!r.ok) {
-                const b = await r.json().catch(() => ({}));
-                toast((b.error && b.error.message) || "Restore failed");
-                return;
-              }
-              toast("State restored to this point");
-              location.reload();
-            });
-        });
-      });
-    });
-    (root || document).querySelectorAll("[data-restore-path]").forEach((btn) => {
+    const wire = (sel, fn) => (root || document).querySelectorAll(sel).forEach((btn) => {
       if (btn.dataset.wired) return;
       btn.dataset.wired = "1";
       btn.addEventListener("click", (e) => {
-        e.preventDefault(); // it sits in a <summary>; don't toggle the group
+        e.preventDefault(); // some sit in a <summary>; don't toggle the group
         e.stopPropagation();
-        auditAction(null, `/api/v1/audit/paths/${encodeURIComponent(btn.dataset.restorePath)}/restore`, "POST",
-          "Redo these changes?", "The undone changes are re-applied. Anything done since the restore is undone and collapsed instead.",
-          "Redo", "Changes redone");
+        fn(btn);
       });
     });
-    (root || document).querySelectorAll("[data-audit-menu]").forEach((btn) => {
-      if (btn.dataset.wired) return;
-      btn.dataset.wired = "1";
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openAuditMenu(btn);
-      });
-    });
+    wire("[data-jump-back]", (btn) => auditAction(`/api/v1/audit/${btn.dataset.jumpBack}/jump-back`, null,
+      "Rewind to here?", "Everything after this change is undone. Those changes stay in the log, greyed out, and can be redone.",
+      "Rewind", "Rewound to this point"));
+    wire("[data-undo]", (btn) => auditAction(`/api/v1/audit/${btn.dataset.undo}/revert`, null,
+      "Undo this change?", "Just this change is undone, along with anything the system did because of it. It stays in the log, greyed out, and can be redone.",
+      "Undo", "Change undone"));
+    wire("[data-redo]", (btn) => auditAction("/api/v1/audit/redo", { ids: idsOf(btn.dataset.redo) },
+      "Redo these changes?", "The greyed-out changes are applied again. If they were undone by a rewind, anything done since then is undone instead.",
+      "Redo", "Changes redone"));
+    wire("[data-discard]", (btn) => auditAction("/api/v1/audit/discard", { ids: idsOf(btn.dataset.discard) },
+      "Delete these changes for good?", "They're removed from the log and can't be redone. Nothing else changes: they're already undone.",
+      "Delete", "Removed from the log"));
   }
   window.wireAuditActions = wireAuditActions;
   wireAuditActions(document);
-  function auditAction(id, url, method, title, body, confirmLabel, okMsg) {
-    showConfirm(title, body, confirmLabel, () => {
-      fetch(url, { method, headers: { "X-CSRF-Token": csrfToken() } })
-        .then(async (r) => {
-          if (!r.ok) {
-            const b = await r.json().catch(() => ({}));
-            toast((b.error && b.error.message) || "Action failed");
-            return;
-          }
-          toast(okMsg);
-          location.reload();
-        });
-    });
-  }
-  function openAuditMenu(btn) {
-    closeAuditMenu();
-    const id = btn.dataset.auditMenu;
-    const menu = document.createElement("div");
-    menu.className = "audit-menu";
-    menu.id = "auditMenu";
-    menu.innerHTML = '<div class="audit-menu-head">History actions</div>';
-    menu.addEventListener("click", (e) => e.stopPropagation());
-    fetch(`/api/v1/audit/${id}/capabilities`).then((r) => r.json()).then((caps) => {
-      if (!caps || caps.error) { toast("Could not load actions"); return; }
-      const items = [
-        ["revert", "Revert change", "Undoes this change and records the revert in the history.", "Revert",
-          () => auditAction(id, `/api/v1/audit/${id}/revert`, "POST",
-            "Revert this change?", "The change is undone now; later entries stay collapsed in the timeline and remain restorable.", "Revert", "Change reverted")],
-        ["forget", "Keep effect, remove record", "The result stays; this entry disappears from the history.", "Remove record",
-          () => auditAction(id, `/api/v1/audit/${id}?mode=forget`, "DELETE",
-            "Keep effect, remove record?", "The effect of this change stays in place, but the record is scrubbed from the history.", "Remove record", "Record removed")],
-        ["delete", "Delete from history", "Undoes the change and scrubs the record; a tombstone notes the deletion.", "Delete",
-          () => auditAction(id, `/api/v1/audit/${id}`, "DELETE",
-            "Delete from history?", "The change is undone and its record scrubbed. A tombstone entry notes that a change was deleted here.", "Delete", "Deleted from history")],
-      ];
-      let any = false;
-      for (const [cap, label, desc, cLabel, fn] of items) {
-        const row = document.createElement("button");
-        row.type = "button";
-        row.className = "audit-menu-item" + (cap === "delete" ? " danger" : "");
-        if (caps[cap]) {
-          row.innerHTML = `<span class="audit-menu-label">${esc(label)}</span><span class="audit-menu-desc">${esc(desc)}</span>`;
-          row.addEventListener("click", () => { closeAuditMenu(); fn(); });
-          any = true;
-        } else {
-          row.disabled = true;
-          row.innerHTML = `<span class="audit-menu-label">${esc(label)}</span><span class="audit-menu-desc">${esc(caps.reason || "Not available for this entry")}</span>`;
-        }
-        menu.appendChild(row);
-      }
-      if (!any) {
-        const none = document.createElement("div");
-        none.className = "audit-menu-desc";
-        none.style.padding = "4px 14px 10px";
-        none.textContent = caps.reason || "No actions available for this entry.";
-        menu.appendChild(none);
-      }
-      document.body.appendChild(menu);
-      const r = btn.getBoundingClientRect();
-      const mw = menu.offsetWidth, mh = menu.offsetHeight;
-      let left = Math.min(r.left, window.innerWidth - mw - 12);
-      let top = r.bottom + 6;
-      if (top + mh > window.innerHeight - 12) top = Math.max(12, r.top - mh - 6);
-      menu.style.left = left + "px";
-      menu.style.top = top + "px";
-      requestAnimationFrame(() => menu.classList.add("open"));
-    }).catch(() => toast("Could not load actions"));
-  }
-  function closeAuditMenu() {
-    const m = document.getElementById("auditMenu");
-    if (m) m.remove();
-  }
-  document.addEventListener("click", closeAuditMenu);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAuditMenu(); });
 });
 
 

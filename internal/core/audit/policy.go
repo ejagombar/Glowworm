@@ -4,52 +4,43 @@ import "strings"
 
 type Policy struct{}
 
+// derivedActions are system bookkeeping recomputed from the data itself.
+// They follow the change that caused them and can't be undone on their own.
+var derivedActions = map[string]bool{
+	"classifier.retrained": true,
+	"recurring.detected":   true,
+	"merchant.enriched":    true,
+}
+
+func IsDerived(action string) bool { return derivedActions[action] }
+
 func (p *Policy) Evaluate(action, state string) Capabilities {
-	c := Capabilities{JumpBack: true}
+	c := Capabilities{JumpBack: true, Forget: true, Delete: true}
 	switch {
+	case derivedActions[action]:
+		c.Derived = true
+		c.Reason = "follows the change that caused it"
+	case action == "account.created" || action == "account.updated":
+		c.Revert = true
 	case strings.HasPrefix(action, "account."):
-		c.Revert = action == "account.created" || action == "account.updated"
-		c.Forget = true
-		c.Delete = action != "account.deleted" || true
-	case strings.HasPrefix(action, "valuation."):
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case strings.HasPrefix(action, "category."):
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case strings.HasPrefix(action, "transaction."):
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case action == "transfer.linked" || action == "transfer.unlink":
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case action == "recurring.detected":
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case action == "import.schema_detected":
-		c.Revert, c.Forget, c.Delete = false, true, true
-		c.Reason = "record-only entry"
+		c.Reason = "manage it from Settings → Accounts"
+	case strings.HasPrefix(action, "valuation."),
+		strings.HasPrefix(action, "category."),
+		strings.HasPrefix(action, "transaction."),
+		action == "transfer.linked" || action == "transfer.unlink",
+		action == "categorisation.applied":
+		c.Revert = true
 	case action == "import.confirmed":
-		c.Revert, c.JumpBack, c.Forget, c.Delete = true, true, false, false
-		c.Reason = "use revert (undo the import) first"
-	case strings.HasPrefix(action, "schema."),
-		strings.HasPrefix(action, "widget."),
-		action == "settings.ai.updated":
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case action == "categorisation.applied":
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case action == "classifier.retrained":
-		c.Revert, c.Forget, c.Delete = true, true, true
-	case strings.HasPrefix(action, "audit."):
-		c.Revert, c.JumpBack, c.Forget, c.Delete = false, true, true, true
-	case strings.HasPrefix(action, "setup."):
-		c.Revert, c.Forget, c.Delete = false, true, true
-		c.Reason = "record-only entry"
+		c.Revert, c.Forget, c.Delete = true, false, false
+		c.Reason = "undo the import first"
 	default:
-		c.Revert, c.Forget, c.Delete = true, true, true
+		// Records (setup, schemas, widgets, settings, history bookkeeping)
+		// have nothing to replay.
+		c.Reason = "record-only entry"
 	}
 	if state == "inactive" {
 		c.Revert = false
-		if c.Reason == "" {
-			c.Reason = "already inactive — restore the path instead"
-		} else {
-			c.Reason = "already inactive — " + c.Reason
-		}
+		c.Reason = "already undone"
 	}
 	return c
 }

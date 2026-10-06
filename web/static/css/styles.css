@@ -1079,11 +1079,17 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 .diff-add { color: var(--income); }
 .diff-del { color: var(--expense); text-decoration: line-through; }
+.history-effects {
+  list-style: none; margin: 8px 0 0; padding: 0 0 0 10px;
+  border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 3px;
+  font-size: 12px; color: var(--text-2);
+}
+.history-effects .who.system { color: var(--transfer); font-weight: 500; }
+.history-effect-sub { color: var(--muted); }
 .history-time { color: var(--muted); font-size: 11.5px; white-space: nowrap; line-height: 26px; flex: none; }
 /* Restore and ⋯ share one 26px row with the title and time. */
 .history-actions { display: flex; align-items: center; gap: 6px; flex: none; height: 26px; }
 .history-actions .btn-xs { height: 26px; padding-top: 0; padding-bottom: 0; }
-.history-actions .widget-btn { width: 26px; height: 26px; }
 .history-mode { margin-bottom: 12px; }
 
 .settings-grid {
@@ -1526,20 +1532,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .login-card h1.login-title { margin-bottom: 6px; }
 .login-sub { text-align: center; font-size: 12.5px; margin: 0 0 16px; }
 .tx-editor .tx-field select.field { min-width: 200px; }
-.audit-menu {
-  position: fixed; z-index: 60; min-width: 300px; max-width: 340px;
-  background: var(--panel-bg, #fff); border: 1px solid var(--border);
-  border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.16);
-  padding: 6px; opacity: 0; transform: translateY(-4px); transition: opacity .12s, transform .12s;
-}
-.audit-menu.open { opacity: 1; transform: translateY(0); }
-.audit-menu-head { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 4px; }
-.audit-menu-item { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 8px 10px; cursor: pointer; font: inherit; color: inherit; }
-.audit-menu-item:hover:not(:disabled) { background: rgba(44,197,122,.08); }
-.audit-menu-item:disabled { cursor: default; opacity: .55; }
-.audit-menu-item .audit-menu-label { display: block; font-size: 13.5px; font-weight: 600; }
-.audit-menu-item .audit-menu-desc { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
-.audit-menu-item.danger .audit-menu-label { color: var(--red, #c0392b); }
 
 .msg-error { color: var(--danger); font-weight: 500; }
 .queries-sidebar.collapsed ~ .queries-main .queries-messages { padding-top: 46px; }

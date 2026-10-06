@@ -5,7 +5,6 @@
     <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all&period={{.Period}}">All</a>
     <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you&period={{.Period}}">You</a>
     <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?mode=audit&filter=system&period={{.Period}}">System</a>
-    <a class="chip{{if eq .AuditFilter "import"}} active{{end}}" href="/history?mode=audit&filter=import&period={{.Period}}">Imports</a>
   </div>
 
   <div class="history-list" id="historyList">
@@ -28,11 +27,12 @@
       <summary>
         <span class="history-main">
           <span class="history-title">{{.Count}} undone {{if eq .Count 1}}change{{else}}changes{{end}}</span>
-          <span class="history-sub">Undone by restoring to an earlier point</span>
+          <span class="history-sub">Greyed-out changes are no longer in effect</span>
         </span>
         <span class="history-time">{{.When}}</span>
         <span class="history-actions">
-          <button class="btn btn-ghost btn-xs" type="button" data-restore-path="{{.PathID}}" title="Re-apply these changes">Redo</button>
+          <button class="btn btn-ghost btn-xs" type="button" data-redo="{{.IDs}}" title="Re-apply these changes">Redo</button>
+          <button class="btn btn-ghost btn-xs danger-text" type="button" data-discard="{{.IDs}}" title="Remove these changes from the log for good">Delete</button>
         </span>
       </summary>
       {{range .Entries}}{{template "audit-entry" .}}{{end}}
@@ -110,17 +110,20 @@
       {{range .DiffLines}}<span class="{{.Cls}}">{{.Line}}</span>{{end}}
     </div>
     {{end}}
+    {{if .Effects}}
+    <ul class="history-effects" aria-label="What the system did as a result">
+      {{range .Effects}}<li><span class="who system">System</span> {{.Title}}{{if .Sub}} <span class="history-effect-sub">· {{.Sub}}</span>{{end}}</li>{{end}}
+    </ul>
+    {{end}}
   </div>
   <time class="history-time" datetime="{{.Timestamp}}">{{.When}}</time>
   {{if ne .State "inactive"}}
+  {{if or .Rewindable .Undoable}}
   <div class="history-actions">
-    {{if .Jumpable}}
-    <button class="btn btn-ghost btn-xs" data-jump-back="{{.ID}}" title="Restore state to this point">Restore</button>
-    {{end}}
-    {{if or .Revertible .Deletable .Forgettable}}
-    <button class="widget-btn" data-audit-menu="{{.ID}}" title="More actions"><svg class="icon"><use href="#i-more"/></svg></button>
-    {{end}}
+    {{if .Rewindable}}<button class="btn btn-ghost btn-xs" data-jump-back="{{.ID}}" title="Undo everything after this change">Rewind here</button>{{end}}
+    {{if .Undoable}}<button class="btn btn-ghost btn-xs" data-undo="{{.ID}}" title="Undo just this change">Undo</button>{{end}}
   </div>
+  {{end}}
   {{end}}
 </div>
 {{end}}
