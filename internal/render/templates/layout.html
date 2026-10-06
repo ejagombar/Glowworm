@@ -102,20 +102,28 @@
         </nav>
 
         <div class="period-wrap">
-          <select class="period-select" id="periodSelect" aria-label="Date range">
-            <option value="all"{{if eq .Period "all"}} selected{{end}}>All time</option>
-            <option value="ytd"{{if eq .Period "ytd"}} selected{{end}}>Year to date</option>
-            <option value="last-12m"{{if eq .Period "last-12m"}} selected{{end}}>Last 12 months</option>
-            <option value="last-3m"{{if eq .Period "last-3m"}} selected{{end}}>Last 3 months</option>
-            <option value="last-month"{{if eq .Period "last-month"}} selected{{end}}>Last month</option>
-            <option value="last-day"{{if eq .Period "last-day"}} selected{{end}}>Last day</option>
-            <option value="custom"{{if eq .Period "custom"}} selected{{end}}>Custom…</option>
-          </select>
-          <div class="custom-range" id="customRange" hidden>
-            <input type="date" id="customFrom" aria-label="From date" {{if .PeriodFrom}}value="{{.PeriodFrom}}"{{end}} />
-            <span class="custom-range-sep">–</span>
-            <input type="date" id="customTo" aria-label="To date" {{if .PeriodTo}}value="{{.PeriodTo}}"{{end}} />
-            <button class="btn btn-primary btn-xs" id="customApply">Apply</button>
+          <input type="hidden" id="periodSelect" value="{{.Period}}" />
+          <button class="period-trigger" id="periodTrigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="periodMenu" aria-label="Date range">
+            <span id="periodLabel">Date range</span>
+            <svg class="icon"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="period-menu" id="periodMenu" hidden>
+            <div class="period-options" role="listbox" aria-label="Date range">
+              <button type="button" role="option" data-period="all">All time</button>
+              <button type="button" role="option" data-period="ytd">Year to date</button>
+              <button type="button" role="option" data-period="last-12m">Last 12 months</button>
+              <button type="button" role="option" data-period="last-3m">Last 3 months</button>
+              <button type="button" role="option" data-period="last-month">Last month</button>
+              <button type="button" role="option" data-period="last-day">Last day</button>
+            </div>
+            <form class="period-custom" id="customRange" data-period="custom">
+              <div class="period-custom-head">Custom</div>
+              <div class="period-custom-fields">
+                <label>From <input type="date" id="customFrom" {{if .PeriodFrom}}value="{{.PeriodFrom}}"{{end}} required /></label>
+                <label>To <input type="date" id="customTo" {{if .PeriodTo}}value="{{.PeriodTo}}"{{end}} required /></label>
+              </div>
+              <button class="btn btn-primary btn-xs" id="customApply" type="submit">Apply</button>
+            </form>
           </div>
         </div>
 

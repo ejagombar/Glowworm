@@ -216,36 +216,43 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
 .status-dot { width: 7px; height: 7px; border-radius: 1px; background: var(--accent); flex: none; }
 
 .period-wrap { flex: none; margin-left: 12px; position: relative; }
-.custom-range {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
-  display: flex; align-items: center; gap: 6px;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 3px; padding: 8px; box-shadow: var(--shadow-2);
-}
-.custom-range input[type="date"] {
+.period-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 32px; max-width: 220px; padding: 0 9px 0 10px;
   border: 1px solid var(--line-2); border-radius: 3px;
+  background: var(--surface); color: var(--text-2);
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.01em;
+  cursor: pointer; transition: border-color 0.14s;
+}
+.period-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.period-trigger .icon { width: 13px; height: 13px; color: var(--muted); transition: transform 0.15s; }
+.period-trigger:hover { border-color: var(--muted-2); }
+.period-trigger[aria-expanded="true"] { border-color: var(--primary); }
+.period-trigger[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.period-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 288px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  box-shadow: var(--shadow-2); padding: 4px 0 0;
+}
+.period-options { display: flex; flex-direction: column; padding: 0 4px; }
+.period-options button {
+  text-align: left; border: 0; background: none; color: var(--text-2);
+  font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 3px; cursor: pointer;
+}
+.period-options button:hover, .period-options button:focus-visible { background: var(--surface-2); color: var(--text); }
+.period-options button[aria-selected="true"] { color: var(--primary); font-weight: 600; }
+.period-custom { border-top: 1px solid var(--line); margin-top: 4px; padding: 9px 12px 12px; }
+.period-custom.selected .period-custom-head { color: var(--primary); }
+.period-custom-head { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 7px; }
+.period-custom-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 9px; }
+.period-custom-fields label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11.5px; color: var(--muted); }
+.period-custom input[type="date"] {
+  width: 100%; min-width: 0; border: 1px solid var(--line-2); border-radius: 3px;
   background: var(--surface); color: var(--text);
-  font-family: var(--mono); font-size: 12px; padding: 5px 7px; outline: none;
+  font-family: var(--mono); font-size: 11.5px; padding: 5px 6px; outline: none;
 }
-.custom-range-sep { color: var(--muted); }
-.period-select {
-  flex: none;
-  height: 32px;
-  max-width: 150px;
-  border: 1px solid var(--line-2);
-  border-radius: 3px;
-  background: var(--surface);
-  color: var(--text-2);
-  font-family: var(--mono);
-  font-size: 11.5px;
-  letter-spacing: 0.01em;
-  padding: 0 8px;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.14s;
-}
-.period-select:hover { border-color: var(--muted-2); }
-.period-select:focus { border-color: var(--primary); }
+.period-custom input[type="date"]:focus { border-color: var(--primary); }
+.period-custom .btn { width: 100%; justify-content: center; }
 
 .masthead-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: 12px; align-self: stretch; }
 .masthead-actions .icon-btn.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
@@ -1220,7 +1227,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 @media (max-width: 760px) {
   .masthead { padding: 0 10px; }
   .masthead .brand-name { display: none; }
-  .period-select { max-width: 118px; }
+  .period-trigger { max-width: 130px; }
   .tabnav-item { padding: 0 9px; }
   .content { padding: 16px 14px 36px; }
   .stats-grid, .stats-grid.three { grid-template-columns: 1fr 1fr; }
