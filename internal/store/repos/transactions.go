@@ -725,3 +725,56 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
+
+// SortDisplayRows orders rows by a table column ("date", "description",
+// "category", "account", "amount"); dir is "asc" or "desc". Ties fall back to
+// newest first.
+func SortDisplayRows(rows []*DisplayRow, key, dir string) {
+	text := func(r *DisplayRow) string {
+		t := r.Rep
+		switch key {
+		case "description":
+			return strings.ToLower(t.Description)
+		case "category":
+			if t.Category != nil {
+				return strings.ToLower(t.Category.Name)
+			}
+			return "￿" // uncategorised last when ascending
+		case "account":
+			if r.Kind == "linked" {
+				return strings.ToLower(r.Source + " " + r.Destination)
+			}
+			return strings.ToLower(t.AccountName())
+		}
+		return ""
+	}
+	cmp := func(a, b *DisplayRow) int {
+		switch key {
+		case "amount":
+			switch {
+			case a.Rep.AmountMinor < b.Rep.AmountMinor:
+				return -1
+			case a.Rep.AmountMinor > b.Rep.AmountMinor:
+				return 1
+			}
+			return 0
+		case "description", "category", "account":
+			return strings.Compare(text(a), text(b))
+		}
+		return strings.Compare(a.Rep.Date, b.Rep.Date)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		c := cmp(rows[i], rows[j])
+		if c == 0 {
+			a, b := rows[i].Rep, rows[j].Rep
+			if a.Date != b.Date {
+				return a.Date > b.Date
+			}
+			return a.CreatedAt > b.CreatedAt
+		}
+		if dir == "asc" {
+			return c < 0
+		}
+		return c > 0
+	})
+}

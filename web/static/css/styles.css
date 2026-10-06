@@ -848,6 +848,14 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .tx-table tbody tr { transition: background 0.12s; }
 .tx-table tbody tr:hover { background: var(--surface-2); }
 .tx-table .num { text-align: right; }
+.th-sort {
+  all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+  font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+}
+.th-sort:hover, .th-sort.active { color: var(--text-2); }
+.th-sort:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.th-sort-arrow { font-size: 8px; min-width: 8px; }
+.tx-table tbody tr[data-tx-id] { cursor: default; }
 .tx-table .cell-merchant { font-weight: 500; }
 .tx-table .cell-sub { color: var(--muted); font-size: 12px; }
 .tx-table .row-actions { opacity: 0; transition: opacity 0.12s; }

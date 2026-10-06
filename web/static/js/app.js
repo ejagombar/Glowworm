@@ -1934,6 +1934,8 @@ document.addEventListener("DOMContentLoaded", () => {
     put("period", table.dataset.txFilterPeriod);
     put("from", table.dataset.txFilterFrom);
     put("to", table.dataset.txFilterTo);
+    put("sort", table.dataset.txSort);
+    put("dir", table.dataset.txDir);
     params.set("offset", table.dataset.txNextOffset || "0");
     fetch("/transactions/rows?" + params.toString(), { headers: { "X-Requested-With": "fetch" } })
       .then((r) => {
@@ -1980,17 +1982,64 @@ document.addEventListener("DOMContentLoaded", () => {
   const body = document.getElementById("transactionsBody");
   if (!body) return;
 
+  // Column headers sort the table (server-side, so infinite scroll keeps the
+  // order). Text columns start A→Z; date and amount start largest first.
+  document.getElementById("transactionsHead")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-sort]");
+    if (!btn) return;
+    const url = new URL(window.location);
+    const key = btn.dataset.sort;
+    const curKey = url.searchParams.get("sort") || "date";
+    const curDir = url.searchParams.get("dir") || "desc";
+    let dir = key === "date" || key === "amount" ? "desc" : "asc";
+    if (key === curKey) dir = curDir === "asc" ? "desc" : "asc";
+    if (key === "date" && dir === "desc") {
+      url.searchParams.delete("sort");
+      url.searchParams.delete("dir");
+    } else {
+      url.searchParams.set("sort", key);
+      url.searchParams.set("dir", dir);
+    }
+    window.location = url.toString();
+  });
+
+  let editorSave = null; // saves the open editor if it changed; set by openEditor
+  const closeEditor = () => {
+    document.getElementById("txEditorRow")?.remove();
+    document.querySelectorAll("#transactionsBody tr.editing").forEach((r) => r.classList.remove("editing"));
+    editorSave = null;
+  };
+  const toggleEditor = (tr, id) => {
+    const open = document.getElementById("txEditorRow");
+    if (open && open.dataset.txId === id) { closeEditor(); return; }
+    if (open && editorSave && editorSave()) return; // a save reloads the page
+    closeEditor();
+    tr.classList.add("editing");
+    openEditor(tr, id);
+  };
   body.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-edit-tx]");
     if (!btn) return;
-    const tr = btn.closest("tr");
-    const id = btn.dataset.editTx;
-    const open = document.getElementById("txEditorRow");
-    if (open && open.dataset.txId === id) { open.remove(); tr.classList.remove("editing"); return; }
-    if (open) open.remove();
-    document.querySelectorAll("#transactionsBody tr.editing").forEach((r) => r.classList.remove("editing"));
-    tr.classList.add("editing");
-    openEditor(tr, id);
+    toggleEditor(btn.closest("tr"), btn.dataset.editTx);
+  });
+  body.addEventListener("dblclick", (e) => {
+    if (e.target.closest("button, a, input, select, .badge, #txEditorRow")) return;
+    const tr = e.target.closest("tr[data-tx-id]");
+    if (!tr) return;
+    window.getSelection()?.removeAllRanges(); // a double click selects a word
+    if (document.getElementById("txEditorRow")?.dataset.txId === tr.dataset.txId) return;
+    toggleEditor(tr, tr.dataset.txId);
+  });
+  // Clicking anywhere outside the open editor saves it (or just closes it
+  // when nothing changed). Escape closes without saving.
+  document.addEventListener("mousedown", (e) => {
+    const editor = document.getElementById("txEditorRow");
+    if (!editor || !editorSave) return;
+    if (editor.contains(e.target) || e.target.closest("tr.editing, .modal-backdrop, .toast, [data-edit-tx]")) return;
+    if (!editorSave()) closeEditor();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.getElementById("txEditorRow")) closeEditor();
   });
 
   function openEditor(tr, id) {
@@ -2067,7 +2116,15 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         }
       }
-      document.getElementById("txeCancel").addEventListener("click", () => { editor.remove(); tr.classList.remove("editing"); });
+      document.getElementById("txeCancel").addEventListener("click", closeEditor);
+      const editorState = () => ["txeDate", "txeDescription", "txeCategory", "txeCounterpart", "txeAmount"]
+        .map((x) => document.getElementById(x)?.value ?? "").join("\u0000");
+      const initialState = editorState();
+      editorSave = () => {
+        if (editorState() === initialState) return false;
+        document.getElementById("txeSave").click();
+        return true;
+      };
       document.getElementById("txeSave").addEventListener("click", () => {
         const date = document.getElementById("txeDate").value;
         const description = document.getElementById("txeDescription").value.trim();
