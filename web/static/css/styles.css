@@ -781,6 +781,22 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .key-row { display: flex; align-items: center; gap: 8px; }
 .key-row .field { flex: 1; min-width: 0; }
 .key-row .btn { flex: none; }
+.model-picker { position: relative; }
+.model-picker .field { width: 100%; }
+.model-picker-list {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 280px; overflow-y: auto; margin: 0; padding: 4px 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r);
+  box-shadow: var(--shadow-2);
+}
+.model-picker-list li {
+  padding: 6px 11px; font-size: 13px; cursor: pointer; display: flex; gap: 8px; align-items: baseline;
+}
+.model-picker-list li .model-id { color: var(--muted); font-size: 11.5px; font-family: var(--mono); margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.model-picker-list li[aria-selected="true"] { font-weight: 600; }
+.model-picker-list li.active { background: var(--surface-2); }
+.model-picker-list .model-picker-empty { color: var(--muted); cursor: default; }
+.model-picker-hint { margin: 4px 0 0; font-size: 12px; }
 
 .account-actions {
   display: flex; flex-direction: column; align-items: stretch;

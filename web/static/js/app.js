@@ -1165,6 +1165,79 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
+// A searchable model list: type to filter, sorted alphabetically, with
+// "Auto" (empty value) first. Keeps its value even before models load.
+function modelPicker(root) {
+  if (!root) return null;
+  const input = root.querySelector("input");
+  const list = root.querySelector(".model-picker-list");
+  const AUTO = { id: "", name: "Auto (provider default)" };
+  const label = (m) => m.name || m.id;
+  let models = [];
+  let shown = [];
+  let active = -1;
+  const api = { value: root.dataset.value || "" };
+
+  const display = () => {
+    const m = models.find((x) => x.id === api.value);
+    input.value = api.value ? (m ? label(m) : api.value) : "";
+  };
+  const close = () => {
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    display();
+  };
+  const render = (q) => {
+    const needle = (q || "").trim().toLowerCase();
+    shown = [AUTO, ...models].filter((m) => !needle || m.id === "" ||
+      label(m).toLowerCase().includes(needle) || m.id.toLowerCase().includes(needle));
+    if (needle) shown = shown.filter((m) => m.id !== "" || "auto".includes(needle));
+    active = Math.max(0, shown.findIndex((m) => m.id === api.value));
+    list.innerHTML = shown.length
+      ? shown.map((m, i) => `<li role="option" data-i="${i}" aria-selected="${m.id === api.value}"${i === active ? ' class="active"' : ""}>
+          <span>${esc(label(m))}</span>${m.id && m.name && m.name !== m.id ? `<span class="model-id">${esc(m.id)}</span>` : ""}</li>`).join("")
+      : `<li class="model-picker-empty">No models match “${esc(q)}”</li>`;
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  };
+  const highlight = (i) => {
+    if (!shown.length) return;
+    active = (i + shown.length) % shown.length;
+    list.querySelectorAll("li[data-i]").forEach((li) => li.classList.toggle("active", Number(li.dataset.i) === active));
+    list.querySelector(`li[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  };
+  const choose = (i) => {
+    const m = shown[i];
+    if (!m) return;
+    api.value = m.id;
+    close();
+  };
+
+  input.addEventListener("focus", () => { input.select(); render(""); });
+  input.addEventListener("input", () => render(input.value));
+  input.addEventListener("blur", () => setTimeout(close, 120));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); if (list.hidden) render(""); else highlight(active + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); highlight(active - 1); }
+    else if (e.key === "Enter") { if (!list.hidden) { e.preventDefault(); choose(active); } }
+    else if (e.key === "Escape") { close(); input.blur(); }
+  });
+  list.addEventListener("mousedown", (e) => {
+    const li = e.target.closest("li[data-i]");
+    if (!li) return;
+    e.preventDefault();
+    choose(Number(li.dataset.i));
+  });
+
+  api.setModels = (next) => {
+    models = (next || []).slice().sort((x, y) => label(x).localeCompare(label(y), undefined, { sensitivity: "base" }));
+    if (api.value && !models.some((m) => m.id === api.value)) models.unshift({ id: api.value, name: api.value });
+    display();
+  };
+  api.setModels([]);
+  return api;
+}
+
 function openRecurring(key) {
   fetch(`/api/v1/recurring/${encodeURIComponent(key)}/transactions`)
     .then((r) => r.json())
@@ -1246,9 +1319,9 @@ function openAccountForm(id) {
   form.dataset.accountId = id || "";
   document.getElementById("accSaveBtn").textContent = id ? "Save changes" : "Add account";
   document.getElementById("accountModalTitle").textContent = id ? "Account settings" : "Add account";
+  document.getElementById("accountModalSub").textContent = id ? "Edit this account's details." : "Add a new account to Glowworm.";
   document.getElementById("accDeleteBtn").hidden = !id;
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById("accValuationDate").value = today;
+  resetValuationFields();
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => r.json()).then((a) => {
       document.getElementById("accName").value = a.name || "";
@@ -1259,22 +1332,44 @@ function openAccountForm(id) {
       document.getElementById("accSortCode").value = a.sort_code || "";
       document.getElementById("accIban").value = a.iban || "";
       document.getElementById("accBic").value = a.bic || "";
-      document.getElementById("accValuation").value = a.current_balance_minor != null ? (a.current_balance_minor / 100).toFixed(2) : "";
+      syncValuationBlock();
     }).catch(() => toast("Could not load account"));
   } else {
-    ["accName","accOpening","accNumber","accSortCode","accIban","accBic","accValuation"].forEach((x) => (document.getElementById(x).value = ""));
+    ["accName","accOpening","accNumber","accSortCode","accIban","accBic"].forEach((x) => (document.getElementById(x).value = ""));
     document.getElementById("accType").value = "debit";
   }
+  syncValuationBlock();
   modal.hidden = false;
   document.getElementById("accName").focus();
+}
+
+// A dated value is only for savings accounts, and only when asked for: the
+// fields stay hidden behind "Add a value at a date" so a plain save never
+// records a correction.
+function resetValuationFields() {
+  document.getElementById("accValuationRow").hidden = true;
+  document.getElementById("accValuationAdd").hidden = false;
+  document.getElementById("accValuation").value = "";
+  document.getElementById("accValuationDate").value = new Date().toISOString().slice(0, 10);
+}
+function syncValuationBlock() {
+  const savings = document.getElementById("accType").value === "savings";
+  document.getElementById("accValuationBlock").hidden = !savings;
+  if (!savings) resetValuationFields();
+}
+function pendingValuation() {
+  if (document.getElementById("accValuationBlock").hidden || document.getElementById("accValuationRow").hidden) return null;
+  const raw = document.getElementById("accValuation").value;
+  const val = parseFloat(raw);
+  if (raw === "" || isNaN(val)) return null;
+  return { value_minor: Math.round(val * 100), date: document.getElementById("accValuationDate").value, note: "Manual valuation" };
 }
 
 function saveAccount() {
   const form = document.getElementById("accountForm");
   const id = form.dataset.accountId;
   const body = accountPayload();
-  const val = parseFloat(document.getElementById("accValuation").value);
-  const valDate = document.getElementById("accValuationDate").value;
+  const valuation = pendingValuation();
   const url = id ? `/api/v1/accounts/${id}` : "/api/v1/accounts";
   fetch(url, {
     method: id ? "PATCH" : "POST",
@@ -1288,22 +1383,20 @@ function saveAccount() {
     }
     return r.json();
   }).then((acct) => {
-    if (!acct) return;
-    if (id && !isNaN(val) && document.getElementById("accValuation").value !== "") {
-      return fetch(`/api/v1/accounts/${id}/valuations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ value_minor: Math.round(val * 100), date: valDate, note: "Manual valuation" }),
-      });
-    }
-    if (!id && !isNaN(val) && document.getElementById("accValuation").value !== "") {
-      return fetch(`/api/v1/accounts/${acct.id}/valuations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ value_minor: Math.round(val * 100), date: valDate, note: "Manual valuation" }),
-      });
-    }
-  }).then(() => {
+    if (!acct) return false;
+    if (!valuation) return true;
+    return fetch(`/api/v1/accounts/${id || acct.id}/valuations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify(valuation),
+    }).then(async (r) => {
+      if (r.ok) return true;
+      const b = await r.json().catch(() => ({}));
+      toast((b.error && b.error.message) || "Account saved, but the value couldn't be recorded");
+      return false;
+    });
+  }).then((ok) => {
+    if (!ok) return;
     closeModal("accountModal");
     toast("Account saved");
     location.reload();
@@ -1317,6 +1410,12 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accSaveBtn")?.addEventListener("click", (e) => { e.preventDefault(); saveAccount(); });
   document.getElementById("accCancelBtn")?.addEventListener("click", () => closeModal("accountModal"));
   document.querySelectorAll("[data-action='close-account']").forEach((b) => b.addEventListener("click", () => closeModal("accountModal")));
+  document.getElementById("accType")?.addEventListener("change", syncValuationBlock);
+  document.getElementById("accValuationAdd")?.addEventListener("click", () => {
+    document.getElementById("accValuationAdd").hidden = true;
+    document.getElementById("accValuationRow").hidden = false;
+    document.getElementById("accValuation").focus();
+  });
   // The new-transaction modal is wired in the boot handler (guarded by
   // #newTxBtn). An unguarded copy here threw on pages without it and killed
   // every binding below.
@@ -1581,12 +1680,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (base && !base.value) base.placeholder = "https://openrouter.ai/api/v1";
     }
   };
-  const aiModelSel = document.getElementById("aiModel");
+  const queryPicker = modelPicker(document.getElementById("aiModelQueries"));
+  const catPicker = modelPicker(document.getElementById("aiModelCat"));
   const aiModelsStatus = document.getElementById("aiModelsStatus");
   const aiLoadBtn = document.getElementById("aiLoadModels");
-  const savedModel = aiModelSel && aiModelSel.options.length > 1 ? aiModelSel.options[1].value : "";
   const loadAIModels = async () => {
-    if (!aiModelSel || !aiProviderSel || aiProviderSel.value === "") {
+    if (!queryPicker || !aiProviderSel || aiProviderSel.value === "") {
       if (aiModelsStatus) aiModelsStatus.textContent = "Pick a provider first.";
       return;
     }
@@ -1605,11 +1704,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const b = await r.json().catch(() => ({}));
       if (!r.ok || !b.ok) throw new Error((b.error && b.error.message) || "could not list models");
       const models = b.models || [];
-      const current = aiModelSel.value || savedModel;
-      aiModelSel.innerHTML = "";
-      aiModelSel.appendChild(new Option("Auto (provider default)", ""));
-      models.forEach((m) => aiModelSel.appendChild(new Option(m.name || m.id, m.id)));
-      if (current && models.some((m) => m.id === current)) aiModelSel.value = current;
+      queryPicker.setModels(models);
+      catPicker?.setModels(models);
       if (aiModelsStatus) {
         if (b.source === "live") {
           aiModelsStatus.textContent = models.length + " models loaded from the provider.";
@@ -1642,8 +1738,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // The masked placeholder means "keep the saved key": never send the mask.
     const typedKey = aiKeyInput.value.trim();
     const key = typedKey === KEY_MASK ? "" : typedKey;
-    const model = aiModelSel ? aiModelSel.value : "";
-    const models = { default: model };
+    const models = {
+      queries: queryPicker ? queryPicker.value : "",
+      categorisation: catPicker ? catPicker.value : "",
+    };
+    models.default = models.categorisation;
     fetch("/api/v1/settings/ai", {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },

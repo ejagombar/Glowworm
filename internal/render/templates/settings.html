@@ -87,15 +87,28 @@
         {{if .AIHasKey}}<p class="muted" style="margin:4px 0 0">A key is saved for this provider. Click the field to replace it, or Clear to remove it.</p>{{end}}
       </div>
       <div class="field-row">
-        <label>Model</label>
-        <div class="key-row">
-          <select class="field select" id="aiModel">
-            <option value="">Auto (provider default)</option>
-            {{if .AIModel}}<option value="{{.AIModel}}" selected>{{.AIModel}}</option>{{end}}
-          </select>
-          <button class="btn btn-ghost btn-xs" id="aiLoadModels" type="button" title="Fetch the model list from the provider">Load models</button>
+        <label for="aiModelQueriesInput">Queries model</label>
+        <div class="model-picker" id="aiModelQueries" data-value="{{.AIQueriesModel}}">
+          <input class="field" id="aiModelQueriesInput" type="text" autocomplete="off" spellcheck="false"
+            role="combobox" aria-expanded="false" aria-controls="aiModelQueriesList" placeholder="Auto (provider default)" />
+          <ul class="model-picker-list" id="aiModelQueriesList" role="listbox" hidden></ul>
         </div>
-        <p class="muted" id="aiModelsStatus" style="margin:4px 0 0">Load the model list for the selected provider.</p>
+        <p class="muted model-picker-hint">Answers questions on the Queries page.</p>
+      </div>
+      <div class="field-row">
+        <label for="aiModelCatInput">Categorisation model</label>
+        <div class="model-picker" id="aiModelCat" data-value="{{.AICatModel}}">
+          <input class="field" id="aiModelCatInput" type="text" autocomplete="off" spellcheck="false"
+            role="combobox" aria-expanded="false" aria-controls="aiModelCatList" placeholder="Auto (provider default)" />
+          <ul class="model-picker-list" id="aiModelCatList" role="listbox" hidden></ul>
+        </div>
+        <p class="muted model-picker-hint">Categorises imports and reads statement layouts.</p>
+      </div>
+      <div class="field-row">
+        <div class="key-row">
+          <p class="muted" id="aiModelsStatus" style="margin:0; flex:1">Load the model list for the selected provider.</p>
+          <button class="btn btn-ghost btn-xs" id="aiLoadModels" type="button" title="Fetch the model list from the provider">Reload models</button>
+        </div>
       </div>
       <div class="field-row">
         <button class="btn btn-primary" id="aiSave">Save provider</button>

@@ -9,10 +9,10 @@ import (
 	"glowworm/internal/backup"
 )
 
-func (a *App) setProvider(p ai.Provider) {
-	a.Cat.Provider = p
-	a.Imports.Provider = p
-	a.Query.Provider = p
+func (a *App) setProviders(cat, queries ai.Provider) {
+	a.Cat.Provider = cat
+	a.Imports.Provider = cat
+	a.Query.Provider = queries
 }
 
 func (a *App) confirmOwner(r *http.Request, password string) error {
@@ -72,7 +72,7 @@ func (a *App) apiInstanceDelete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	a.Cat.Model = nil
-	a.setProvider(resolveProvider(a.DB, a.Secret, a.Log))
+	a.setProviders(resolveProviders(a.DB, a.Secret, a.Log))
 	a.Log.Warn("glowworm account deleted: all data erased", "remote", clientIP(r, a.Cfg.TrustedProxies))
 	clearSession(w, r)
 	writeJSON(w, map[string]any{"ok": true})

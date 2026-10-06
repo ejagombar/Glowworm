@@ -84,6 +84,7 @@ function barChartSVG(data, width = 640, height = 260) {
   const labels = data.labels || [];
   const all = s.flatMap((x) => x.values || []);
   const max = Math.max(0, ...all);
+  const scale = max || 1; // an empty chart would otherwise divide by zero
   const W = width, H = height, padL = 46, padB = 30, padT = 14, padR = 10;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const groupW = innerW / Math.max(labels.length, 1);
@@ -92,7 +93,7 @@ function barChartSVG(data, width = 640, height = 260) {
   let parts = [];
   const ticks = axisTicks(max);
   ticks.forEach((t) => {
-    const y = padT + innerH - (t / max) * innerH;
+    const y = padT + innerH - (t / scale) * innerH;
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtMoneyAxis(t)}</text>`);
   });
@@ -101,7 +102,7 @@ function barChartSVG(data, width = 640, height = 260) {
     const x = padL + i * groupW + groupW / 2;
     s.forEach((series, si) => {
       const v = series.values[i] || 0;
-      const h = (v / max) * innerH;
+      const h = (v / scale) * innerH;
       const bx = x - (s.length * barW) / 2 + si * barW + 2;
       const by = padT + innerH - h;
       parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(h, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"><title>${esc(series.name)}: ${fmtMoney(v)}</title></rect>`);
