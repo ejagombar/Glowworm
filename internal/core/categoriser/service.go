@@ -400,6 +400,17 @@ func (s *Service) LoadLatestModel() (*classifier.Model, error) {
 	return classifier.DecodeModel(payload)
 }
 
+// RetrainQuiet rebuilds the model from the current data without a history
+// entry; with no user-categorised rows left there is no model.
+func (s *Service) RetrainQuiet() {
+	model, err := s.TrainFromUserRows()
+	if err != nil {
+		s.Model = nil
+		return
+	}
+	s.Model = model
+}
+
 func (s *Service) Retrain() (*classifier.Model, error) {
 	model, err := s.TrainFromUserRows()
 	if err != nil {

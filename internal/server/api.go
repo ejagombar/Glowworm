@@ -140,6 +140,8 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/audit/{id}/capabilities", j(a.apiAuditCapabilities))
 	mux.HandleFunc("POST /api/v1/audit/{id}/revert", j(a.apiAuditRevert))
 	mux.HandleFunc("POST /api/v1/audit/{id}/jump-back", j(a.apiAuditJumpBack))
+	mux.HandleFunc("POST /api/v1/audit/redo", j(a.apiAuditRedo))
+	mux.HandleFunc("POST /api/v1/audit/discard", j(a.apiAuditDiscard))
 	mux.HandleFunc("POST /api/v1/audit/paths/{path}/restore", j(a.apiAuditRestorePath))
 	mux.HandleFunc("DELETE /api/v1/audit/{id}", j(a.apiAuditDelete))
 
@@ -499,11 +501,44 @@ func (a *App) apiAuditRevert(w http.ResponseWriter, r *http.Request) error {
 		apiError(w, http.StatusBadRequest, "validation_failed", "Bad id")
 		return nil
 	}
-	if err := a.Audit.Revert(id, a.applyEntry); err != nil {
+	if err := a.Audit.Undo(id, a.applyEntry); err != nil {
 		apiError(w, http.StatusConflict, "conflict", err.Error())
 		return nil
 	}
+	a.afterHistoryChange()
 	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+func (a *App) apiAuditRedo(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	if err := a.Audit.Redo(in.IDs, a.applyEntry); err != nil {
+		apiError(w, http.StatusConflict, "conflict", err.Error())
+		return nil
+	}
+	a.afterHistoryChange()
+	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+func (a *App) apiAuditDiscard(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	n, err := a.Audit.Discard(in.IDs)
+	if err != nil {
+		apiError(w, http.StatusConflict, "conflict", err.Error())
+		return nil
+	}
+	writeJSON(w, map[string]any{"ok": true, "removed": n})
 	return nil
 }
 
@@ -518,6 +553,7 @@ func (a *App) apiAuditJumpBack(w http.ResponseWriter, r *http.Request) error {
 		apiError(w, http.StatusConflict, "conflict", err.Error())
 		return nil
 	}
+	a.afterHistoryChange()
 	writeJSON(w, res)
 	return nil
 }
@@ -528,6 +564,7 @@ func (a *App) apiAuditRestorePath(w http.ResponseWriter, r *http.Request) error 
 		apiError(w, http.StatusConflict, "conflict", err.Error())
 		return nil
 	}
+	a.afterHistoryChange()
 	writeJSON(w, res)
 	return nil
 }

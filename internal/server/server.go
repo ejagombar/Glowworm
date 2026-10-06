@@ -117,7 +117,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		DB: db, Accounts: rp.Accounts, Txs: rp.Transactions, Audit: writer,
 		Cat: app.Cat, Provider: provider, DisplayCC: displayCC, Log: log,
 	}
-	app.Imports.AfterCommit = func(string) { app.refreshDerived() }
+	app.Imports.AfterCommit = app.afterImport
 	app.Accounts.AfterChange = app.refreshDerived
 	app.Transfers = &transfers.Service{
 		DB: db, Txs: rp.Transactions, Accounts: rp.Accounts, Audit: writer,
@@ -358,6 +358,28 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		}
 		w.Write(data)
 	})
+}
+
+// afterImport runs the follow-on detection and retraining, then ties the
+// system entries written since the import (including merchant enrichment)
+// to it, so undoing the import undoes them too.
+func (a *App) afterImport(batchID string) {
+	a.refreshDerived()
+	var cause int64
+	_ = a.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM audit_entries WHERE action = 'import.confirmed' AND entity_id = ?`, batchID).Scan(&cause)
+	if err := a.AuditWriter.LinkCause(cause); err != nil {
+		a.Log.Error("link import side effects", "err", err)
+	}
+}
+
+// afterHistoryChange rebuilds what is derived from the data after an undo,
+// rewind, redo or discard. It writes no audit entries: the change being
+// undone or redone is already in the log.
+func (a *App) afterHistoryChange() {
+	if err := a.Cat.RefreshRules(); err != nil {
+		a.Log.Error("rules refresh", "err", err)
+	}
+	a.Cat.RetrainQuiet()
 }
 
 func (a *App) refreshDerived() {

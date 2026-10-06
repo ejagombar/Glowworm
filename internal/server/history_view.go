@@ -19,10 +19,12 @@ type auditEntryView struct {
 	State       string
 	PathID      string
 	Action      string
-	Revertible  bool
-	Jumpable    bool
-	Forgettable bool
-	Deletable   bool
+	Undoable    bool
+	Rewindable  bool
+	CausedBy    int64
+	// Effects are the system changes this entry caused; they're shown
+	// inside it and undone/redone with it.
+	Effects []auditEntryView
 }
 
 // auditBlock is one row of the audit log: a single entry, a run of the same
@@ -36,6 +38,18 @@ type auditBlock struct {
 
 func (b auditBlock) First() auditEntryView { return b.Entries[0] }
 func (b auditBlock) Count() int            { return len(b.Entries) }
+
+// IDs lists the block's entries for the Redo/Delete buttons, e.g. "12,11".
+func (b auditBlock) IDs() string {
+	out := ""
+	for i, e := range b.Entries {
+		if i > 0 {
+			out += ","
+		}
+		out += fmt.Sprint(e.ID)
+	}
+	return out
+}
 
 func (a *App) toEntryViews(entries []core.AuditEntry) []auditEntryView {
 	now := time.Now()
@@ -52,7 +66,7 @@ func (a *App) toEntryViews(entries []core.AuditEntry) []auditEntryView {
 			ID: e.ID, Timestamp: e.Timestamp, When: a.auditWhen(e.Timestamp, now),
 			Actor: actorLabel(e.Actor), Kind: kind,
 			Title: e.Title, Sub: e.Sub, DiffLines: e.DiffLines, State: e.State,
-			PathID: e.PathID, Action: e.Action,
+			PathID: e.PathID, Action: e.Action, CausedBy: e.CausedBy,
 		})
 	}
 	return out
@@ -93,6 +107,7 @@ func (a *App) auditWhen(ts string, now time.Time) string {
 // undone entries from one path collapse together, and so do consecutive
 // active entries of the same action by the same actor.
 func groupAuditEntries(views []auditEntryView) []auditBlock {
+	views = nestEffects(views)
 	var blocks []auditBlock
 	for _, v := range views {
 		if n := len(blocks); n > 0 {
@@ -128,4 +143,26 @@ func groupAuditEntries(views []auditEntryView) []auditBlock {
 		}
 	}
 	return blocks
+}
+
+// nestEffects moves entries caused by another listed entry inside it, so a
+// change and its knock-on system changes read (and act) as one.
+func nestEffects(views []auditEntryView) []auditEntryView {
+	at := map[int64]int{}
+	for i, v := range views {
+		at[v.ID] = i
+	}
+	effects := map[int64][]auditEntryView{}
+	out := make([]auditEntryView, 0, len(views))
+	for _, v := range views {
+		if _, ok := at[v.CausedBy]; ok && v.CausedBy != 0 {
+			effects[v.CausedBy] = append(effects[v.CausedBy], v)
+			continue
+		}
+		out = append(out, v)
+	}
+	for i := range out {
+		out[i].Effects = effects[out[i].ID]
+	}
+	return out
 }

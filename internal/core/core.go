@@ -217,6 +217,7 @@ type AuditEntry struct {
 	Revert      string `json:"revert"`
 	PathID      string `json:"path_id"`
 	State       string `json:"state"`
+	CausedBy    int64  `json:"caused_by,omitempty"`
 
 	DiffLines []DiffLine `json:"diff_lines,omitempty"`
 }

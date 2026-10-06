@@ -751,8 +751,6 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 			opt.Actor = core.ActorUser
 		case "system":
 			opt.Actors = []string{core.ActorAI, core.ActorSystem}
-		case "import":
-			opt.Action = "import"
 		}
 		entries, _, err := a.Audit.List(opt)
 		if err != nil {
@@ -774,13 +772,13 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 					}
 				}
 				rows.Close()
+				latest := a.Audit.LatestRewindableID()
 				for i := range entryViews {
 					if row, ok := states[entryViews[i].ID]; ok {
 						caps := a.Audit.Policy.Evaluate(row.Action, row.State)
-						entryViews[i].Revertible = caps.Revert
-						entryViews[i].Jumpable = caps.JumpBack
-						entryViews[i].Forgettable = caps.Forget
-						entryViews[i].Deletable = caps.Delete
+						entryViews[i].Undoable = caps.Revert
+						// Only where something after it would actually be undone.
+						entryViews[i].Rewindable = caps.JumpBack && row.State == "active" && row.ID < latest
 					}
 				}
 			}

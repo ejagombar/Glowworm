@@ -125,11 +125,20 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		return x.applyCategoryFields(tx, id, fields)
 
 	case "category.deleted":
+		// Deletion is soft, so undo brings the same row back.
 		id := str(revert["category_id"])
 		if reapply {
+			return x.Categories.Delete(tx, id)
+		}
+		var exists int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM categories WHERE id = ?`, id).Scan(&exists); err == nil && exists == 0 {
 			return x.restoreCategory(tx, id, before)
 		}
-		return fmt.Errorf("auditexec: category already removed")
+		return x.Categories.Restore(tx, id)
+
+	case "classifier.retrained", "recurring.detected", "merchant.enriched":
+		// Derived from the data; recomputed after any undo or redo.
+		return nil
 
 	case "transfer.linked", "transfer.unlink":
 		return x.applyTransfer(tx, ent, before, after, revert, reapply)
@@ -141,14 +150,14 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		"audit.reverted", "audit.jumpback", "audit.path.activated", "audit.entry.deleted",
 		"schema.saved", "schema.updated", "schema.deleted",
 		"widget.pinned", "widget.updated", "widget.unpinned", "widget.reordered",
-		"settings.ai.updated", "classifier.retrained", "classifier.reverted",
+		"settings.ai.updated", "classifier.reverted",
 		"setup.completed", "setup.account_created", "setup.categories_seeded", "setup.widgets_seeded",
 		"account.valuation.correction":
 		if ent.Action == "import.confirmed" || ent.Action == "schema.saved" ||
 			ent.Action == "schema.updated" || ent.Action == "schema.deleted" ||
 			ent.Action == "widget.pinned" || ent.Action == "widget.updated" ||
 			ent.Action == "widget.unpinned" || ent.Action == "widget.reordered" ||
-			ent.Action == "settings.ai.updated" || ent.Action == "classifier.retrained" ||
+			ent.Action == "settings.ai.updated" ||
 			ent.Action == "setup.completed" {
 			return fmt.Errorf("auditexec: revert for %s not wired in this build", ent.Action)
 		}
@@ -467,7 +476,16 @@ func (x *Executor) applyImportConfirmed(tx *sql.Tx, ent *audit.AuditRow, revert 
 		return fmt.Errorf("auditexec: batch id missing in payload")
 	}
 	if reapply {
-		return fmt.Errorf("auditexec: re-applying a confirmed import is not supported")
+		// Bring back the rows the undo removed (it stamped them all at once).
+		var stamp sql.NullString
+		if err := tx.QueryRow(`SELECT MAX(deleted_at) FROM transactions WHERE import_batch_id = ?`, batchID).Scan(&stamp); err != nil {
+			return err
+		}
+		if !stamp.Valid {
+			return nil
+		}
+		_, err := tx.Exec(`UPDATE transactions SET deleted_at = NULL WHERE import_batch_id = ? AND deleted_at = ?`, batchID, stamp.String)
+		return err
 	}
 	rows, err := tx.Query(`SELECT id FROM transactions WHERE import_batch_id = ? AND deleted_at IS NULL`, batchID)
 	if err != nil {
@@ -483,8 +501,9 @@ func (x *Executor) applyImportConfirmed(tx *sql.Tx, ent *audit.AuditRow, revert 
 		ids = append(ids, id)
 	}
 	rows.Close()
+	stamp := util.NowStr()
 	for _, id := range ids {
-		if _, err := tx.Exec(`UPDATE transactions SET deleted_at = ? WHERE id = ?`, util.NowStr(), id); err != nil {
+		if _, err := tx.Exec(`UPDATE transactions SET deleted_at = ? WHERE id = ?`, stamp, id); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM transfers WHERE source_transaction_id = ? OR destination_transaction_id = ?`, id, id); err != nil {
