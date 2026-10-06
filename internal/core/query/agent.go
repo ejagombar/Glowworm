@@ -160,6 +160,11 @@ DATABASE (SQLite). Tables you may query:
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Balance(account) = opening_balance_minor +
 SUM(amount_minor) of its transactions (only those after opening_balance_date when set).
+SAVINGS ARE EXCLUDED BY DEFAULT: leave savings accounts (accounts.type = 'savings')
+out of every figure — balances, spend, income, counts, lists, charts — unless the
+question mentions savings or names a savings account. Filter accounts with
+a.type <> 'savings', and transactions with
+t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings').
 
 `)
 	b.WriteString(fmt.Sprintf("USER'S CATEGORIES: %s\n", joinOrNone(cats)))
@@ -206,17 +211,20 @@ EXAMPLE QUERIES (verified against this schema — prefer these patterns):
   SELECT a.name, a.opening_balance_minor + COALESCE((SELECT SUM(t.amount_minor)
     FROM transactions t WHERE t.account_id = a.id AND t.deleted_at IS NULL
     AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date)), 0)
-    AS balance FROM accounts a WHERE a.deleted_at IS NULL
-- Balance at each month end (a series, for line charts):
+    AS balance FROM accounts a WHERE a.deleted_at IS NULL AND a.type <> 'savings'
+- Balance at each month end (a series, for line charts; savings excluded):
   WITH months AS (SELECT DISTINCT strftime('%Y-%m', date) AS m FROM transactions WHERE deleted_at IS NULL)
-  SELECT m.m AS month, (SELECT COALESCE(SUM(opening_balance_minor),0) FROM accounts WHERE deleted_at IS NULL)
+  SELECT m.m AS month, (SELECT COALESCE(SUM(opening_balance_minor),0) FROM accounts
+      WHERE deleted_at IS NULL AND type <> 'savings')
     + COALESCE(SUM(t.amount_minor), 0) AS balance
   FROM months m LEFT JOIN transactions t ON t.deleted_at IS NULL AND strftime('%Y-%m', t.date) <= m.m
+    AND t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings')
   GROUP BY m.m ORDER BY m.m
 - Spend by category in a range:
   SELECT c.name AS category, SUM(-t.amount_minor) AS spend FROM transactions t
     LEFT JOIN categories c ON c.id = t.category_id
     WHERE t.deleted_at IS NULL AND t.type = 'expense' AND t.date BETWEEN '2026-01-01' AND '2026-06-30'
+    AND t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings')
     GROUP BY 1 ORDER BY spend DESC
 - Spend at a named merchant/payee (description fallback — merchant is often empty):
   SELECT SUM(-t.amount_minor) AS spend, COUNT(*) AS n, MIN(t.date) AS first, MAX(t.date) AS last
@@ -320,11 +328,12 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 			}
 			res, qerr := RunReadonlyQuery(s.DB, sql)
 			if qerr != nil {
-				emit(truncateChars(fmt.Sprintf("Query failed (%s): %s", qerr.Error(), oneLine(sql, 120)), 260))
+				// A step is a heading line, then the full SQL (shown as code).
+				emit(fmt.Sprintf("Query failed: %s\n%s", truncateChars(oneLine(qerr.Error(), 200), 200), strings.TrimSpace(sql)))
 				msgs = append(msgs, ai.ChatMessage{Role: "user", Content: "TOOL RESULT: " + truncateChars("error: "+qerr.Error(), 600)})
 				continue
 			}
-			emit(fmt.Sprintf("Generated query: %s → %d rows", oneLine(sql, 200), res.RowCount))
+			emit(fmt.Sprintf("Ran a query → %d row%s\n%s", res.RowCount, plural(res.RowCount), strings.TrimSpace(sql)))
 			var resultJSON []byte
 			resultJSON, _ = json.Marshal(res)
 			msgs = append(msgs, ai.ChatMessage{Role: "user", Content: "TOOL RESULT: " + truncateChars(string(resultJSON), agentMaxTranscript)})

@@ -62,5 +62,5 @@
 {{end}}
 
 {{define "msg-reason"}}<details class="msg-reason"><summary>How I worked this out</summary><div class="reason-steps">{{range .}}
-<div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span>{{.}}</span></div>
+{{$p := stepParts .}}<div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><div class="reason-body"><span>{{$p.Text}}</span>{{if $p.Code}}<pre class="reason-sql"><code>{{$p.Code}}</code></pre>{{end}}</div></div>
 {{end}}</div></details>{{end}}

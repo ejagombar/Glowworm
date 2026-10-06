@@ -131,7 +131,7 @@ func TestAgentLoopRunsQueryThenAnswers(t *testing.T) {
 		t.Error("expected palette color to be assigned")
 	}
 	joined := strings.Join(steps, "|")
-	if !strings.Contains(joined, "Generated query:") {
+	if !strings.Contains(joined, "Ran a query") || !strings.Contains(joined, "\nSELECT") {
 		t.Errorf("steps missing query step: %v", steps)
 	}
 	if !strings.Contains(joined, "widget") {
