@@ -45,6 +45,15 @@ type ErrUnavailable struct{ Reason string }
 
 func (e *ErrUnavailable) Error() string { return "ai: " + e.Reason }
 
+// ErrBadReply is a reply that arrived but wasn't usable JSON. Reply holds the
+// raw model text for logs; Error() leaves it out because it reaches the UI.
+type ErrBadReply struct {
+	Reason string
+	Reply  string
+}
+
+func (e *ErrBadReply) Error() string { return "ai: " + e.Reason }
+
 const systemPreamble = `You are part of Glowworm, a personal finance tracker. You will be given
 financial data belonging to a single user. Respond ONLY with JSON conforming
 exactly to the schema provided. Never invent categories, accounts, or columns
@@ -108,15 +117,26 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body a
 		return &ErrUnavailable{Reason: err.Error()}
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<22))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<22))
+	if err != nil {
+		// OpenRouter pads slow non-streaming replies with whitespace keep-alives,
+		// so a deadline mid-body leaves only blanks: report it as the timeout it is.
+		if ctx.Err() != nil {
+			return &ErrUnavailable{Reason: "provider timed out before replying"}
+		}
+		return &ErrUnavailable{Reason: "reading provider response: " + err.Error()}
+	}
 	if resp.StatusCode/100 != 2 {
 		return &ErrUnavailable{Reason: fmt.Sprintf("%s: %s", resp.Status, truncate(string(data), 300))}
 	}
-	return json.Unmarshal(data, out)
+	if err := json.Unmarshal(data, out); err != nil {
+		return &ErrBadReply{Reason: "unreadable provider response: " + err.Error(), Reply: truncate(string(data), 2000)}
+	}
+	return nil
 }
 
-func extractJSON(s string) (string, error) {
-	s = strings.TrimSpace(s)
+func extractJSON(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
 	if strings.HasPrefix(s, "```") {
 		s = strings.TrimPrefix(s, "```json")
 		s = strings.TrimPrefix(s, "```")
@@ -128,7 +148,7 @@ func extractJSON(s string) (string, error) {
 	start := strings.IndexAny(s, "{[")
 	end := strings.LastIndexAny(s, "}]")
 	if start < 0 || end <= start {
-		return "", fmt.Errorf("ai: no JSON in reply")
+		return "", &ErrBadReply{Reason: "no JSON in reply", Reply: truncate(raw, 2000)}
 	}
 	return s[start : end+1], nil
 }
@@ -141,7 +161,8 @@ func truncate(s string, n int) string {
 }
 
 func retry(fn func(feedback string) (string, *Usage, error), validate func(string) error) (string, *Usage, error) {
-	var feedback string
+	var feedback, lastOut string
+	var lastErr error
 	var usage *Usage
 	for attempt := 0; attempt < 3; attempt++ {
 		out, u, err := fn(feedback)
@@ -150,10 +171,11 @@ func retry(fn func(feedback string) (string, *Usage, error), validate func(strin
 		}
 		usage = u
 		if err := validate(out); err != nil {
+			lastErr, lastOut = err, out
 			feedback = fmt.Sprintf("Your previous reply was invalid: %v. Reply with JSON only.", err)
 			continue
 		}
 		return out, usage, nil
 	}
-	return "", usage, fmt.Errorf("ai: structured output failed after retries")
+	return "", usage, &ErrBadReply{Reason: fmt.Sprintf("reply was not valid JSON after 3 attempts (%v)", lastErr), Reply: truncate(lastOut, 2000)}
 }

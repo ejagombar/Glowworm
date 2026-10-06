@@ -120,6 +120,9 @@ func (a *App) streamCategorise(w http.ResponseWriter, r *http.Request, run func(
 		msg := err.Error()
 		if errors.As(err, &ie) {
 			msg = ie.Message
+			a.Log.Warn("categorise", "batch", batchID, "path", r.URL.Path, "err", err)
+		} else {
+			a.Log.Error("categorise", "batch", batchID, "path", r.URL.Path, "err", err)
 		}
 		emit(imports.Progress{Phase: "error", Message: msg})
 	}

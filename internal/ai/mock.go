@@ -53,6 +53,8 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 				cat, conf = pick(payload.AllowedCategories, "Transport"), 0.9
 			case strings.Contains(d, "energy"), strings.Contains(d, "octopus"), strings.Contains(d, "bill"):
 				cat, conf = pick(payload.AllowedCategories, "Bills & Utilities"), 0.9
+			case strings.Contains(d, "salary"), strings.Contains(d, "payroll"):
+				cat = pick(payload.AllowedCategories, "Income")
 			}
 			items = append(items, map[string]any{"index": tx.Index, "category": cat, "confidence": conf})
 		}
