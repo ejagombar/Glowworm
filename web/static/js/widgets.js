@@ -377,17 +377,35 @@ let chartObserver = null;
 function redrawChartHost(host) {
   const type = host.dataset.chartType;
   if (!type) return;
-  const w = host.clientWidth;
-  const h = host.clientHeight;
-  if (!w || !h || w < 80 || h < 80) return;
   let data;
   try { data = JSON.parse(host.dataset.chartData || "{}"); } catch (e) { return; }
+  if (type === "pie") {
+    const rendered = pieChartSVG(data);
+    host.innerHTML = rendered.svg;
+    // Place/refresh the legend as a sibling inside the .pie-wrap parent.
+    const wrap = host.parentElement;
+    if (wrap && wrap.classList.contains("pie-wrap")) {
+      const tpl = document.createElement("template");
+      tpl.innerHTML = rendered.legend;
+      const legendEl = tpl.content.firstElementChild;
+      const existing = wrap.querySelector(":scope > .pie-legend");
+      if (existing) existing.replaceWith(legendEl);
+      else wrap.appendChild(legendEl);
+    }
+    return;
+  }
+  let w = host.clientWidth;
+  let h = host.clientHeight;
+  if (!w || w < 80) w = 640; // hidden/not-yet-laid-out hosts get sane defaults
+  if (!h || h < 80) h = 260; // instead of silently staying empty
   host.innerHTML = type === "line" ? lineChartSVG(data, w, h) : barChartSVG(data, w, h);
 }
 
+const CHART_HOST_SELECTOR = ".chart-host[data-chart-type], .pie-chart[data-chart-type]";
+
 function drawChartHosts(scope) {
   if (!window.ResizeObserver) {
-    scope.querySelectorAll(".chart-host[data-chart-type]").forEach(redrawChartHost);
+    scope.querySelectorAll(CHART_HOST_SELECTOR).forEach(redrawChartHost);
     return;
   }
   if (!chartObserver) {
@@ -396,7 +414,7 @@ function drawChartHosts(scope) {
     });
   }
   chartObserver.disconnect();
-  scope.querySelectorAll(".chart-host[data-chart-type]").forEach((host) => {
+  scope.querySelectorAll(CHART_HOST_SELECTOR).forEach((host) => {
     redrawChartHost(host);
     chartObserver.observe(host);
   });

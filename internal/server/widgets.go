@@ -5,9 +5,12 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"strconv"
+	"strings"
 
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/widgets"
+	"glowworm/internal/money"
 	"glowworm/internal/util"
 )
 
@@ -39,19 +42,29 @@ func defaultSpanRows(t string) int {
 
 // WidgetView is the template projection of a pinned widget (doc 05 §2).
 type WidgetView struct {
-	ID            string     `json:"id"`
-	Type          string     `json:"type"`
-	Title         string     `json:"title"`
-	Col           int        `json:"col"`
-	Rows          int        `json:"rows"`
-	DataJSON      string     `json:"data"`
-	DatasetJSON   string     `json:"dataset"`
-	NumberValue   string     `json:"number_value,omitempty"`
-	NumberCaption string     `json:"number_caption,omitempty"`
-	TextBody      string     `json:"text_body,omitempty"`
-	TableColumns  []string   `json:"table_columns,omitempty"`
-	TableRows     [][]string `json:"table_rows,omitempty"`
-	Stale         bool       `json:"stale"`
+	ID            string        `json:"id"`
+	Type          string        `json:"type"`
+	Title         string        `json:"title"`
+	Col           int           `json:"col"`
+	Rows          int           `json:"rows"`
+	DataJSON      string        `json:"data"`
+	DatasetJSON   string        `json:"dataset"`
+	NumberValue   string        `json:"number_value,omitempty"`
+	NumberCaption string        `json:"number_caption,omitempty"`
+	TextBody      string        `json:"text_body,omitempty"`
+	TableColumns  []string      `json:"table_columns,omitempty"`
+	TableRows     [][]string    `json:"table_rows,omitempty"`
+	Transactions  []WidgetTxRow `json:"transactions,omitempty"`
+	Stale         bool          `json:"stale"`
+}
+
+// WidgetTxRow is one rendered transaction-list row.
+type WidgetTxRow struct {
+	Date        string
+	Description string
+	Category    string
+	Amount      string
+	Class       string // pos | neg | transfer
 }
 
 // WidgetsList returns dashboard widgets with fresh data (plans re-executed).
@@ -139,6 +152,45 @@ func applyPresentation(v *WidgetView, typ, dataJSON string) {
 				}
 			}
 		}
+	case "transactions":
+		if txs, ok := data["transactions"].([]any); ok {
+			for _, t := range txs {
+				tm, ok := t.(map[string]any)
+				if !ok {
+					continue
+				}
+				amount := 0
+				switch n := tm["amount_minor"].(type) {
+				case float64:
+					amount = int(n)
+				case string:
+					if f, err := strconv.ParseFloat(strings.ReplaceAll(n, ",", ""), 64); err == nil {
+						amount = int(f)
+					}
+				}
+				cur := str(tm["currency"])
+				if cur == "" {
+					cur = "GBP"
+				}
+				cls := "neg"
+				sign := "−"
+				if amount >= 0 {
+					cls = "pos"
+					sign = "+"
+				}
+				if str(tm["type"]) == "transfer" {
+					cls = "transfer"
+					sign = "⇄ "
+				}
+				v.Transactions = append(v.Transactions, WidgetTxRow{
+					Date:        dayMonth(str(tm["date"])),
+					Description: str(tm["description"]),
+					Category:    str(tm["category"]),
+					Amount:      sign + money.Format(int64(abs64(int64(amount))), cur),
+					Class:       cls,
+				})
+			}
+		}
 	}
 }
 
@@ -150,8 +202,10 @@ func str(v any) string {
 	return string(b)
 }
 
-// PinWidget persists a pinned widget (from chat).
-func (a *App) PinWidget(title, typ, datasetJSON, planJSON string, col, rowsN int) (string, error) {
+// PinWidget persists a pinned widget (from chat). dataJSON is the
+// presentation payload (labels/series/values/…) the dashboard renders;
+// planJSON, when present, re-executes on dashboard refresh.
+func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (string, error) {
 	id := util.NewID()
 	if col == 0 {
 		col = defaultSpanCol(typ)
@@ -165,47 +219,44 @@ func (a *App) PinWidget(title, typ, datasetJSON, planJSON string, col, rowsN int
 	if planJSON != "" && planJSON != "null" {
 		plan = planJSON
 	}
-	_, err := a.DB.Exec(`INSERT INTO pinned_widgets (id, position, col, rows, title, type, dataset, plan, created_at, updated_at)
+	// Idempotent pin: re-pinning the same widget (page reload loses the
+	// client's pinned-id state) returns the existing row instead of a
+	// duplicate dashboard card.
+	var existing string
+	err := a.DB.QueryRow(`SELECT id FROM pinned_widgets
+		WHERE title = ? AND type = ? AND dataset = ? AND COALESCE(plan,'') = COALESCE(?, '') LIMIT 1`,
+		title, typ, dataJSON, planJSON).Scan(&existing)
+	if err == nil {
+		return existing, nil
+	}
+	_, err = a.DB.Exec(`INSERT INTO pinned_widgets (id, position, col, rows, title, type, dataset, plan, created_at, updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		id, position, col, rowsN, title, typ, datasetJSON, plan, util.NowStr(), util.NowStr())
+		id, position, col, rowsN, title, typ, dataJSON, plan, util.NowStr(), util.NowStr())
 	return id, err
 }
 
-// WidgetPatch updates title/type and re-derives data from the dataset [D13].
-func (a *App) WidgetPatch(id, title, typ, datasetJSON string) error {
-	var curTitle, curType, dataset string
+// WidgetPatch updates title/type/presentation data for a pinned widget
+// [D13]. dataJSON is the client-converted presentation payload (the client
+// converts between chart types via convertWidgetData); empty keeps current.
+func (a *App) WidgetPatch(id, title, typ, dataJSON string) error {
+	var curTitle, curType, curData string
 	err := a.DB.QueryRow(`SELECT title, type, COALESCE(dataset,'') FROM pinned_widgets WHERE id = ?`, id).
-		Scan(&curTitle, &curType, &dataset)
+		Scan(&curTitle, &curType, &curData)
 	if err != nil {
 		return err
 	}
-	newTitle := title
-	if newTitle == "" {
-		newTitle = curTitle
+	if title == "" {
+		title = curTitle
 	}
-	newType := typ
-	if newType == "" {
-		newType = curType
+	if typ == "" {
+		typ = curType
 	}
-	newDataset := dataset
-	if datasetJSON != "" && datasetJSON != "null" {
-		newDataset = datasetJSON
-	}
-	var dataJSON string
-	var ds *widgets.Dataset
-	if json.Unmarshal([]byte(newDataset), &ds) == nil && ds != nil {
-		w := widgets.Derive(newType, ds, newTitle)
-		dataJSON = w.DataJSON()
-	} else {
-		dataJSON = newDataset
+	if dataJSON == "" || dataJSON == "null" {
+		dataJSON = curData
 	}
 	_, err = a.DB.Exec(`UPDATE pinned_widgets SET title=?, type=?, dataset=?, updated_at=? WHERE id=?`,
-		newTitle, newType, newDataset, util.NowStr(), id)
-	if err != nil {
-		return err
-	}
-	_ = dataJSON
-	return nil
+		title, typ, dataJSON, util.NowStr(), id)
+	return err
 }
 
 // WidgetUnpin removes a pinned widget.

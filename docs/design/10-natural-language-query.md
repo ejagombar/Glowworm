@@ -30,6 +30,9 @@ year?"*. Glowworm:
 question text
    │
    ▼
+[agent loop §2a — primary path]
+   │  (falls back to the pipeline below on agent-protocol failure)
+   ▼
 [LLM query_planning]  ──► Plan JSON (draft)
    │
    ▼
@@ -53,6 +56,76 @@ question text
    ▼
 persist message(+dataset+plan) ──► stream to client
 ```
+
+## 2a. Agent loop (normative)
+
+The plan-only pipeline could answer "how much did I spend on X" but could
+not reason: no follow-ups, no multi-step questions, no text-rich answers,
+and no way for the model to see a query result and use it elsewhere. The
+agent replaces it as the primary path:
+
+```
+question
+   ▼
+[system prompt: tone + widget policy + schema + verified example
+ queries + catalog + tool protocol]
+   ▼
+┌─ agent round (≤6) ────────────────────────────────────────┐
+│ model replies ONE JSON action:                             │
+│  {"action":"run_query","sql":"SELECT …"}                   │
+│     → read-only sandbox executes → result JSON fed back     │
+│       ({columns, rows, row_count, truncated}, 200-row cap)   │
+│     → failures (sandbox or SQL) fed back + shown in steps    │
+│  {"action":"final","text":"…","widgets":[…]}                │
+│     → widgets sanitised server-side → answer                │
+└────────────────────────────────────────────────────────────┘
+   ▼
+text answer + 0–3 embedded widgets → steps streamed per round →
+persisted as a widgets array in messages.widget
+```
+
+- **Provider-agnostic:** the protocol rides the plain chat transcript
+  (`System` + `Messages` on `StructuredRequest`, doc 09 §2) so every
+  provider — including Ollama and the deterministic mock — can run it.
+  Every adapter must send the transcript to the wire (adapter tests
+  assert system-first, turns in order).
+- **Answers are widget-first:** the prompt biases the model to embed one
+  widget that visualises the answer by question shape (change-over-time →
+  line, breakdown → bar/pie, itemised rows → table, **list questions →
+  transactions widget with empty/one-sentence text — never enumerate the
+  list in prose**); **single-figure answers mandatorily emit a number
+  widget** (both pinned by example final actions in the prompt). Text is
+  1–3 factual sentences citing the figures found. Widget values are
+  integer minor units for bar/line/pie/transactions; number/table carry
+  display strings.
+- **The view period rules by default:** the client sends the masthead
+  period selector's current state (`period`, plus `from`/`to` for custom)
+  with every message; the server resolves it (same defaults as every view)
+  into a `TimeWindow` injected into the prompt — "CURRENT VIEW PERIOD".
+  Queries and widgets restrict to it unless the question names a different
+  range ("this month", a date, "last year").
+- **Tone is impersonal:** a machine voice — no first person, no filler, no
+  offers of follow-up questions, never telling the user to compute things
+  themselves. If more detail would help, the agent fetches it with a query.
+- **Self-correcting queries:** the prompt carries schema-verified example
+  queries (per-account balance, month-end balance series, spend by
+  category — regression-tested), markdown fences are stripped from model
+  SQL, and query errors are fed back to the model and surfaced in the
+  reasoning steps with the reason.
+- **Read-only sandbox** (`internal/core/query/sandbox.go`): single
+  statement, must start with SELECT/WITH, a literal-aware tokeniser rejects
+  every write/inspection keyword (INSERT/UPDATE/DELETE/DROP/…/PRAGMA,
+  REPLACE INTO), the statement is wrapped as `SELECT * FROM (…) LIMIT 201`
+  (SQLite accepts WITH in the wrapped subquery), 10s timeout, 200-char cell
+  cap, 4k SQL length cap.
+- **Widget sanitisation** (never trust model output): type whitelist
+  (bar/line/pie/table/number/text/transactions), shape checks per type,
+  label/series/row/cell caps, `#hex` colour validation else palette
+  assignment, server-assigned widget ids, ≤3 widgets per answer.
+- **Guardrail change vs [D14]:** the model may now *author* SQL, but only
+  inside the sandbox — a SELECT cannot mutate, and the wrapper caps rows.
+  The plan compiler (§5) still exists for pinned-widget re-execution where
+  the same query must replay deterministically without the LLM.
 
 ## 3. Plan schema (normative)
 
@@ -160,6 +233,16 @@ query → data), giving the progressive feel of the loader choreography.
   widget card (pinnable); `{"event":"done","message_id":...}` →
   worm-out → reveal; `{"event":"error","message":...}` → inline error text.
 - Multiple widgets per answer: multiple `widget` events [Requirements].
+- History is paged: the page renders the newest 20 messages only, exposing
+  a `data-oldest` cursor (`created_at|id`) and `data-has-more` on the
+  message container; scrolling near the top fetches
+  `GET /api/v1/conversations/{id}/messages?before=<cursor>` and prepends
+  the batch with the viewport anchored (day badges re-evaluated across the
+  new boundary). The cursor tiebreaks on `(created_at, id)` because a
+  question and its reply share one timestamp second.
+- Scroll position is session-scoped (sessionStorage): returning to the
+  Queries tab in the same browser session restores the conversation last
+  viewed and its scroll offset; a first load starts at the bottom.
 - Conversations: sidebar groups messages by day (client-side grouping from
   `created_at`); switching conversation swaps the message region;
   `DELETE` removes it (confirm modal). Auto-title = first question
@@ -167,15 +250,36 @@ query → data), giving the progressive feel of the loader choreography.
 - Widget interactions: pin (creates pinned widget), settings drawer (type/
   title/pin; conversions client-side), all per docs 04/05.
 - Suggestion chips (static, prototype copy) remain under the composer.
+- **Composer history:** ArrowUp with an empty composer recalls the last
+  sent message; further ArrowUp walks further back, ArrowDown returns
+  forward to empty (Telegram/Discord-style; typing resets the position).
+- **Sidebar = one entry per day** the chat was used: date label (local
+  timezone), message count for the day, and a ≤50-char LLM summary of what
+  was talked about (`chat_summary` capability). Summaries are generated at
+  local midnight by a server scheduler; days missed while the app was down
+  are caught up (async, de-duplicated) on next page load. Entries link to
+  the most recent conversation touched that day with `?day=YYYY-MM-DD`;
+  the client pages history back until that day loads and aligns it in the
+  viewport.
+- **Day badges are DOM-truth:** a badge renders only when a message's local
+  calendar day differs from the previous message's — server and client use
+  the same local-day rules (Today/Yesterday/2 January 2006); no cached
+  "last day" format strings (those produced duplicate/wrong badges).
 
 ## 9. Guardrails (normative)
 
-- Plans only — the LLM cannot express SQL, identifiers, or column names [D14].
-- Entity whitelist: only the user's own categories/accounts/merchants.
-- Row/limit caps; no full-table dumps (`list` caps at 50).
+- Agent queries run only through the read-only sandbox (§2a): single
+  SELECT, keyword-blocked, wrapped, capped, timed out. The model never
+  mutates the database [D14 spirit: no writes, ever].
+- Legacy plans remain identifier-safe: whitelisted templates with bound
+  parameters only.
+- Entity whitelist: only the user's own categories/accounts/merchants (the
+  agent's catalog is scoped to them; unknown entities resolve to a
+  text answer listing closest matches, never a wrong chart).
+- Row/limit caps; no full-table dumps (`list` caps at 50; sandbox at 200).
 - Rate limit: 10 queries/min per session (429 → toast).
 - Question text ≤ 500 chars.
-- Every query+plan is stored with the message (transparency, replay) and
+- Every answer is stored with the message (transparency, replay) and
   audit-logged (doc 09 §7).
 
 ## 10. Endpoints & persistence
@@ -203,3 +307,21 @@ compiled query is cached by plan hash. Defaults seeded on first run:
 5. Pinning a chat widget then editing its type in the drawer updates the
    dashboard card without re-querying (client convert) and the dashboard
    re-fetches fresh data on next load (server plan re-run).
+6. The agent: a balance-over-time question returns a line widget (not just
+   text); a multi-step question produces ≥2 `run_query` rounds whose
+   results appear in the final text; widget payloads pass sanitisation.
+7. The sandbox rejects every write-keyword query, stacked statements and
+   PRAGMA/ATTACH; keywords inside string literals do NOT trigger rejection.
+8. The agent's example queries all run through the sandbox and compute
+   correct balances (regression test on fixture data).
+9. A provider that cannot follow the agent protocol falls back to the plan
+   pipeline; a down provider surfaces the error without a fallback call.
+10. No assistant message tells the user to work the answer out themselves
+    or offers follow-up questions.
+6. The agent: a multi-step question produces ≥2 `run_query` rounds whose
+   results appear in the final text; widget payloads pass sanitisation
+   (bad types/colors/values never reach the client).
+7. The sandbox rejects every write-keyword query, stacked statements and
+   PRAGMA/ATTACH; keywords inside string literals do NOT trigger rejection.
+8. A provider that cannot follow the agent protocol falls back to the plan
+   pipeline; a down provider surfaces the error without a fallback call.

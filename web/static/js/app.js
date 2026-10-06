@@ -71,21 +71,48 @@ function showConfirm(title, message, okLabel, callback) {
 let confirmCallback = null;
 
 /* ---------- Widget drawer ---------- */
+// Which widget types can be converted to which. Groups keep data shapes that
+// actually make sense together: bar/line/table share labels+series, pie/table
+// share single-value breakdowns, and number/text/transactions keep to
+// themselves because their data shape doesn't translate elsewhere.
+const WIDGET_CONVERSIONS = {
+  bar: ["bar", "line", "table"],
+  line: ["bar", "line", "table"],
+  pie: ["pie", "table"],
+  table: ["bar", "line", "pie", "table"],
+  number: ["number"],
+  text: ["text"],
+  transactions: ["transactions", "table"],
+};
+
 function openDrawer(id) {
   const card = document.querySelector(`[data-widget-id="${id}"]`);
   if (!card) return;
-  // The drawer markup was removed from the templates; fail quietly instead of
-  // throwing when the edit gear is clicked.
   const drawer = document.getElementById("widgetDrawer");
   if (!drawer || !document.getElementById("drawerBackdrop") || !document.getElementById("wTitle")) return;
   state.editingId = id;
   document.getElementById("wTitle").value = card.dataset.widgetTitle || "";
-  document.getElementById("wType").value = card.dataset.widgetType || "bar";
-  document.getElementById("wPinned").checked = card.dataset.widgetPinned === "1";
-  document.getElementById("widgetDrawer").hidden = false;
+  const sel = document.getElementById("wType");
+  const typ = card.dataset.widgetType || "bar";
+  // Only let the user switch between types that share a data shape with the
+  // current widget (so pie <-> number can't blank the card).
+  const allowed = WIDGET_CONVERSIONS[typ] || [typ];
+  Array.from(sel.options).forEach((o) => {
+    o.hidden = !allowed.includes(o.value);
+    o.disabled = !allowed.includes(o.value);
+  });
+  if (!allowed.includes(typ)) {
+    const opt = document.createElement("option");
+    opt.value = typ;
+    opt.textContent = typ.charAt(0).toUpperCase() + typ.slice(1);
+    sel.appendChild(opt);
+  }
+  sel.value = typ;
+  document.getElementById("wPinned").checked = !!card.dataset.pinnedId;
+  drawer.hidden = false;
   document.getElementById("drawerBackdrop").hidden = false;
   requestAnimationFrame(() => {
-    document.getElementById("widgetDrawer").classList.add("show");
+    drawer.classList.add("show");
     document.getElementById("drawerBackdrop").classList.add("show");
   });
 }
@@ -151,28 +178,330 @@ function csrfToken() {
   return c ? decodeURIComponent(c[1]) : "";
 }
 
+// currentViewPeriod reports the masthead period selector state so chat
+// answers respect it unless the question names its own range.
+function currentViewPeriod() {
+  const sel = document.getElementById("periodSelect");
+  if (!sel) return {};
+  const out = { period: sel.value };
+  if (sel.value === "custom") {
+    out.from = document.getElementById("customFrom")?.value || "";
+    out.to = document.getElementById("customTo")?.value || "";
+    if (!out.from && !out.to) delete out.period;
+  }
+  return out;
+}
+
+/* ---------- Sent-message recall (up-arrow, standard chat behaviour) ---------- */
+let sentHistory = [];
+let sentHistoryIdx = -1;
+
+function pushSentHistory(text) {
+  if (!text) return;
+  if (sentHistory[sentHistory.length - 1] === text) return; // no consecutive dupes
+  sentHistory.push(text);
+  if (sentHistory.length > 100) sentHistory.shift();
+  sentHistoryIdx = -1;
+}
+
+// Seed sentHistory from the user bubbles currently on the page. Oldest first
+// (chronological) so ArrowUp walks backwards through time naturally. Called
+// on initial load and whenever older messages are paged in at the top.
+function seedSentHistoryFromDOM(box) {
+  if (!box) return;
+  const bubbles = box.querySelectorAll(".msg.user .msg-bubble");
+  const texts = [];
+  bubbles.forEach((b) => {
+    const t = (b.textContent || "").trim();
+    if (t) texts.push(t);
+  });
+  // Rebuild the history keeping relative order; dedupe consecutive repeats.
+  const next = [];
+  for (const t of texts) {
+    if (next[next.length - 1] !== t) next.push(t);
+  }
+  sentHistory = next.slice(-100); // same cap as pushSentHistory
+  sentHistoryIdx = -1;
+}
+
+// direction: "up" recalls older sent messages, "down" returns towards the
+// empty composer. The first ArrowUp requires an empty composer; while
+// recalling, up/down walk the history regardless of the caret position
+// (typing always resets the position).
+function recallSent(direction, input) {
+  if (!input || !sentHistory.length) return false;
+  if (direction === "up") {
+    if (sentHistoryIdx === -1 && input.value !== "") return false;
+    if (sentHistoryIdx === -1) sentHistoryIdx = sentHistory.length;
+    if (sentHistoryIdx > 0) {
+      sentHistoryIdx--;
+      input.value = sentHistory[sentHistoryIdx];
+      input.setSelectionRange(input.value.length, input.value.length);
+      return true;
+    }
+    return false;
+  } else {
+    if (sentHistoryIdx === -1) return false;
+    if (sentHistoryIdx < sentHistory.length - 1) {
+      sentHistoryIdx++;
+      input.value = sentHistory[sentHistoryIdx];
+    } else {
+      sentHistoryIdx = -1;
+      input.value = "";
+    }
+    input.setSelectionRange(input.value.length, input.value.length);
+    return true;
+  }
+  return false;
+}
+
+/* ---------- Sidebar day summaries (async catch-up poll) + day jump ---------- */
+function pollDaySummaries() {
+  if (!document.querySelector('[data-day-summarising="1"]')) return;
+  setTimeout(() => {
+    fetch("/api/v1/queries/days").then((r) => (r.ok ? r.json() : null)).then((out) => {
+      if (!out || !out.items || !out.items.length) return;
+      renderDaySidebar(out.items);
+      if (out.items.some((d) => !d.summary)) setTimeout(pollDaySummaries, 5000);
+    }).catch(() => {});
+  }, 3000);
+}
+
+function renderDaySidebar(entries) {
+  const wrap = document.getElementById("queriesDays");
+  if (!wrap) return;
+  wrap.innerHTML = entries.map((d) => {
+    const conv = esc(d.conversation_id || "");
+    return `<a class="queries-day" href="/queries?c=${conv}&day=${esc(d.date)}">` +
+      `<span class="queries-day-top"><span>${esc(d.label)}</span><span class="queries-day-count">${esc(d.count)}</span></span>` +
+      (d.summary ? `<span class="queries-day-summary">${esc(d.summary)}</span>` : "") +
+      `</a>`;
+  }).join("");
+}
+
+// Scroll to a day from a sidebar entry (?day=YYYY-MM-DD): page older
+// messages in until the day is loaded, then align the first message of the
+// day near the top of the viewport.
+function jumpToDay(date) {
+  const box = queriesScrollBox();
+  if (!box) return;
+  let tries = 0;
+  const seek = () => {
+    const hit = Array.from(box.querySelectorAll(".msg[data-created]")).find(
+      (m) => localDayKey(m.dataset.created) === date);
+    if (hit) {
+      // getBoundingClientRect().top is viewport-relative, so add the current
+      // scrollTop to get the hit's absolute offset within the scroll box
+      // (otherwise this lands wherever the box happens to be scrolled).
+      const offset = (hit.getBoundingClientRect().top - box.getBoundingClientRect().top) + box.scrollTop;
+      box.scrollTop = Math.max(0, offset - 40);
+      return;
+    }
+    if (tries++ >= 15 || box.dataset.hasMore !== "1") return;
+    const before = box.dataset.oldest;
+    if (!before) return;
+    fetch(`/api/v1/conversations/${queriesConvID()}/messages?before=${encodeURIComponent(before)}&limit=${QUERIES_PAGE_SIZE}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((out) => {
+        if (!out || !out.items || !out.items.length) { box.dataset.hasMore = "0"; return; }
+        if (!out.has_more) box.dataset.hasMore = "0";
+        box.dataset.oldest = out.items[0].created_at + "|" + out.items[0].id;
+        prependMessages(box, out.items);
+        seek();
+      }).catch(() => {});
+  };
+  requestAnimationFrame(seek);
+}
+
+/* ---------- Queries history: session scroll position + paging (doc 10 §8) ---------- */
+const QUERIES_PAGE_SIZE = 20;
+
+function queriesScrollBox() { return document.getElementById("queryMessages"); }
+function queriesConvID() {
+  const main = document.querySelector(".queries-main");
+  return main ? main.dataset.conversationId || "" : "";
+}
+
+// Restore the conversation + scroll offset last viewed in this session.
+// First load in a session (nothing saved) starts at the bottom.
+function initQueriesScroll() {
+  const box = queriesScrollBox();
+  if (!box) return;
+  const savedConv = sessionStorage.getItem("glowworm-queries-conv");
+  const urlConv = new URLSearchParams(location.search).get("c");
+  if (savedConv && !urlConv && savedConv !== queriesConvID()) {
+    // Resume the conversation the user was reading when they left.
+    location.replace("/queries?c=" + encodeURIComponent(savedConv));
+    return;
+  }
+  if (queriesConvID()) {
+    try { sessionStorage.setItem("glowworm-queries-conv", queriesConvID()); } catch (e) {}
+  }
+  const key = "glowworm-qpos-" + queriesConvID();
+  const saved = sessionStorage.getItem(key);
+  requestAnimationFrame(() => {
+    if (saved === "bottom") scrollQueriesToBottom();
+    else if (saved !== null) box.scrollTop = Number(saved) || 0;
+    else scrollQueriesToBottom();
+  });
+  let saveTimer;
+  box.addEventListener("scroll", () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveQueriesScroll, 150);
+    maybeLoadOlder();
+  }, { passive: true });
+  // The debounce can drop the last 150ms of movement when the user navigates
+  // away — pagehide fires reliably on soft nav and tab close, so save there
+  // too to keep the restore point in sync with what the user actually saw.
+  window.addEventListener("pagehide", saveQueriesScroll);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") saveQueriesScroll();
+  });
+  maybeLoadOlder(); // a restored position may already sit near the top
+}
+
+function scrollQueriesToBottom() {
+  const box = queriesScrollBox();
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function saveQueriesScroll() {
+  const box = queriesScrollBox();
+  const key = "glowworm-qpos-" + queriesConvID();
+  if (!box || !queriesConvID()) return;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  try { sessionStorage.setItem(key, atBottom ? "bottom" : String(box.scrollTop)); } catch (e) {}
+}
+
+// Page older messages in as the user scrolls towards the top.
+let loadingOlder = false;
+function maybeLoadOlder() {
+  const box = queriesScrollBox();
+  if (!box || loadingOlder) return;
+  if (box.dataset.hasMore !== "1" || box.scrollTop > 80) return;
+  loadOlderMessages();
+}
+
+function loadOlderMessages() {
+  const box = queriesScrollBox();
+  const convID = queriesConvID();
+  const cursor = box.dataset.oldest;
+  if (!convID || !cursor) { box.dataset.hasMore = "0"; return; }
+  loadingOlder = true;
+  const loader = document.createElement("div");
+  loader.className = "history-loading";
+  loader.textContent = "Loading earlier messages…";
+  box.prepend(loader);
+  fetch(`/api/v1/conversations/${convID}/messages?before=${encodeURIComponent(cursor)}&limit=${QUERIES_PAGE_SIZE}`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load failed"))))
+    .then((out) => {
+      loader.remove();
+      const items = out.items || [];
+      if (!items.length || !out.has_more) box.dataset.hasMore = "0";
+      if (items.length) {
+        box.dataset.oldest = items[0].created_at + "|" + items[0].id;
+        prependMessages(box, items);
+        if (window.drawChartHosts) drawChartHosts(box);
+        seedSentHistoryFromDOM(box); // older user bubbles are now in the DOM
+      }
+      loadingOlder = false;
+      maybeLoadOlder(); // still near the top → keep filling
+    })
+    .catch(() => { loader.remove(); loadingOlder = false; });
+}
+
+// Render one persisted message (API shape: {role, text, steps, widgets, created_at}).
+function messageHTML(m) {
+  const created = esc(m.created_at || "");
+  if (m.role === "user") {
+    return `<div class="msg user" data-created="${created}"><div class="msg-content"><div class="msg-bubble">${esc(m.text)}</div></div></div>`;
+  }
+  let content = "";
+  if (m.text) content += `<div class="msg-text">${fmtAssistantText(m.text)}</div>`;
+  if (m.steps && m.steps.length) content += msgReasonHTML(m.steps);
+  for (const w of m.widgets || []) content += widgetCardHTML(w);
+  return `<div class="msg assistant" data-created="${created}"><div class="msg-content">${content}</div></div>`;
+}
+
+// Prepend an ascending (oldest→newest) batch of messages, keeping the
+// viewport anchored and day badges correct across the new boundary.
+function prependMessages(box, items) {
+  const firstMsg = box.querySelector(".msg");
+  const prevHeight = box.scrollHeight;
+  const prevTop = box.scrollTop;
+  let runningDay = null;
+  const frag = document.createDocumentFragment();
+  for (const m of items) {
+    const day = dayKeyOf(m.created_at);
+    if (day && day !== runningDay) {
+      const badge = document.createElement("div");
+      badge.className = "msg-day";
+      badge.textContent = dayLabelOf(m.created_at);
+      frag.appendChild(badge);
+      runningDay = day;
+    }
+    const tpl = document.createElement("template");
+    tpl.innerHTML = messageHTML(m);
+    frag.appendChild(tpl.content.firstElementChild);
+  }
+  box.prepend(frag);
+  box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
+  // The previously-first message loses its badge if the day now starts earlier.
+  if (firstMsg && firstMsg.dataset.created) {
+    const badgeEl = firstMsg.previousElementSibling;
+    if (badgeEl && badgeEl.classList.contains("msg-day") &&
+        dayKeyOf(firstMsg.dataset.created) === dayKeyOf(items[items.length - 1].created_at)) {
+      badgeEl.remove();
+    }
+  }
+}
+
+/* Day keys/labels in the server's local timezone (the server computes the
+   same way) — UTC grouping mislabels late-evening messages. */
+function localDayKey(ts) {
+  const d = new Date(ts || "");
+  if (isNaN(d)) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+function dayKeyOf(ts) { return localDayKey(ts); }
+function dayLabelOf(ts) {
+  const d = new Date(ts || "");
+  if (isNaN(d)) return "";
+  const key = (x) => x.getFullYear() + "." + x.getMonth() + "." + x.getDate();
+  const now = new Date();
+  if (key(d) === key(now)) return "Today";
+  const yest = new Date(); yest.setDate(yest.getDate() - 1);
+  if (key(d) === key(yest)) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
 function sendChat(text) {
   text = (text || "").trim();
   if (!text) return;
+  pushSentHistory(text);
   const box = document.getElementById("queryMessages");
   const convEl = document.querySelector("[data-conversation-id]");
   const conversationID = convEl ? convEl.dataset.conversationId : "";
 
   // User bubble + pending assistant with worm loader (prototype choreography).
-  // The day badge shows only when the day changes (page load sets the marker).
+  // The day badge shows only when the day changes — decided from the DOM's
+  // last message, never from a cached format string (that mismatch produced
+  // duplicate/incorrect Today badges).
   const user = document.createElement("div");
   user.className = "msg user msg-in";
   user.innerHTML = `<div class="msg-content"><div class="msg-bubble">${esc(text)}</div></div>`;
   const pending = document.createElement("div");
   pending.className = "msg assistant msg-in";
-  pending.innerHTML = `<div class="msg-content">${wormLoaderHTML()}</div>`;
-  const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  if (box.dataset.lastDay !== today) {
+  pending.innerHTML = `<div class="msg-content">${wormLoaderHTML()}<details class="msg-reason" hidden><summary>How I worked this out</summary><div class="reason-steps"></div></details></div>`;
+  const msgs = box.querySelectorAll(".msg[data-created]");
+  const lastCreated = msgs.length ? msgs[msgs.length - 1].dataset.created : null;
+  const nowTs = new Date().toISOString();
+  if (!lastCreated || localDayKey(lastCreated) !== localDayKey(nowTs)) {
     const day = document.createElement("div");
     day.className = "msg-day";
-    day.textContent = "Today";
+    day.textContent = dayLabelOf(nowTs);
     box.appendChild(day);
-    box.dataset.lastDay = today;
   }
   box.appendChild(user); box.appendChild(pending);
   box.scrollTop = box.scrollHeight;
@@ -180,15 +509,15 @@ function sendChat(text) {
   fetch("/api/v1/query/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-    body: JSON.stringify({ text, conversation_id: conversationID }),
+    body: JSON.stringify({ text, conversation_id: conversationID, ...currentViewPeriod() }),
   }).then(async (resp) => {
     if (!resp.ok || !resp.body) {
-      finishAssistant(pending, "Sorry — the query engine is unavailable right now.", [], null, true);
+      finishAssistant(pending, { text: "Sorry — the query engine is unavailable right now.", isError: true });
       return;
     }
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
-    let buf = "", textOut = "", steps = [], widget = null, isError = false;
+    let buf = "", out = { text: "", steps: [], widgets: [], isError: false, suggestions: [] };
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -200,36 +529,122 @@ function sendChat(text) {
         if (!line) continue;
         let ev;
         try { ev = JSON.parse(line); } catch (e) { continue; }
-        if (ev.event === "steps") { steps = steps.concat(ev.items || []); renderSteps(pending, steps); }
-        else if (ev.event === "text") { textOut = ev.text || textOut; }
-        else if (ev.event === "widget" && ev.widget) { widget = ev.widget; }
-        else if (ev.event === "error") { textOut = ev.message || "Query failed."; isError = true; steps = []; }
+        if (ev.event === "steps") {
+          out.steps = out.steps.concat(ev.items || []);
+          renderSteps(pending, out.steps);
+        }
+        else if (ev.event === "text") { out.text = ev.text || out.text; }
+        else if (ev.event === "widget" && ev.widget) { out.widgets.push(ev.widget); }
+        else if (ev.event === "done" && ev.conversation_id) {
+          adoptConversation(ev.conversation_id, text);
+        }
+        else if (ev.event === "error") {
+          out.text = ev.message || "Query failed.";
+          out.isError = true;
+          out.steps = [];
+          out.suggestions = ev.suggestions || [];
+        }
       }
     }
-    finishAssistant(pending, textOut, steps, widget, isError);
+    finishAssistant(pending, out);
   }).catch(() => {
-    finishAssistant(pending, "Sorry — the query engine is unavailable right now.", [], null, true);
+    finishAssistant(pending, { text: "Sorry — the query engine is unavailable right now.", isError: true });
   });
+}
+
+/* ---------- Pin / unpin widgets (chat + dashboard cards) ---------- */
+function pinWidget(card, btn) {
+  const payload = {
+    title: card.dataset.widgetTitle || "",
+    type: card.dataset.widgetType || "bar",
+    data: card.dataset.widgetData ? JSON.parse(card.dataset.widgetData) : null,
+    dataset: card.dataset.widgetDataset ? JSON.parse(card.dataset.widgetDataset) : null,
+    plan: card.dataset.widgetPlan ? JSON.parse(card.dataset.widgetPlan) : null,
+  };
+  fetch("/api/v1/widgets/pinned", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: JSON.stringify(payload),
+  }).then((r) => r.json()).then((out) => {
+    if (!out || !out.id) { toast("Could not pin widget"); return; }
+    card.dataset.pinnedId = out.id;
+    btn.classList.add("pinned-on");
+    btn.title = "Unpin from dashboard";
+    toast("Pinned to dashboard");
+  }).catch(() => toast("Could not pin widget"));
+}
+
+function unpinWidget(card, btn) {
+  fetch(`/api/v1/widgets/pinned/${card.dataset.pinnedId}`, {
+    method: "DELETE",
+    headers: { "X-CSRF-Token": csrfToken() },
+  }).then((r) => {
+    if (!r.ok) { toast("Could not unpin widget"); return; }
+    delete card.dataset.pinnedId;
+    btn.classList.remove("pinned-on");
+    btn.title = "Pin to dashboard";
+    const grid = document.getElementById("pinnedGrid");
+    if (grid && grid.contains(card)) card.remove(); // dashboard card
+    toast("Removed from dashboard");
+  }).catch(() => toast("Could not unpin widget"));
+}
+
+// adoptConversation binds the conversation id to the page so follow-up
+// questions continue the same thread, and lists it in the history sidebar.
+function adoptConversation(id, firstQuestion) {
+  if (!id) return;
+  const main = document.querySelector(".queries-main");
+  if (main) main.dataset.conversationId = id;
+  try { sessionStorage.setItem("glowworm-queries-conv", id); } catch (e) {}
+  const sidebar = document.getElementById("queriesDays");
+  if (sidebar && !sidebar.querySelector(`a[href="/queries?c=${id}"]`)) {
+    const a = document.createElement("a");
+    a.className = "queries-day";
+    a.href = `/queries?c=${id}`;
+    const t = document.createElement("span");
+    t.textContent = (firstQuestion || "New conversation").slice(0, 60);
+    a.appendChild(t);
+    sidebar.prepend(a);
+  }
 }
 
 function renderSteps(pending, steps) {
   const reason = pending.querySelector(".msg-reason");
   if (!reason) return;
+  reason.hidden = false;
   reason.querySelector(".reason-steps").innerHTML = steps
     .map((s) => `<div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span>${esc(s)}</span></div>`)
     .join("");
 }
 
-function finishAssistant(pending, text, steps, widget, isError) {
+// Minimal assistant-text formatting: escaped HTML, **bold** and line breaks
+// (white-space: pre-wrap on .msg-text). Mirrors formatAssistantText in Go.
+function fmtAssistantText(text) {
+  const escd = esc(text || "");
+  return escd.split("**").map((p, i) => (i % 2 ? `<strong>${p}</strong>` : p)).join("");
+}
+
+function finishAssistant(pending, out) {
+  out = out || {};
+  const { text = "", steps = [], widgets = [], isError = false, suggestions = [] } = out;
   const loader = pending.querySelector(".glowworm-loader");
   const reveal = () => {
     let content = "";
-    if (text) content += `<div class="msg-text${isError ? " msg-error" : ""}">${esc(text)}</div>`;
+    // A clarification with suggestions isn't a failure — style it as normal text.
+    const errCls = isError && !(suggestions && suggestions.length) ? " msg-error" : "";
+    if (text) content += `<div class="msg-text${errCls}">${fmtAssistantText(text)}</div>`;
     // Errors never get a thinking section — nothing was analysed.
     if (!isError && steps && steps.length) content += msgReasonHTML(steps);
-    if (!isError && widget) content += widgetCardHTML(widget);
+    if (suggestions && suggestions.length) {
+      content += `<div class="msg-suggestions">${suggestions
+        .map((s) => `<button class="chip" data-chat-suggest="${esc(s)}">${esc(s)}</button>`)
+        .join("")}</div>`;
+    }
+    if (!isError && widgets) {
+      for (const w of widgets) content += widgetCardHTML(w);
+    }
     pending.innerHTML = `<div class="msg-content">${content}</div>`;
-    if (widget) {
+    if (widgets && widgets.length) {
       const host = pending.querySelector(".chart-host[data-chart-type]");
       if (host && window.drawChartHosts) drawChartHosts(pending);
     }
@@ -284,13 +699,14 @@ function widgetCardHTML(widget) {
   el.dataset.widgetId = widget.id || "";
   el.dataset.widgetType = widget.type || "";
   el.dataset.widgetTitle = widget.title || "";
+  el.dataset.widgetData = JSON.stringify(widget.data || {});
   if (widget.plan) el.dataset.widgetPlan = JSON.stringify(widget.plan);
   if (widget.dataset) el.dataset.widgetDataset = JSON.stringify(widget.dataset);
   el.innerHTML = `
     <div class="widget-head">
       <div class="widget-title">${esc(widget.title || "Widget")}</div>
       <div class="widget-actions">
-        <button class="widget-btn" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
+        <button class="widget-btn${widget.pinned ? " pinned-on" : ""}" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
         <button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
       </div>
     </div>
@@ -299,6 +715,14 @@ function widgetCardHTML(widget) {
 }
 function widgetBodyHTML(widget) {
   const data = widget.data || {};
+  // transactions rows carry signed minor units (amount_minor); older
+  // payloads may use amount — normalise before rendering.
+  if (data.transactions) {
+    data.transactions = data.transactions.map((tx) => {
+      const v = tx.amount_minor ?? tx.amount ?? 0;
+      return { ...tx, amount: Number(v) };
+    });
+  }
   if (widget.type === "number") {
     return `<div class="num-widget"><div class="num-value">${esc(data.value)}</div>
       ${data.caption ? `<div class="num-caption">${esc(data.caption)}</div>` : ""}</div>`;
@@ -307,6 +731,28 @@ function widgetBodyHTML(widget) {
   if (widget.type === "table") {
     return `<div class="table-widget"><table><thead><tr>${(data.columns || []).map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
       <tbody>${(data.rows || []).map((r) => `<tr>${r.map((c, i) => `<td class="${i === r.length - 1 ? "num" : ""}">${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  }
+  if (widget.type === "transactions") {
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const rows = (data.transactions || []).map((tx) => {
+      const d = String(tx.date || "");
+      const day = d.slice(8, 10);
+      const mon = monthNames[Number(d.slice(5, 7)) - 1] || "";
+      const cur = tx.currency || "GBP";
+      const sym = ({ GBP: "£", USD: "$", EUR: "€" })[cur] || cur + " ";
+      const amt = Number(tx.amount || 0) / 100;
+      const amtStr = (tx.type === "transfer" ? "⇄ " : tx.amount >= 0 ? "+" : "−") +
+        sym + Math.abs(amt).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const cls = tx.type === "transfer" ? "transfer" : tx.amount >= 0 ? "pos" : "neg";
+      return `<tr><td class="cell-sub">${esc(day)} ${esc(mon)}</td>` +
+        `<td><div class="cell-merchant">${esc(tx.description || tx.merchant || "")}</div></td>` +
+        `<td>${esc(tx.category || "")}</td>` +
+        `<td class="num tx-amount ${cls}">${esc(amtStr)}</td></tr>`;
+    }).join("");
+    return `<div class="table-widget tx-widget"><table class="tx-table">
+      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
   }
   if (widget.type === "pie" && window.pieChartSVG) {
     const p = pieChartSVG(data);
@@ -385,25 +831,55 @@ document.addEventListener("DOMContentLoaded", () => {
       const newType = document.getElementById("wType").value;
       const newTitle = document.getElementById("wTitle").value.trim() || card.dataset.widgetTitle;
       const shouldPin = document.getElementById("wPinned").checked;
-      const dataset = card.dataset.widgetDataset ? JSON.parse(card.dataset.widgetDataset) : null;
+      const wasPinned = !!card.dataset.pinnedId;
       let data = card.dataset.widgetData ? JSON.parse(card.dataset.widgetData) : null;
-      if (dataset && window.convertWidgetData) {
+      if (data && window.convertWidgetData) {
         data = convertWidgetData(card.dataset.widgetType, newType, data);
       }
-      fetch(`/api/v1/widgets/pinned/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ title: newTitle, type: newType, pinned: shouldPin, data, dataset }),
-      }).then((r) => {
-        if (!r.ok) { toast("Could not update widget"); return; }
-        closeDrawer();
-        toast("Widget updated");
-        location.reload();
-      }).catch(() => toast("Could not update widget"));
+
+      const updateCardDOM = () => {
+        card.dataset.widgetType = newType;
+        card.dataset.widgetTitle = newTitle;
+        card.dataset.widgetData = JSON.stringify(data || {});
+        card.querySelector(".widget-title").textContent = newTitle;
+        const body = card.querySelector(".widget-body");
+        if (body) body.innerHTML = widgetBodyHTML({ type: newType, data: data || {} });
+        if (window.drawChartHosts) drawChartHosts(card);
+      };
+
+      if (wasPinned) {
+        // Dashboard widget: server owns the row (keeps plan + layout).
+        fetch(`/api/v1/widgets/pinned/${card.dataset.pinnedId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+          body: JSON.stringify({ title: newTitle, type: newType, pinned: shouldPin, data }),
+        }).then((r) => {
+          if (!r.ok) { toast("Could not update widget"); return; }
+          if (!shouldPin) {
+            card.remove();
+            toast("Removed from dashboard");
+          } else {
+            updateCardDOM();
+            toast("Widget updated");
+          }
+          closeDrawer();
+        }).catch(() => toast("Could not update widget"));
+        return;
+      }
+
+      // Chat widget: update the card in place, then honour the pin state.
+      updateCardDOM();
+      if (shouldPin) {
+        const btn = card.querySelector("[data-action='toggle-pin']");
+        if (btn) pinWidget(card, btn);
+      }
+      closeDrawer();
+      toast("Widget updated");
     });
   }
 
-  // Widget actions (delegated).
+  // Widget actions (delegated: works for live chat cards and server-rendered
+  // dashboard/chat cards alike).
   document.addEventListener("click", (e) => {
     const edit = e.target.closest("[data-action='edit-widget']");
     if (edit) {
@@ -414,22 +890,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const pin = e.target.closest("[data-action='toggle-pin']");
     if (pin) {
       const card = pin.closest("[data-widget-id]");
-      if (card && card.dataset.widgetDataset) {
-        fetch("/api/v1/widgets/pinned", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-          body: JSON.stringify({
-            title: card.dataset.widgetTitle, type: card.dataset.widgetType,
-            dataset: card.dataset.widgetDataset ? JSON.parse(card.dataset.widgetDataset) : null,
-            plan: card.dataset.widgetPlan ? JSON.parse(card.dataset.widgetPlan) : null,
-          }),
-        }).then((r) => {
-          if (!r.ok) { toast("Could not pin widget"); return; }
-          pin.classList.add("pinned-on");
-          toast("Pinned to dashboard");
-        }).catch(() => toast("Could not pin widget"));
+      if (!card) return;
+      if (card.dataset.pinnedId) {
+        showConfirm(
+          "Unpin widget?",
+          "Remove this widget from your dashboard?",
+          "Unpin",
+          () => unpinWidget(card, pin),
+        );
+      } else {
+        pinWidget(card, pin);
       }
     }
+  });
+
+  // Suggestion chips (delegated so chips rendered mid-conversation also work).
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-chat-suggest]");
+    if (chip) sendChat(chip.dataset.chatSuggest);
   });
 
   // Pinned grid edit mode (drag-swap + resize) — prototype pointer logic.
@@ -476,12 +954,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (resize) {
         e.preventDefault();
         const dx = e.clientX - resize.startX, dy = e.clientY - resize.startY;
-        const c = clamp(resize.col + Math.round(dx / resize.colWidth), 2, 12);
-        const rw = clamp(resize.rows + Math.round(dy / resize.rowStep), 1, 8);
-        resize.card.style.gridColumn = "span " + c;
-        resize.card.style.gridRow = "span " + rw;
-        resize.card.dataset.widgetCol = c;
-        resize.card.dataset.widgetRows = rw;
+        if (resize.dir === "e") {
+          const c = clamp(resize.col + Math.round(dx / resize.colWidth), 2, 12);
+          resize.card.style.gridColumn = "span " + c;
+          resize.card.dataset.widgetCol = c;
+        } else if (resize.dir === "w") {
+          const c = clamp(resize.col - Math.round(dx / resize.colWidth), 2, 12);
+          resize.card.style.gridColumn = "span " + c;
+          resize.card.dataset.widgetCol = c;
+        } else if (resize.dir === "s") {
+          const rw = clamp(resize.rows + Math.round(dy / resize.rowStep), 1, 8);
+          resize.card.style.gridRow = "span " + rw;
+          resize.card.dataset.widgetRows = rw;
+        }
         if (window.drawChartHosts) drawChartHosts(resize.card);
         return;
       }
@@ -511,12 +996,23 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (!move) return;
       if (move.moved && move.target) {
-        // Swap positions in the DOM then persist.
-        const grid = document.getElementById("pinnedGrid");
-        const kids = Array.from(grid.children);
-        const ia = kids.indexOf(move.card), ib = kids.indexOf(move.target);
-        if (ia >= 0 && ib >= 0) {
-          grid.insertBefore(move.card, kids[Math.min(ia, ib)]);
+        // Swap both the DOM positions and the col/rows of the two cards —
+        // matches the prototype behaviour (each card takes the other's slot
+        // and size), then persist.
+        const a = move.card, b = move.target;
+        const aCol = a.dataset.widgetCol || "8", aRows = a.dataset.widgetRows || "4";
+        const bCol = b.dataset.widgetCol || "8", bRows = b.dataset.widgetRows || "4";
+        a.dataset.widgetCol = bCol; a.dataset.widgetRows = bRows;
+        a.style.gridColumn = "span " + bCol; a.style.gridRow = "span " + bRows;
+        b.dataset.widgetCol = aCol; b.dataset.widgetRows = aRows;
+        b.style.gridColumn = "span " + aCol; b.style.gridRow = "span " + aRows;
+        const placeholder = document.createElement("span");
+        a.replaceWith(placeholder);
+        b.replaceWith(a);
+        placeholder.replaceWith(b);
+        if (window.drawChartHosts) {
+          drawChartHosts(a);
+          drawChartHosts(b);
         }
         persistWidgets(pinnedOrder());
       }
@@ -545,20 +1041,26 @@ document.addEventListener("DOMContentLoaded", () => {
       queryInput.style.height = Math.min(queryInput.scrollHeight, 140) + "px";
     });
     queryInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); return; }
+      // Up/down recall the sent-message history (standard chat behaviour):
+      // up loads the previous sent message when the composer is empty (or
+      // already recalling), down walks back towards the empty composer.
+      if (e.key === "ArrowUp") {
+        if (queryInput.value === "" || sentHistoryIdx !== -1) {
+          if (recallSent("up", queryInput)) e.preventDefault();
+        }
+      } else if (e.key === "ArrowDown") {
+        if (sentHistoryIdx !== -1 && recallSent("down", queryInput)) e.preventDefault();
+      }
     });
-    document.querySelectorAll("[data-chat-suggest]").forEach((chip) =>
-      chip.addEventListener("click", () => sendChat(chip.dataset.chatSuggest)));
 
-    // Seed the day-badge marker so live messages don't duplicate the badge
-    // the server already rendered for today.
     const qbox = document.getElementById("queryMessages");
     if (qbox) {
-      const badges = qbox.querySelectorAll(".msg-day");
-      const last = badges.length ? badges[badges.length - 1].textContent.trim() : "";
-      if (last === "Today") {
-        qbox.dataset.lastDay = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-      }
+      initQueriesScroll();
+      seedSentHistoryFromDOM(qbox); // ArrowUp recalls server-known history, not just this session
+      pollDaySummaries();
+      const jumpDay = document.querySelector(".queries-main")?.dataset.jumpDay;
+      if (jumpDay) jumpToDay(jumpDay);
     }
     // Conversation sidebar collapse.
     const sidebar = document.getElementById("queriesSidebar");
@@ -1360,6 +1862,72 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAuditMenu(); });
 });
 
+
+/* ---------- Transactions infinite scroll ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  const table = document.getElementById("transactionsTable");
+  if (!table) return;
+  let sentinel = document.getElementById("transactionsSentinel");
+  if (!sentinel || table.dataset.txHasMore !== "1") return;
+  const tbody = document.getElementById("transactionsBody");
+  if (!tbody) return;
+
+  let loading = false;
+  const loadNext = () => {
+    if (loading) return;
+    if (table.dataset.txHasMore !== "1") return;
+    loading = true;
+    const params = new URLSearchParams();
+    const put = (k, v) => { if (v) params.set(k, v); };
+    put("q", table.dataset.txFilterQ);
+    put("category", table.dataset.txFilterCategory);
+    put("type", table.dataset.txFilterType);
+    put("account", table.dataset.txFilterAccount);
+    put("period", table.dataset.txFilterPeriod);
+    put("from", table.dataset.txFilterFrom);
+    put("to", table.dataset.txFilterTo);
+    params.set("offset", table.dataset.txNextOffset || "0");
+    fetch("/transactions/rows?" + params.toString(), { headers: { "X-Requested-With": "fetch" } })
+      .then((r) => {
+        if (!r.ok) throw new Error("rows " + r.status);
+        const hasMore = r.headers.get("X-Has-More") === "1";
+        const nextOffset = r.headers.get("X-Next-Offset");
+        return r.text().then((html) => ({ html, hasMore, nextOffset }));
+      })
+      .then(({ html, hasMore, nextOffset }) => {
+        if (html) {
+          const tpl = document.createElement("template");
+          tpl.innerHTML = html.trim();
+          tbody.appendChild(tpl.content);
+        }
+        if (nextOffset) table.dataset.txNextOffset = nextOffset;
+        if (!hasMore) {
+          table.dataset.txHasMore = "0";
+          if (sentinel) { sentinel.remove(); sentinel = null; }
+          if (io) io.disconnect();
+        }
+        loading = false;
+      })
+      .catch(() => { loading = false; });
+  };
+
+  let io = null;
+  if (window.IntersectionObserver) {
+    io = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) loadNext();
+      }
+    }, { rootMargin: "200px" });
+    io.observe(sentinel);
+  } else {
+    // Older browsers: fall back to a scroll listener.
+    window.addEventListener("scroll", () => {
+      if (!sentinel) return;
+      const rect = sentinel.getBoundingClientRect();
+      if (rect.top < window.innerHeight + 200) loadNext();
+    }, { passive: true });
+  }
+});
 
 /* ---------- Inline transaction editor (doc 04 §5.2.4) ---------- */
 document.addEventListener("DOMContentLoaded", () => {

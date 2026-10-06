@@ -34,9 +34,13 @@ Related: [07](07-categorisation.md) §6 · [10](10-natural-language-query.md) ·
 type ChatMessage struct { Role, Content string }
 
 type StructuredRequest struct {
-    System   string
-    Messages []ChatMessage
-    Schema   string          // JSON-Schema-ish description embedded in prompt
+    Capability string
+    PromptJSON map[string]any  // single-shot payload (capability prompt)
+
+    System   string            // agent loop: system prompt
+    Messages []ChatMessage     // agent loop: multi-turn transcript
+
+    Schema   string            // JSON-Schema-ish description embedded in prompt
     MaxTokens int
     Timeout  time.Duration
 }
@@ -48,6 +52,12 @@ type Provider interface {
 
 type Usage struct { PromptTokens, CompletionTokens int }
 ```
+
+When `System`+`Messages` are set the providers send a real multi-turn
+conversation (system message + turns) instead of the single-shot capability
+prompt — this is what the `query_agent` loop uses (doc 10 §2a). Adapters map
+it natively (OpenAI/Anthropic/Gemini system roles; Ollama gets a flattened
+transcript in its prompt).
 
 - `CompleteStructured` appends the provider-specific JSON-mode instruction,
   calls the API, extracts the JSON (tolerating code fences), unmarshals into
@@ -65,7 +75,8 @@ type Usage struct { PromptTokens, CompletionTokens int }
 | `schema_detection` | import pipeline (doc 06 §5) | provider default |
 | `schema_naming` | import save step | provider default (cheap) |
 | `categorisation` | cascade tier 3 (doc 07 §6) | provider default or dedicated decision model if configured |
-| `query_planning` | NL query (doc 10) | provider default |
+| `query_agent` | NL query agent loop (doc 10 §2a) | provider default; needs a model that can follow the JSON action protocol |
+| `query_planning` | NL query legacy fallback + pinned widgets (doc 10) | provider default |
 | `merchant_extraction` | import commit enrichment | optional; provider default |
 
 `ai_provider_config.models` (JSON) overrides any capability's model:
@@ -131,11 +142,20 @@ Output: `{"items":[{"index":0,"category":"Food & Dining","confidence":0.95}]}`
 — every index must be answered; unknown categories rejected (retry once with
 the error, else those rows go to review).
 
-### 6.3 `query_planning` (doc 10 §4)
+### 6.3 `query_agent` (doc 10 §2a) and `query_planning` (doc 10 §4)
 
-Output = the Plan JSON (doc 10 §3) — validated against the entity catalogue;
-invalid entity references trigger one correction round with the fuzzy
-candidate list, else a clarification response.
+`query_agent` is the primary NL-query path: a bounded ReAct loop where the
+model answers with `{"action":"run_query","sql":…}` tool calls (executed by
+the read-only SQL sandbox, results fed back as `TOOL RESULT` turns) or a
+`{"action":"final","text":…,"widgets":[]}` answer. The system prompt carries
+the schema, the user's categories/accounts/merchant catalog and the widget
+payload contracts. Output validation happens server-side: widgets are
+sanitised (doc 10 §2a) and invalid actions get one correction round.
+
+`query_planning` remains the deterministic fallback (plan JSON, doc 10 §3)
+and the re-execution format for pinned widgets — validated against the
+entity catalogue; invalid entity references trigger one correction round
+with the fuzzy candidate list, else a clarification response.
 
 ### 6.4 `merchant_extraction`
 

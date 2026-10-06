@@ -16,10 +16,28 @@ import (
 
 // StructuredRequest is one capability call.
 type StructuredRequest struct {
-	Capability string         // schema_detection|categorisation|query_planning|merchant_extraction|schema_naming
+	Capability string         // schema_detection|categorisation|query_planning|query_agent|merchant_extraction|schema_naming
 	PromptJSON map[string]any // the capability payload (embedded in the prompt)
 	MaxTokens  int
 	Timeout    time.Duration
+
+	// Multi-turn transcript (agent loop, doc 09 §2). When set, providers
+	// send System as the system message followed by Messages in order;
+	// capabilityPrompt is not used. Single-shot capabilities leave these
+	// empty and keep using PromptJSON.
+	System   string
+	Messages []ChatMessage
+}
+
+// ChatMessage is one transcript turn (doc 09 §2).
+type ChatMessage struct {
+	Role    string `json:"role"` // user|assistant
+	Content string `json:"content"`
+}
+
+// HasTranscript reports whether the request carries a multi-turn transcript.
+func (r *StructuredRequest) HasTranscript() bool {
+	return len(r.Messages) > 0 && r.System != ""
 }
 
 // Usage records token counts (doc 09 §8).
@@ -54,6 +72,21 @@ func capabilityPrompt(capability string, payload map[string]any) string {
 		systemPreamble, capabilityPromptInstructions(capability), string(b))
 }
 
+// turnsFor resolves the message list for a request: the built agent
+// transcript when present, otherwise the single-shot capability prompt.
+// The returned system string is only non-empty for transcripts.
+func turnsFor(req *StructuredRequest, feedback string) (string, []ChatMessage) {
+	if req.HasTranscript() {
+		out := make([]ChatMessage, 0, len(req.Messages)+1)
+		out = append(out, req.Messages...)
+		if feedback != "" {
+			out = append(out, ChatMessage{Role: "user", Content: feedback})
+		}
+		return req.System, out
+	}
+	return "", []ChatMessage{{Role: "user", Content: capabilityPrompt(req.Capability, req.PromptJSON) + feedback}}
+}
+
 func capabilityPromptInstructions(capability string) string {
 	switch capability {
 	case "schema_detection":
@@ -62,8 +95,15 @@ func capabilityPromptInstructions(capability string) string {
 		return "Categorise every transaction by index using ONLY the allowed_categories names. Schema: {items: [{index, category, confidence}]}. Every index must be answered."
 	case "query_planning":
 		return "Translate the user's question into a query plan. Schema: {v: 1, metric: spend|income|net|balance|count|list, entity: {kind: category|account|merchant|recurring|none, id: string, resolved_name: string, match: exact|fuzzy}, breakdown: none|category|account|merchant|month|week|day, time: {preset: string|null, from: string, to: string}, account_scope: all|savings|spending|single, sort: value_desc|date_asc, limit: number, chart_hint: bar|line|pie|table|number|transactions, title: string}."
+	case "query_agent":
+		// The agent protocol is fully described in the System prompt built by
+		// the query service (doc 10 agent loop); here we only pin the reply
+		// shape so the JSON-mode retry can validate it.
+		return `You are in an agent loop with tools. Reply with ONE JSON object: either {"action":"run_query","sql":"SELECT ..."} to run a read-only query, or {"action":"final","text":"...","widgets":[...]} to finish. Never respond with prose outside JSON.`
 	case "merchant_extraction":
 		return "Extract a clean merchant name for each description. Schema: {items: [{index, merchant, confidence}]}."
+	case "chat_summary":
+		return "Summarise what the user asked about and what was answered in one day of chat. Schema: {summary: string}. The summary must be at most 50 characters, impersonal (no first person), no quotes and no trailing punctuation. Example: \"Transport spend, balance trends\"."
 	case "schema_naming":
 		return "Propose a short schema name like \"Monzo CSV\". Schema: {name: string}."
 	default:

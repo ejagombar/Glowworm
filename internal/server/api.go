@@ -186,10 +186,12 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/settings/ai/models", j(a.apiAIModels))
 
 	// NL query + conversations (doc 03 §9).
+	mux.HandleFunc("GET /api/v1/queries/days", j(a.apiQueryDays))
 	mux.HandleFunc("POST /api/v1/query", j(a.apiQuery))
 	mux.HandleFunc("POST /api/v1/query/stream", j(a.apiQueryStream))
 	mux.HandleFunc("GET /api/v1/conversations", j(a.apiConversationsList))
 	mux.HandleFunc("GET /api/v1/conversations/{id}", j(a.apiConversationGet))
+	mux.HandleFunc("GET /api/v1/conversations/{id}/messages", j(a.apiConversationMessages))
 	mux.HandleFunc("DELETE /api/v1/conversations/{id}", j(a.apiConversationDelete))
 
 	// Pinned widgets (doc 03 §8).
@@ -1066,11 +1068,14 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
-	// Re-resolve the live provider.
-	a.Cat.Provider, _ = ai.New(in.Provider, models["default"], baseURL, decodeKey(a.Secret, keyCipher))
-	if a.Cat.Provider != nil {
-		a.Imports.Provider = a.Cat.Provider
-	}
+	// Re-resolve the live provider and apply it to every consumer — the
+	// queries page, categorisation and imports. Only Cat was refreshed here:
+	// a stale Query.Provider meant the queries page kept calling with the
+	// boot-time provider (e.g. an old model ID → 404) until restart.
+	p, _ := ai.New(in.Provider, models["default"], baseURL, decodeKey(a.Secret, keyCipher))
+	a.Cat.Provider = p
+	a.Imports.Provider = p
+	a.Query.Provider = p
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }

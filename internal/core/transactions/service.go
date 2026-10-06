@@ -151,7 +151,7 @@ func (s *Service) Create(in CreateInput) (*core.Transaction, error) {
 	t := &core.Transaction{
 		AccountID: in.AccountID, Date: in.Date, Description: in.Description,
 		Merchant: in.Merchant, AmountMinor: in.AmountMinor, Currency: in.Currency,
-		CategoryID: in.CategoryID,
+		CategoryID:     in.CategoryID,
 		CategorySource: core.CategorySourceUser,
 	}
 	if in.CategoryID == nil {

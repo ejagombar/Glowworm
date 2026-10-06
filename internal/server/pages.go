@@ -13,18 +13,21 @@ import (
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/periods"
+	"glowworm/internal/core/query"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/money"
 	"glowworm/internal/store/repos"
 )
 
-// queryMessageView renders one chat message server-side (M5 will populate).
+// queryMessageView renders one chat message server-side.
 type queryMessageView struct {
 	Role       string
 	Text       string
+	TextHTML   template.HTML
 	DayLabel   string
 	Steps      []string
 	WidgetHTML template.HTML
+	CreatedAt  string
 }
 
 // viewBase is the data every view shares (masthead, settings, period).
@@ -145,15 +148,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	// Hero chart series over the period.
 	seriesData := a.balanceSeriesFor(base, "all")
 
-	// Recent activity (grouped display, 7 rows).
-	rows, err := a.Repos.Transactions.DisplayRows(repos.ListFilter{From: base.PeriodFrom, To: base.PeriodTo}, "")
-	if err != nil {
-		return err
-	}
-	recent := rows
-	if len(recent) > 7 {
-		recent = recent[:7]
-	}
 	widgetViews, err := a.WidgetsList()
 	if err != nil {
 		return err
@@ -173,7 +167,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		SpendDir        string
 		HeroChart       string // JSON chart data (bar/line)
 		HeroRangeLabel  string
-		Recent          []*repos.DisplayRow
 		Widgets         []*WidgetView
 	}{
 		viewBase:       base,
@@ -185,7 +178,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		SpendMinor: spendMinor, SpendPct: spendPct, SpendDir: spendDir,
 		HeroChart:      seriesData,
 		HeroRangeLabel: "All accounts · all time",
-		Recent:         recent,
 		Widgets:        widgetViews,
 	}
 	return a.Render.Render(w, "dashboard", data)
@@ -510,6 +502,9 @@ func jsonInts(items []int64) string {
 	return out + "]"
 }
 
+// Rows per infinite-scroll page on /transactions.
+const transactionsPageSize = 50
+
 // handleTransactions renders the transactions view (doc 04 §5.2).
 func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "transactions", "Transactions")
@@ -533,7 +528,7 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rows, err := a.Repos.Transactions.DisplayRows(f, accountID)
+	allRows, err := a.Repos.Transactions.DisplayRows(f, accountID)
 	if err != nil {
 		return err
 	}
@@ -552,6 +547,12 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	} else {
 		sub = "All accounts · transfers linked"
 	}
+	rows := allRows
+	hasMore := false
+	if len(rows) > transactionsPageSize {
+		rows = rows[:transactionsPageSize]
+		hasMore = true
+	}
 	data := struct {
 		*viewBase
 		Accounts     []*accountCard
@@ -564,13 +565,73 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 		FiltersCat   string
 		FiltersType  string
 		Today        string
+		HasMore      bool
+		NextOffset   int
 	}{
 		viewBase: base, Accounts: cards, Rows: rows, Categories: cats,
 		SelectedAcc: accountID, SelectedName: selectedName, Sub: sub,
 		FiltersQ: f.Q, FiltersCat: f.CategoryID, FiltersType: f.Type,
-		Today: a.Clock.Today(),
+		Today: a.Clock.Today(), HasMore: hasMore, NextOffset: len(rows),
 	}
 	return a.Render.Render(w, "transactions", data)
+}
+
+// handleTransactionsRows serves one page of transaction rows as an HTML
+// fragment (tbody <tr> elements), used by the infinite-scroll loader. Writes
+// an X-Has-More: 1 header when there's a next page.
+func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) error {
+	w.Header().Set("Cache-Control", "no-store")
+	base, err := a.base(w, r, "transactions", "Transactions")
+	if err != nil {
+		return err
+	}
+	q := r.URL.Query()
+	f := repos.ListFilter{
+		Q:          q.Get("q"),
+		CategoryID: q.Get("category"),
+		Type:       q.Get("type"),
+		From:       base.PeriodFrom,
+		To:         base.PeriodTo,
+	}
+	accountID := q.Get("account")
+	offset := 0
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			offset = n
+		}
+	}
+	limit := transactionsPageSize
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	allRows, err := a.Repos.Transactions.DisplayRows(f, accountID)
+	if err != nil {
+		return err
+	}
+	if offset >= len(allRows) {
+		return nil // empty body = client stops paging
+	}
+	end := offset + limit
+	if end > len(allRows) {
+		end = len(allRows)
+	}
+	if end < len(allRows) {
+		w.Header().Set("X-Has-More", "1")
+	}
+	w.Header().Set("X-Next-Offset", strconv.Itoa(end))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	for _, row := range allRows[offset:end] {
+		if err := a.Render.RenderFragment(w, "tx-tr", map[string]any{
+			"Row":      row,
+			"Currency": base.Currency,
+			"Selected": accountID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // handleCategories renders the categories view (doc 04 §5.5).
@@ -871,6 +932,22 @@ func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// Sidebar: one entry per day the chat was used (doc 10 §8). Summaries
+	// for days that lack one are generated async — midnight job covers the
+	// usual case; this catch-up covers "app wasn't running".
+	days, err := a.Query.DayEntries()
+	if err != nil {
+		return err
+	}
+	missing := 0
+	for _, d := range days {
+		if !d.HasSummary {
+			missing++
+		}
+	}
+	if missing > 0 {
+		go a.Query.CatchUpSummaries()
+	}
 	convs, err := a.Query.Repo.ListConversations()
 	if err != nil {
 		return err
@@ -887,19 +964,31 @@ func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
 			convID = ""
 		}
 	}
+	// History is paged (doc 10 §8): render only the newest window; the client
+	// loads older messages as the user scrolls up.
+	const initialPage = 20
 	var msgs []queryMessageView
+	hasMore := false
+	oldest := ""
 	if conv != nil {
-		raw, err := a.Query.Repo.Messages(conv.ID)
-		if err == nil {
+		if raw, err := a.Query.Repo.MessagesPage(conv.ID, nil, initialPage); err == nil && len(raw) > 0 {
 			msgs = toMessageViews(raw)
+			oldest = raw[0].CreatedAt + "|" + raw[0].ID // ascending: [0] is oldest
+			hasMore = len(raw) == initialPage
 		}
 	}
 	data := struct {
 		*viewBase
-		Messages       []queryMessageView
-		ConversationID string
-		Conversations  []*core.Conversation
-	}{viewBase: base, Messages: msgs, ConversationID: convID, Conversations: convs}
+		Messages         []queryMessageView
+		ConversationID   string
+		DayEntries       []*query.DayEntry
+		MissingSummaries bool
+		DayParam         string
+		HasMore          bool
+		Oldest           string
+	}{viewBase: base, Messages: msgs, ConversationID: convID, DayEntries: days,
+		MissingSummaries: missing > 0,
+		DayParam:         r.URL.Query().Get("day"), HasMore: hasMore, Oldest: oldest}
 	return a.Render.Render(w, "queries", data)
 }
 
@@ -916,11 +1005,13 @@ func toMessageViews(msgs []*core.Message) []queryMessageView {
 			dayLabel = dayLabelFor(m.CreatedAt)
 			lastDay = d
 		}
-		view := queryMessageView{Role: m.Role, Text: m.Text, Steps: m.Steps, DayLabel: dayLabel}
-		if m.Widget != nil {
-			var w widgets.Widget
-			if json.Unmarshal([]byte(*m.Widget), &w) == nil {
-				view.WidgetHTML = template.HTML(widgetCardHTML(&w))
+		view := queryMessageView{Role: m.Role, Text: m.Text, Steps: m.Steps, DayLabel: dayLabel, CreatedAt: m.CreatedAt}
+		if m.Role == "assistant" {
+			view.TextHTML = template.HTML(formatAssistantText(m.Text))
+		}
+		if m.Widget != nil && *m.Widget != "" {
+			for _, w := range parseStoredWidgets(*m.Widget) {
+				view.WidgetHTML += template.HTML(widgetCardHTML(w))
 			}
 		}
 		out = append(out, view)
@@ -928,29 +1019,78 @@ func toMessageViews(msgs []*core.Message) []queryMessageView {
 	return out
 }
 
+// dayLabelFor labels a message's day badge. Everything is computed in the
+// server's local timezone (created_at is UTC RFC3339): grouping by UTC day
+// mislabels messages late in the evening for UTC+ users — the same bug that
+// produced duplicate/incorrect Today badges.
 func dayLabelFor(ts string) string {
 	t, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
 		return ""
 	}
-	today := strings.TrimSpace(time.Now().Format("2006-01-02"))
-	that := strings.TrimSpace(t.Format("2006-01-02"))
-	if today == that {
+	t = t.Local()
+	today := time.Now().Local()
+	switch {
+	case sameDay(t, today):
 		return "Today"
-	}
-	if t.Format("2006-01-02") == time.Now().AddDate(0, 0, -1).Format("2006-01-02") {
+	case sameDay(t, today.AddDate(0, 0, -1)):
 		return "Yesterday"
 	}
 	return t.Format("2 January 2006")
 }
 
-// dayKey returns the calendar day of a timestamp (for change detection).
+func sameDay(a, b time.Time) bool {
+	aY, aM, aD := a.Date()
+	bY, bM, bD := b.Date()
+	return aY == bY && aM == bM && aD == bD
+}
+
+// dayKey returns the local calendar day of a timestamp (for change detection).
 func dayKey(ts string) string {
 	t, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
 		return ""
 	}
-	return t.Format("2006-01-02")
+	return t.Local().Format("2006-01-02")
+}
+
+// parseStoredWidgets reads a message's stored widget JSON: an array of
+// widgets (current) or a single widget object (rows written before the
+// agent update).
+func parseStoredWidgets(s string) []*widgets.Widget {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	var arr []*widgets.Widget
+	if err := json.Unmarshal([]byte(s), &arr); err == nil && len(arr) > 0 {
+		return arr
+	}
+	var one widgets.Widget
+	if err := json.Unmarshal([]byte(s), &one); err == nil && one.Type != "" {
+		return []*widgets.Widget{&one}
+	}
+	return nil
+}
+
+// formatAssistantText renders the assistant's text with minimal formatting:
+// escaped HTML with **bold** and preserved line breaks (white-space:
+// pre-wrap on .msg-text).
+func formatAssistantText(text string) string {
+	esc := template.HTMLEscapeString(text)
+	var b strings.Builder
+	bold := false
+	for _, part := range strings.Split(esc, "**") {
+		if bold {
+			b.WriteString("<strong>")
+			b.WriteString(part)
+			b.WriteString("</strong>")
+		} else {
+			b.WriteString(part)
+		}
+		bold = !bold
+	}
+	return b.String()
 }
 
 // widgetCardHTML re-renders a widget card server-side (prototype widgetEl).

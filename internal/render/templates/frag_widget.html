@@ -1,15 +1,20 @@
 {{define "pinned-widgets"}}{{/* Widgets []*core.PinnedWidget; Currency */}}
 {{range .Widgets}}
-<article class="widget span-{{.Col}}" data-widget-id="{{.ID}}" data-widget-type="{{.Type}}"
+<article class="widget span-{{.Col}}" style="grid-row: span {{.Rows}}" data-widget-id="{{.ID}}" data-widget-type="{{.Type}}"
   data-widget-title="{{.Title}}" data-widget-col="{{.Col}}" data-widget-rows="{{.Rows}}"
+  data-pinned-id="{{.ID}}"
   data-widget-data="{{jsonAttr .DataJSON}}" data-widget-dataset="{{jsonAttr .DatasetJSON}}">
   <div class="widget-head">
     <div class="widget-title">{{.Title}}</div>
     <div class="widget-actions">
+      <button class="widget-btn pinned-on" data-action="toggle-pin" title="Unpin from dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
       <button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
     </div>
   </div>
   <div class="widget-body">{{template "widget-body" dict "W" . "Currency" $.Currency}}</div>
+  <span class="resize-handle rh-w" draggable="false" data-resize-dir="w"></span>
+  <span class="resize-handle rh-e" draggable="false" data-resize-dir="e"></span>
+  <span class="resize-handle rh-s" draggable="false" data-resize-dir="s"></span>
 </article>
 {{end}}
 {{end}}
@@ -26,6 +31,11 @@
 </table></div>
 {{else if eq $w.Type "pie"}}
 <div class="pie-wrap"><div class="pie-chart" data-chart-type="pie" data-chart-data="{{jsonAttr $w.DataJSON}}"></div></div>
+{{else if eq $w.Type "transactions"}}
+<div class="table-widget tx-widget"><table class="tx-table">
+  <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
+  <tbody>{{range $w.Transactions}}<tr><td class="cell-sub">{{.Date}}</td><td><div class="cell-merchant">{{.Description}}</div></td><td>{{.Category}}</td><td class="num tx-amount {{.Class}}">{{.Amount}}</td></tr>{{end}}</tbody>
+</table></div>
 {{else}}
 <div class="chart-host" data-chart-type="{{$w.Type}}" data-chart-data="{{jsonAttr $w.DataJSON}}"></div>
 {{end}}
