@@ -267,6 +267,10 @@ body.privacy .num-trend,
 body.privacy .stat-trend,
 body.privacy .account-row p,
 body.privacy .settings-account-balance,
+body.privacy .settings-account-opening,
+body.privacy .valuation-value,
+body.privacy #accOpening,
+body.privacy #accValuation,
 body.privacy .table-widget td.num { filter: blur(5px); }
 body.privacy .stat-value.no-blur,
 body.privacy .stat-trend.no-blur { filter: none; }
@@ -1113,6 +1117,15 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   grid-template-columns: repeat(12, 1fr);
   gap: 16px;
 }
+/* Several blocks sharing one column, one under the other. */
+.setting-stack { grid-column: span 4; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.setting-stack > .setting-block { grid-column: auto; }
+.setting-divider { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+.valuation-list { list-style: none; margin: 0 0 10px; padding: 0; border: 1px solid var(--line); border-radius: var(--r); }
+.valuation-list li { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 11px; font-size: 13px; }
+.valuation-list li + li { border-top: 1px solid var(--line); }
+.valuation-date { color: var(--muted); min-width: 96px; }
+.valuation-value { flex: 1; font-family: var(--mono); }
 .setting-block {
   grid-column: span 4;
   background: var(--surface);
@@ -1246,7 +1259,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   .widget { grid-column: span 12; }
   .widget.span-4, .widget.span-8 { grid-column: span 12; }
   .two-col { grid-template-columns: 1fr; }
-  .setting-block { grid-column: span 6; }
+  .setting-block, .setting-stack { grid-column: span 6; }
   .settings-accounts-block { grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
@@ -1258,7 +1271,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   .stats-grid, .stats-grid.three { grid-template-columns: 1fr 1fr; }
   .view-head { flex-direction: column; align-items: flex-start; }
   .category-grid { grid-template-columns: 1fr; }
-  .setting-block { grid-column: 1 / -1; }
+  .setting-block, .setting-stack { grid-column: 1 / -1; }
   .tx-table:not(.account-view) th:nth-child(4), .tx-table:not(.account-view) td:nth-child(4) { display: none; }
 }
 

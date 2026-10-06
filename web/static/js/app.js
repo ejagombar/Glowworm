@@ -1361,9 +1361,11 @@ function openAccountForm(id) {
       document.getElementById("accIban").value = a.iban || "";
       document.getElementById("accBic").value = a.bic || "";
       syncValuationBlock();
+      loadValuations(id);
     }).catch(() => toast("Could not load account"));
   } else {
     ["accName","accOpening","accNumber","accSortCode","accIban","accBic"].forEach((x) => (document.getElementById(x).value = ""));
+    document.getElementById("accValuationList").hidden = document.getElementById("accValuationListLabel").hidden = true;
     document.getElementById("accType").value = "debit";
   }
   syncValuationBlock();
@@ -1380,6 +1382,44 @@ function resetValuationFields() {
   document.getElementById("accValuation").value = "";
   document.getElementById("accValuationDate").value = new Date().toISOString().slice(0, 10);
 }
+// Existing dated values for the account, each removable (it's logged, so the
+// removal can be undone from the audit log).
+function loadValuations(accountID) {
+  const list = document.getElementById("accValuationList");
+  const label = document.getElementById("accValuationListLabel");
+  list.innerHTML = "";
+  list.hidden = label.hidden = true;
+  fetch(`/api/v1/accounts/${accountID}/valuations`).then((r) => r.json()).then((b) => {
+    const items = (b.items || []).slice().reverse(); // newest first
+    if (!items.length) return;
+    list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
+        <span class="valuation-date">${esc(dayMonthYearJS(v.date))}</span>
+        <span class="valuation-value">${v.value_minor < 0 ? "−" : ""}${esc(fmtMoneyMinor(v.value_minor, typeof WIDGET_CURRENCY === "string" ? WIDGET_CURRENCY : "GBP"))}</span>
+        <button type="button" class="btn btn-ghost btn-xs danger-text" data-valuation-delete>Delete</button>
+      </li>`).join("");
+    list.hidden = label.hidden = false;
+    list.querySelectorAll("[data-valuation-delete]").forEach((btn) => btn.addEventListener("click", () => {
+      const li = btn.closest("li");
+      showConfirm("Delete this value?", `The ${li.querySelector(".valuation-value").textContent} recorded on ${li.querySelector(".valuation-date").textContent} is removed. You can undo this from the audit log.`, "Delete", () => {
+        fetch(`/api/v1/accounts/${accountID}/valuations/${li.dataset.valuationId}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
+          .then(async (r) => {
+            if (!r.ok) {
+              const e = await r.json().catch(() => ({}));
+              toast((e.error && e.error.message) || "Could not delete the value");
+              return;
+            }
+            toast("Value deleted");
+            loadValuations(accountID);
+          }).catch(() => toast("Could not delete the value"));
+      });
+    }));
+  }).catch(() => {});
+}
+function dayMonthYearJS(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function syncValuationBlock() {
   const savings = document.getElementById("accType").value === "savings";
   document.getElementById("accValuationBlock").hidden = !savings;

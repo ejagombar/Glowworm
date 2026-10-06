@@ -116,6 +116,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/instance/delete", j(a.apiInstanceDelete))
 	mux.HandleFunc("GET /api/v1/accounts/{id}/valuations", j(a.apiValuationsList))
 	mux.HandleFunc("POST /api/v1/accounts/{id}/valuations", j(a.apiValuationCreate))
+	mux.HandleFunc("DELETE /api/v1/accounts/{id}/valuations/{vid}", j(a.apiValuationDelete))
 
 	mux.HandleFunc("GET /api/v1/transactions", j(a.apiTransactionsList))
 	mux.HandleFunc("POST /api/v1/transactions", j(a.apiTransactionCreate))
@@ -269,6 +270,14 @@ func (a *App) apiValuationCreate(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, res)
+	return nil
+}
+
+func (a *App) apiValuationDelete(w http.ResponseWriter, r *http.Request) error {
+	if err := a.Accounts.DeleteValuation(r.PathValue("id"), r.PathValue("vid")); err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
 

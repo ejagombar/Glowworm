@@ -267,6 +267,38 @@ func fillValuationAudit(tx *sql.Tx, auditID int64, valuationID string) error {
 	return err
 }
 
+// DeleteValuation removes a dated value (soft delete), logged so it can be
+// undone from the audit log.
+func (s *Service) DeleteValuation(accountID, valuationID string) error {
+	a, err := s.Repos.Get(accountID)
+	if err != nil {
+		return err
+	}
+	v, err := s.Repos.GetValuation(valuationID)
+	if err != nil || v.AccountID != accountID || v.DeletedAt != nil {
+		return &ValidationError{Message: "That value no longer exists"}
+	}
+	err = s.DB.WithTx(func(tx *sql.Tx) error {
+		if err := s.Repos.DeleteValuation(tx, valuationID); err != nil {
+			return err
+		}
+		_, err := s.Audit.Write(tx, audit.Input{
+			Actor: core.ActorUser, Action: "valuation.deleted",
+			EntityType: "valuation", EntityID: valuationID,
+			Title:  "Removed account value",
+			Sub:    fmt.Sprintf("%s · %s", a.Name, v.Date),
+			Diff:   []audit.DiffLine{audit.Del(money.Format(v.ValueMinor, a.Currency) + " on " + v.Date)},
+			Before: map[string]any{"account_id": accountID, "value_minor": v.ValueMinor, "date": v.Date},
+			Revert: map[string]any{"valuation_id": valuationID},
+		})
+		return err
+	})
+	if err == nil {
+		s.afterChange()
+	}
+	return err
+}
+
 func (s *Service) Valuations(accountID string) ([]*core.Valuation, error) {
 	return s.Repos.Valuations(accountID)
 }
