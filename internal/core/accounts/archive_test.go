@@ -1,8 +1,6 @@
 package accounts
 
 import (
-	"encoding/json"
-	"strings"
 	"testing"
 
 	"glowworm/internal/core"
@@ -124,7 +122,7 @@ func TestDeleteLeavesNothingBehindAndArchiveRestores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Accounts) != 1 || res.Accounts[0].Transactions != 2 || res.Accounts[0].Transfers != 1 {
+	if res.Transactions != 2 || res.Transfers != 1 {
 		t.Fatalf("restore result = %+v", res)
 	}
 	a, err := f.s.Repos.Get(f.main)
@@ -153,92 +151,37 @@ func TestDeleteLeavesNothingBehindAndArchiveRestores(t *testing.T) {
 	}
 }
 
-func TestBackupFileRoundTrip(t *testing.T) {
+func TestPurgedArchiveIsGoneAndRestoreRecreatesCategories(t *testing.T) {
 	f := newFixture(t)
-	b, err := f.s.Backup([]string{f.main})
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := json.Marshal(b)
-	if !strings.Contains(string(raw), `"format":"glowworm.account-backup"`) || !strings.Contains(string(raw), "Groceries") {
-		t.Fatalf("backup is missing format or categories: %s", raw)
-	}
-
-	var again Backup
-	_ = json.Unmarshal(raw, &again)
-	if _, err := f.s.RestoreBackup(&again); err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("restore over a live account should be refused, got %v", err)
-	}
-
 	arc, err := f.s.Delete(f.main)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.s.PurgeArchive(arc.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.DB.Exec(`DELETE FROM categories WHERE id = ?`, f.groceries); err != nil {
 		t.Fatal(err)
 	}
-	var file Backup
-	_ = json.Unmarshal(raw, &file)
-	res, err := f.s.RestoreBackup(&file)
+	res, err := f.s.RestoreArchive(arc.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.CategoriesCreated) != 1 || res.CategoriesCreated[0] != "Groceries" {
 		t.Errorf("missing category should be recreated, got %v", res.CategoriesCreated)
 	}
-	if n := f.count(t, `SELECT COUNT(*) FROM transactions WHERE account_id = ? AND deleted_at IS NULL`, f.main); n != 2 {
-		t.Errorf("restored %d transactions, want 2", n)
-	}
 	if _, _, cat := f.txState(t, f.shopTx); cat != f.groceries {
 		t.Errorf("category not reattached: %q", cat)
 	}
-	if n := f.count(t, `SELECT COUNT(*) FROM audit_entries WHERE action IN ('account.purged','account.restored')`); n != 2 {
-		t.Errorf("expected purge + restore audit entries, got %d", n)
-	}
-}
 
-func TestRestoreSkipsAccountsThatStillExist(t *testing.T) {
-	f := newFixture(t)
-	all, err := f.s.Backup(nil)
+	arc, err = f.s.Delete(f.main)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(all)
-	if _, err := f.s.Delete(f.main); err != nil {
+	if err := f.s.PurgeArchive(arc.ID); err != nil {
 		t.Fatal(err)
 	}
-	var file Backup
-	_ = json.Unmarshal(raw, &file)
-	res, err := f.s.RestoreBackup(&file)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := f.s.RestoreArchive(arc.ID); err == nil {
+		t.Error("a purged archive must not be restorable")
 	}
-	if len(res.Accounts) != 1 || res.Accounts[0].ID != f.main || len(res.Skipped) != 1 || res.Skipped[0] != "Savings" {
-		t.Fatalf("want Main restored and Savings skipped, got %+v", res)
-	}
-	if n := f.count(t, `SELECT COUNT(*) FROM transactions WHERE account_id = ?`, f.savings); n != 1 {
-		t.Errorf("savings has %d transactions, want 1", n)
-	}
-	if _, outLink, _ := f.txState(t, f.outTx); outLink == "" {
-		t.Error("transfer to the skipped account should be relinked")
-	}
-}
-
-func TestValidateBackupRejectsForeignFiles(t *testing.T) {
-	for name, b := range map[string]*Backup{
-		"wrong format": {Format: "something-else", Version: 1},
-		"future":       {Format: BackupFormat, Version: BackupVersion + 1},
-		"empty":        {Format: BackupFormat, Version: 1},
-		"bad tx date": {Format: BackupFormat, Version: 1, Accounts: []AccountBackup{{
-			Account:      BackupAccount{ID: "a", Name: "A", Type: core.AccountDebit, Currency: "GBP"},
-			Transactions: []BackupTransaction{{ID: "t", Date: "02/06/2026", Currency: "GBP", Type: core.TypeExpense}},
-		}}},
-	} {
-		if err := ValidateBackup(b); err == nil {
-			t.Errorf("%s: expected a validation error", name)
-		}
+	if n := f.count(t, `SELECT COUNT(*) FROM audit_entries WHERE action = 'account.purged'`); n != 1 {
+		t.Errorf("purge audit entries = %d, want 1", n)
 	}
 }

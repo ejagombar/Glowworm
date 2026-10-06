@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -110,9 +111,20 @@ func loadMigrations() ([]mig, error) {
 	return out, nil
 }
 
+const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
+	version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`
+
+func applyMigration(tx *sql.Tx, m mig) error {
+	if _, err := tx.Exec(m.up); err != nil {
+		return fmt.Errorf("store: migration %04d_%s failed: %w", m.version, m.name, err)
+	}
+	_, err := tx.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+		m.version, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
 func (s *DB) migrate() error {
-	if _, err := s.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+	if _, err := s.Exec(createMigrationsTable); err != nil {
 		return fmt.Errorf("store: schema_migrations: %w", err)
 	}
 	var current int
@@ -131,18 +143,87 @@ func (s *DB) migrate() error {
 			continue
 		}
 		start := time.Now()
-		err := s.WithTx(func(tx *sql.Tx) error {
-			if _, err := tx.Exec(m.up); err != nil {
-				return err
-			}
-			_, err := tx.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
-				m.version, time.Now().UTC().Format(time.RFC3339))
+		if err := s.WithTx(func(tx *sql.Tx) error { return applyMigration(tx, m) }); err != nil {
 			return err
-		})
-		if err != nil {
-			return fmt.Errorf("store: migration %04d_%s failed: %w", m.version, m.name, err)
 		}
 		fmt.Printf("store: applied migration %04d_%s (%dms)\n", m.version, m.name, time.Since(start).Milliseconds())
 	}
 	return nil
+}
+
+func (s *DB) Reset() error {
+	all, err := loadMigrations()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	conn, err := s.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	// With enforcement on, DROP TABLE runs an implicit FK-checked DELETE that
+	// fails once a parent is already dropped. The pragma is per connection and
+	// can't change inside a transaction, so pin a connection and switch it off.
+	var fk int
+	if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&fk); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+	defer conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA foreign_keys = %d`, fk))
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := resetSchema(tx, all); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Dropped rows survive in free pages and the WAL until both are rewritten.
+	if _, err := conn.ExecContext(ctx, `VACUUM`); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
+}
+
+func resetSchema(tx *sql.Tx, all []mig) error {
+	rows, err := tx.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		return err
+	}
+	var tables []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		tables = append(tables, n)
+	}
+	rows.Close()
+	for _, t := range tables {
+		if _, err := tx.Exec(`DROP TABLE "` + t + `"`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(createMigrationsTable); err != nil {
+		return err
+	}
+	for _, m := range all {
+		if err := applyMigration(tx, m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *DB) SnapshotTo(path string) error {
+	_, err := s.Exec(`VACUUM INTO ?`, path)
+	return err
 }

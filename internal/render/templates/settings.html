@@ -15,11 +15,6 @@
           <p class="muted">Name, type, opening balance and current valuation. Valuation updates are stored as corrections, not payments.</p>
         </div>
         <div class="settings-accounts-actions">
-          {{if .Accounts}}<a class="btn btn-ghost btn-xs" href="/api/v1/accounts/backup" download
-            title="Download every account with its transactions as one backup file">Back up all</a>{{end}}
-          <button class="btn btn-ghost btn-xs" id="restoreBackupBtn" type="button"
-            title="Restore accounts from a backup file">Restore from backup…</button>
-          <input type="file" id="restoreBackupFile" accept=".json,application/json" hidden />
           <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
             <svg class="icon"><use href="#i-plus"/></svg> Add account
           </button>
@@ -56,7 +51,6 @@
               <div class="settings-account-sub">Deleted {{dayMonthYear (slice .DeletedAt 0 10)}} · {{.TxCount}} transaction{{if ne .TxCount 1}}s{{end}}</div>
             </div>
             <button class="btn btn-ghost btn-xs" type="button" data-archive-restore>Restore</button>
-            <a class="btn btn-ghost btn-xs" href="/api/v1/accounts/archives/{{.ID}}/backup" download>Download</a>
             <button class="btn btn-ghost btn-xs danger-text" type="button" data-archive-purge>Delete forever</button>
           </li>
           {{end}}
@@ -146,6 +140,16 @@
     </div>
 
     <div class="panel setting-block">
+      <h2>Backup &amp; deletion</h2>
+      <p class="muted">A full backup holds everything in this Glowworm: accounts, transactions, settings, history and your encrypted AI key.</p>
+      <p class="muted">To restore one, stop Glowworm on the server and run <code>glowworm restore &lt;file&gt;</code>.</p>
+      <div class="account-actions">
+        <button class="btn btn-ghost" id="instanceBackupBtn" type="button">Download full backup…</button>
+        <button class="btn btn-danger" id="instanceDeleteBtn" type="button">Delete Glowworm account…</button>
+      </div>
+    </div>
+
+    <div class="panel setting-block">
       <h2>Getting started</h2>
       <p class="muted">Re-run the setup walkthrough and rebuild your categories.</p>
       <button class="btn btn-primary" id="runSetupBtn">Run setup walkthrough</button>
@@ -214,6 +218,60 @@
         <button class="btn btn-ghost" id="passwordCancel" type="button">Cancel</button>
         <span class="spacer"></span>
         <button class="btn btn-primary" id="passwordSave">Change password</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-backdrop" id="instanceBackupModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="instanceBackupTitle">
+    <button class="icon-btn modal-close" data-close-modal="instanceBackupModal" aria-label="Close">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+    <div class="modal-head">
+      <div class="modal-head-text">
+        <h3 id="instanceBackupTitle">Download a full backup</h3>
+        <p class="muted">The file contains all your data and the key that decrypts your AI key. Store it somewhere private.</p>
+      </div>
+    </div>
+    <div class="modal-body">
+      {{if eq .AuthMode "password"}}<div class="field-row">
+        <label for="instanceBackupPassword">Your password</label>
+        <input class="field" type="password" id="instanceBackupPassword" autocomplete="current-password" />
+      </div>{{end}}
+      <div class="modal-foot">
+        <button class="btn btn-ghost" type="button" data-close-modal="instanceBackupModal">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="instanceBackupGo" type="button">Download backup</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="instanceDeleteModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="instanceDeleteTitle">
+    <button class="icon-btn modal-close" data-close-modal="instanceDeleteModal" aria-label="Close">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+    <div class="modal-head">
+      <div class="modal-head-text">
+        <h3 id="instanceDeleteTitle">Delete your Glowworm account?</h3>
+        <p class="muted">This erases everything: your login, accounts, transactions, categories, settings, AI key, chat and history. Glowworm returns to first-run setup. It can't be undone from the website.</p>
+      </div>
+    </div>
+    <div class="modal-body">
+      <p class="muted">Want a way back? <button class="link" type="button" id="instanceDeleteBackupFirst">Download a full backup first</button>.</p>
+      {{if eq .AuthMode "password"}}<div class="field-row">
+        <label for="instanceDeletePassword">Your password</label>
+        <input class="field" type="password" id="instanceDeletePassword" autocomplete="current-password" />
+      </div>{{end}}
+      <div class="field-row">
+        <label for="instanceDeleteConfirm">Type <strong>DELETE</strong> to confirm</label>
+        <input class="field" id="instanceDeleteConfirm" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" type="button" data-close-modal="instanceDeleteModal">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-danger" id="instanceDeleteGo" type="button" disabled>Delete everything</button>
       </div>
     </div>
   </div>
