@@ -9,8 +9,8 @@
     {{if eq $row.Kind "linked"}}<span class="badge badge-linked" title="Matched with the other side of this transfer">Linked</span>{{end}}
     {{if and $stmt $t.TransferID}}<span class="badge badge-linked" tabindex="0" title="{{if $t.Counterparty}}{{$t.Counterparty}}{{else}}Transfer between your accounts{{end}}">Transfer</span>{{end}}
     {{if $t.RecurringKey}}<button type="button" class="badge badge-recurring badge-btn" data-recurring-key="{{$t.RecurringKey}}" title="View all related transactions">Recurring</button>{{end}}
-  </div></td>
-  <td><span class="category-dot" style="background:{{$color}}"></span> {{$cat}}</td>
+  </div><div class="cell-cat-inline">{{$t.Date}} · <span class="category-dot" style="background:{{$color}}"></span> {{$cat}}</div></td>
+  <td class="cell-cat"><span class="category-dot" style="background:{{$color}}"></span> {{$cat}}</td>
   {{if not $stmt}}
   <td>{{if eq $row.Kind "linked"}}{{$row.Source}} → {{$row.Destination}}{{else}}{{$t.AccountName}}{{end}}</td>
   {{end}}
