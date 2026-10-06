@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"glowworm/internal/ai"
 	"glowworm/internal/clock"
 	"glowworm/internal/config"
+	"glowworm/internal/core"
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/auditexec"
@@ -144,7 +146,29 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 			return c.ID, nil
 		},
 	}
+	if err := app.SeedExamples(); err != nil {
+		return nil, fmt.Errorf("seed examples: %w", err)
+	}
+	if err := app.bootstrapOwner(); err != nil {
+		return nil, err
+	}
 	return app, nil
+}
+
+// bootstrapOwner creates the account from owner_username/owner_password when
+// no account exists yet; with neither set, the web UI asks on first visit.
+func (a *App) bootstrapOwner() error {
+	if a.Cfg.OwnerUsername == "" && a.Cfg.OwnerPassword == "" {
+		return nil
+	}
+	if a.Audit.HasUser() {
+		return nil
+	}
+	if _, err := a.Setup.CreateOwner(a.Cfg.OwnerUsername, a.Cfg.OwnerPassword, "", core.ActorSystem, "from config"); err != nil {
+		return fmt.Errorf("owner account from config: %w", err)
+	}
+	a.Log.Info("owner account created from config — you can remove owner_password now", "username", a.Cfg.OwnerUsername)
+	return nil
 }
 
 func (a *App) applyEntry(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
@@ -215,6 +239,7 @@ func (a *App) Router() http.Handler {
 	mux.HandleFunc("POST /login", a.handleLoginSubmit)
 	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /setup", a.handleSetupPage)
+	mux.HandleFunc("POST /setup", a.handleSetupSubmit)
 
 	a.registerAPI(mux)
 
@@ -244,7 +269,7 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			return
 		}
 		if !a.Audit.HasUser() {
-			if path == "/setup" || strings.HasPrefix(path, "/api/v1/setup/") {
+			if path == "/setup" {
 				next.ServeHTTP(w, r)
 				return
 			}

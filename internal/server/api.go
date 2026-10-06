@@ -130,9 +130,6 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/v1/settings", j(a.apiSettingsGet))
 	mux.HandleFunc("PUT /api/v1/settings", j(a.apiSettingsPatch))
-	mux.HandleFunc("GET /api/v1/setup/status", j(a.apiSetupStatus))
-	mux.HandleFunc("POST /api/v1/setup/account", j(a.apiSetupAccount))
-	mux.HandleFunc("POST /api/v1/setup/complete", j(a.apiSetupComplete))
 	mux.HandleFunc("POST /api/v1/account/password", j(a.apiChangePassword))
 
 	mux.HandleFunc("GET /api/v1/snapshot", j(a.apiSnapshot))
@@ -442,41 +439,6 @@ func (a *App) apiSettingsPatch(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, out)
-	return nil
-}
-
-func (a *App) apiSetupStatus(w http.ResponseWriter, r *http.Request) error {
-	st, err := a.Setup.Status()
-	if err != nil {
-		return err
-	}
-	writeJSON(w, st)
-	return nil
-}
-
-func (a *App) apiSetupAccount(w http.ResponseWriter, r *http.Request) error {
-	var in setup.AccountInput
-	if err := decodeBody(r, &in); err != nil {
-		return err
-	}
-	u, err := a.Setup.CreateAccount(in)
-	if err != nil {
-		return err
-	}
-	issueSession(w, r, a.Secret, u.ID)
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, u)
-	return nil
-}
-
-func (a *App) apiSetupComplete(w http.ResponseWriter, r *http.Request) error {
-	if err := a.Setup.Complete(); err != nil {
-		return err
-	}
-	if err := a.SeedDefaultWidgets(); err != nil {
-		a.Log.Error("seed widgets", "err", err)
-	}
-	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
 

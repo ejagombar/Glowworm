@@ -249,40 +249,6 @@ func (a *App) WidgetUnpin(id string) error {
 	return err
 }
 
-func (a *App) SeedDefaultWidgets() error {
-	var n int
-	if err := a.DB.QueryRow(`SELECT COUNT(*) FROM pinned_widgets`).Scan(&n); err != nil || n > 0 {
-		return err
-	}
-	var cc string
-	_ = a.DB.QueryRow(`SELECT value FROM settings WHERE key='currency'`).Scan(&cc)
-	cc = trim2(cc)
-	if cc == "" {
-		cc = "GBP"
-	}
-	from, to, _ := monthRangeToday(a.Clock)
-	seeds := []struct {
-		title, typ, plan string
-		col, rows        int
-	}{
-		{"Spending by category — this month", "bar", seedPlan("spend", "category", from, to), 8, 4},
-		{"Savings rate", "number", seedPlanNumber(), 4, 2},
-		{"Spending mix — this month", "pie", seedPlan("spend", "category", from, to), 4, 3},
-		{"Top merchants", "table", seedPlanTopMerchants(from, to), 8, 4},
-	}
-	for i, s := range seeds {
-		id := util.NewID()
-		created := util.NowStr()
-		_, err := a.DB.Exec(`INSERT INTO pinned_widgets (id, position, col, rows, title, type, dataset, plan, created_at, updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			id, i, s.col, s.rows, s.title, s.typ, "{}", s.plan, created, created)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func trim2(s string) string {
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
 		return s[1 : len(s)-1]

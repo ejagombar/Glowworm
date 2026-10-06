@@ -142,7 +142,8 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		"schema.saved", "schema.updated", "schema.deleted",
 		"widget.pinned", "widget.updated", "widget.unpinned", "widget.reordered",
 		"settings.ai.updated", "classifier.retrained", "classifier.reverted",
-		"setup.completed", "account.valuation.correction":
+		"setup.completed", "setup.account_created", "setup.categories_seeded", "setup.widgets_seeded",
+		"account.valuation.correction":
 		if ent.Action == "import.confirmed" || ent.Action == "schema.saved" ||
 			ent.Action == "schema.updated" || ent.Action == "schema.deleted" ||
 			ent.Action == "widget.pinned" || ent.Action == "widget.updated" ||

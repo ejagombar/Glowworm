@@ -21,6 +21,8 @@ type Config struct {
 	UploadMaxMB    int
 	TrustedProxies string
 	SetupToken     string
+	OwnerUsername  string
+	OwnerPassword  string
 	ConfigFile     string
 }
 
@@ -83,6 +85,12 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("GLOWWORM_TRUSTED_PROXIES"); v != "" {
 		c.TrustedProxies = v
+	}
+	if v := os.Getenv("GLOWWORM_OWNER_USERNAME"); v != "" {
+		c.OwnerUsername = v
+	}
+	if v := os.Getenv("GLOWWORM_OWNER_PASSWORD"); v != "" {
+		c.OwnerPassword = v
 	}
 	if v := os.Getenv("GLOWWORM_SETUP_TOKEN"); v != "" {
 		c.SetupToken = v
@@ -152,6 +160,10 @@ func (c *Config) loadFile(path string) error {
 			fmt.Sscanf(val, "%d", &c.UploadMaxMB)
 		case "trusted_proxies":
 			c.TrustedProxies = val
+		case "owner_username":
+			c.OwnerUsername = val
+		case "owner_password":
+			c.OwnerPassword = val
 		case "setup_token":
 			c.SetupToken = val
 		}

@@ -24,42 +24,6 @@ type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
-type Status struct {
-	Completed       bool `json:"completed"`
-	HasCategories   bool `json:"has_categories"`
-	HasAccounts     bool `json:"has_accounts"`
-	HasTransactions bool `json:"has_transactions"`
-	AIConfigured    bool `json:"ai_configured"`
-	HasUser         bool `json:"has_user"`
-}
-
-func (s *Service) Status() (*Status, error) {
-	st := &Status{}
-	st.Completed = s.Settings.GetBool("setup_completed")
-	var n int
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM categories WHERE deleted_at IS NULL AND is_system = 0`).Scan(&n); err != nil {
-		return nil, err
-	}
-	st.HasCategories = n > 0
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM accounts WHERE deleted_at IS NULL`).Scan(&n); err != nil {
-		return nil, err
-	}
-	st.HasAccounts = n > 0
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL`).Scan(&n); err != nil {
-		return nil, err
-	}
-	st.HasTransactions = n > 0
-	var provider string
-	_ = s.DB.QueryRow(`SELECT provider FROM ai_provider_config WHERE id = 1`).Scan(&provider)
-	st.AIConfigured = provider != ""
-	users, err := s.Users.Count()
-	if err != nil {
-		return nil, err
-	}
-	st.HasUser = users > 0
-	return st, nil
-}
-
 type AccountInput struct {
 	Username        string `json:"username"`
 	Password        string `json:"password"`
@@ -82,28 +46,45 @@ func (in *AccountInput) Validate() error {
 }
 
 func (s *Service) CreateAccount(in AccountInput) (*core.User, error) {
-	if users, _ := s.Users.Count(); users > 0 {
-		return nil, &ValidationError{Message: "An owner account already exists for this instance"}
-	}
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
+	return s.CreateOwner(in.Username, in.Password, in.DisplayName, core.ActorUser, "")
+}
+
+// CreateOwner makes the instance's single account. Terminal and config
+// bootstraps pass the system actor and say where the account came from.
+func (s *Service) CreateOwner(username, password, displayName, actor, via string) (*core.User, error) {
+	if users, _ := s.Users.Count(); users > 0 {
+		return nil, &ValidationError{Message: "An owner account already exists for this instance"}
+	}
+	username = strings.TrimSpace(username)
+	if n := utf8.RuneCountInString(username); n < 3 || n > 40 {
+		return nil, &ValidationError{Message: "Username must be 3–40 characters"}
+	}
+	if utf8.RuneCountInString(password) < 10 {
+		return nil, &ValidationError{Message: "Password must be at least 10 characters"}
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return nil, err
 	}
-	u := &core.User{Username: in.Username, DisplayName: strings.TrimSpace(in.DisplayName)}
+	u := &core.User{Username: username, DisplayName: strings.TrimSpace(displayName)}
 	if u.DisplayName == "" {
 		u.DisplayName = u.Username
+	}
+	sub := u.Username
+	if via != "" {
+		sub += " · " + via
 	}
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Users.Create(tx, u, string(hash)); err != nil {
 			return err
 		}
 		_, err := s.Audit.Write(tx, audit.Input{
-			Actor: core.ActorUser, Action: "setup.account_created",
+			Actor: actor, Action: "setup.account_created",
 			EntityType: "user", EntityID: u.ID,
-			Title: "Owner account created", Sub: u.Username,
+			Title: "Owner account created", Sub: sub,
 		})
 		return err
 	})
@@ -111,18 +92,4 @@ func (s *Service) CreateAccount(in AccountInput) (*core.User, error) {
 		return nil, err
 	}
 	return u, nil
-}
-
-func (s *Service) Complete() error {
-	return s.DB.WithTx(func(tx *sql.Tx) error {
-		if err := s.Settings.Set(tx, "setup_completed", true); err != nil {
-			return err
-		}
-		_, err := s.Audit.Write(tx, audit.Input{
-			Actor: core.ActorUser, Action: "setup.completed",
-			EntityType: "settings", EntityID: "setup_completed",
-			Title: "Setup completed",
-		})
-		return err
-	})
 }

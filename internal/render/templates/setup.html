@@ -1,87 +1,23 @@
 {{define "content"}}
-<section class="view active" id="view-dashboard">
-  <div class="dash-shell" id="dashShell"><div class="dash-main"></div></div>
-</section>
-
-<div class="modal-backdrop" id="setupWizard">
-  <div class="modal wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle" data-current-step="0">
-    <div class="wizard-progress" id="wizardProgress"></div>
-
-    <div class="wizard-step" data-step="0">
-      <div class="wizard-hero">
-        <svg class="gw wizard-gw" aria-hidden="true"><use href="#i-glowworm"/></svg>
-        <h2 id="wizardTitle">Welcome to Glowworm</h2>
-        <p>Your money, made clear. Let's set things up in under a minute.</p>
-      </div>
+<div class="login-shell">
+    <div class="login-card">
+        <div class="brand">
+            <svg class="gw" viewBox="0 0 40 32" aria-hidden="true"><use href="#i-glowworm"/></svg>
+            <span class="brand-name">Glowworm</span>
+        </div>
+        <h1 class="login-title">Create your account</h1>
+        <p class="muted login-sub">This is the only account on this Glowworm. Pick a strong password if it's reachable from the internet.</p>
+        {{if .Error}}<p class="login-error">{{.Error}}</p>{{end}}
+        <form method="post" action="/setup{{if .Token}}?token={{.Token}}{{end}}">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
+            <input class="field" type="text" name="username" placeholder="Username" value="{{.Username}}"
+                autocomplete="username" minlength="3" maxlength="40" required autofocus />
+            <input class="field" type="password" name="password" placeholder="Password (at least 10 characters)"
+                autocomplete="new-password" minlength="10" required />
+            <input class="field" type="password" name="password_confirm" placeholder="Confirm password"
+                autocomplete="new-password" minlength="10" required />
+            <button class="btn btn-primary" type="submit" style="width:100%">Create account</button>
+        </form>
     </div>
-
-    <div class="wizard-step" data-step="1" hidden>
-      <h2>Create your account</h2>
-      <p class="muted">This will be the only account on this instance. Pick a strong password — Glowworm is reachable from the internet.</p>
-      <div class="field-row"><label>Username</label>
-        <input class="field" id="wizUsername" type="text" placeholder="e.g. emma" autocomplete="username" /></div>
-      <div class="field-row"><label>Password</label>
-        <input class="field" id="wizPassword" type="password" placeholder="At least 10 characters" autocomplete="new-password" /></div>
-      <div class="field-row"><label>Confirm password</label>
-        <input class="field" id="wizPasswordConfirm" type="password" autocomplete="new-password" /></div>
-      <p class="login-error" id="wizAccountError" hidden></p>
-    </div>
-
-    <div class="wizard-step" data-step="2" hidden>
-      <h2>Create your categories</h2>
-      <p class="muted">These are the buckets your money gets sorted into. Edit or remove any.</p>
-      <div class="wizard-categories" id="wizardCategories">
-        {{range .WizardCats}}
-        <span class="wizard-cat"><span class="category-dot" style="background:{{.Color}}"></span>{{.Name}}
-          <button class="remove" type="button" title="Remove">✕</button></span>
-        {{end}}
-      </div>
-      <button class="btn btn-ghost btn-xs" id="wizardAddCategory" type="button">
-        <svg class="icon"><use href="#i-plus"/></svg> Add category
-      </button>
-    </div>
-
-    <div class="wizard-step" data-step="3" hidden>
-      <h2>Import your first statement</h2>
-      <p class="muted">This powers automatic categorisation. You can skip and do it later.</p>
-      <a class="dropzone small" href="/import">
-        <svg class="icon big"><use href="#i-import"/></svg>
-        <p><strong>Drop a statement here</strong></p>
-        <p class="muted">CSV, Excel, PDF, OFX, QIF…</p>
-      </a>
-    </div>
-
-    <div class="wizard-step" data-step="4" hidden>
-      <h2>Choose your AI provider</h2>
-      <p class="muted">Glowworm works with many providers, or fully local.</p>
-      <div class="provider-pick" data-provider="openai">
-        <span class="provider-mark openai">O</span><strong>OpenAI</strong><span class="muted">GPT</span>
-      </div>
-      <div class="provider-pick" data-provider="anthropic">
-        <span class="provider-mark anthropic">A</span><strong>Anthropic</strong><span class="muted">Claude</span>
-      </div>
-      <div class="provider-pick selected" data-provider="ollama">
-        <span class="provider-mark local">L</span><strong>Local (Ollama)</strong><span class="muted">Private</span>
-      </div>
-      <p class="muted small">Provider keys can be added later in Settings → AI provider.</p>
-    </div>
-
-    <div class="wizard-step" data-step="5" hidden>
-      <div class="wizard-hero">
-        <div class="success-mark"><svg class="icon"><use href="#i-check"/></svg></div>
-        <h2>You're all set</h2>
-        <p>Glowworm is ready. Ask it anything about your money.</p>
-      </div>
-    </div>
-
-    <div class="wizard-footer">
-      <button class="btn btn-ghost" id="wizardBack" hidden>
-        <svg class="icon"><use href="#i-arrow-left"/></svg> Back
-      </button>
-      <span class="spacer"></span>
-      <button class="btn btn-ghost" id="wizardSkip" type="button">Skip for now</button>
-      <button class="btn btn-primary" id="wizardNext">Continue <svg class="icon"><use href="#i-arrow-right"/></svg></button>
-    </div>
-  </div>
 </div>
 {{end}}

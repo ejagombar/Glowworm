@@ -37,8 +37,9 @@ func (p *Policy) Evaluate(action, state string) Capabilities {
 		c.Revert, c.Forget, c.Delete = true, true, true
 	case strings.HasPrefix(action, "audit."):
 		c.Revert, c.JumpBack, c.Forget, c.Delete = false, true, true, true
-	case action == "setup.completed":
-		c.Revert, c.Forget, c.Delete = true, true, true
+	case strings.HasPrefix(action, "setup."):
+		c.Revert, c.Forget, c.Delete = false, true, true
+		c.Reason = "record-only entry"
 	default:
 		c.Revert, c.Forget, c.Delete = true, true, true
 	}

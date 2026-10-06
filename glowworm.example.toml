@@ -13,3 +13,7 @@ log_level = "info"
 upload_max_mb = 25
 # trusted_proxies = "127.0.0.1"  # behind NGINX
 # setup_token = "..."           # optional gate for the first-run setup page
+# Create the account at startup instead of in the browser (only when none
+# exists; remove the password afterwards). `glowworm user create` also works.
+# owner_username = "emma"
+# owner_password = "at least 10 characters"

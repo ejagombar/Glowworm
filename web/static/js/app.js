@@ -1093,7 +1093,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Escape") {
       const cm = document.getElementById("confirmModal");
       if (cm && !cm.hidden) { cm.hidden = true; confirmCallback = null; return; }
-      closeModal("setupWizard"); closeDrawer(); closeModal("recurringModal"); closeModal("accountModal"); closeModal("txModal"); closePasswordModal(); closeNameModal();
+      closeDrawer(); closeModal("recurringModal"); closeModal("accountModal"); closeModal("txModal"); closePasswordModal(); closeNameModal();
     }
   });
 
@@ -1130,98 +1130,6 @@ document.addEventListener("DOMContentLoaded", () => {
         location.reload();
       }).catch(() => toast("Could not add transaction"));
     });
-  }
-
-  const wizardNext = document.getElementById("wizardNext");
-  if (wizardNext) {
-    const WIZARD_STEPS = 6;
-    let step = Number(document.querySelector(".wizard[data-current-step]")?.dataset.currentStep || 0);
-    const render = () => {
-      document.querySelectorAll(".wizard-step").forEach((s) => { s.hidden = s.dataset.step !== String(step); });
-      const prog = document.getElementById("wizardProgress");
-      if (prog) {
-        prog.innerHTML = "";
-        for (let i = 0; i < WIZARD_STEPS; i++) {
-          const span = document.createElement("span");
-          if (i <= step) span.classList.add("done");
-          prog.appendChild(span);
-        }
-      }
-      const back = document.getElementById("wizardBack");
-      if (back) back.hidden = step === 0;
-      const skip = document.getElementById("wizardSkip");
-      if (skip) skip.hidden = step === WIZARD_STEPS - 1;
-      wizardNext.innerHTML = step === WIZARD_STEPS - 1
-        ? "Finish <svg class='icon'><use href='#i-check'/></svg>"
-        : "Continue <svg class='icon'><use href='#i-arrow-right'/></svg>";
-    };
-    render();
-    wizardNext.addEventListener("click", async () => {
-      if (step === 0) { step++; render(); return; }
-      if (step === 2) {
-        const chips = Array.from(document.querySelectorAll("#wizardCategories .wizard-cat"))
-          .map((chip) => chip.textContent.replace(/[\u2715\u2717]|✕/g, "").trim())
-          .filter((n) => n.length > 0);
-        for (const name of chips) {
-          try {
-            await fetch("/api/v1/categories", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-              body: JSON.stringify({ name, type: "spend" }),
-            });
-          } catch (e2) {}
-        }
-        step++; render(); return;
-      }
-      if (step === 1) {
-        const u = document.getElementById("wizUsername").value.trim();
-        const p = document.getElementById("wizPassword").value;
-        const pc = document.getElementById("wizPasswordConfirm").value;
-        const err = document.getElementById("wizAccountError");
-        err.hidden = true;
-        try {
-          const resp = await fetch("/api/v1/setup/account", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-            body: JSON.stringify({ username: u, password: p, password_confirm: pc }),
-          });
-          if (!resp.ok) {
-            const body = await resp.json().catch(() => ({}));
-            err.textContent = (body.error && body.error.message) || "Could not create the account.";
-            err.hidden = false;
-            return;
-          }
-        } catch (e2) {
-          err.textContent = "Could not create the account.";
-          err.hidden = false;
-          return;
-        }
-        step++; render(); return;
-      }
-      if (step < WIZARD_STEPS - 1) {
-        if (step === WIZARD_STEPS - 2) {
-          try { await fetch("/api/v1/setup/complete", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } }); } catch (e2) {}
-          step++; render(); return;
-        }
-        step++; render(); return;
-      }
-      window.location = "/";
-    });
-    document.querySelectorAll("#wizardCategories .wizard-cat .remove").forEach((b) =>
-      b.addEventListener("click", () => { b.closest(".wizard-cat").remove(); }));
-    document.getElementById("wizardAddCategory")?.addEventListener("click", () => {
-      const name = window.prompt("New category name");
-      if (name && name.trim()) {
-        const wrap = document.getElementById("wizardCategories");
-        const chip = document.createElement("span");
-        chip.className = "wizard-cat";
-        chip.innerHTML = `<span class="category-dot" style="background:var(--primary)"></span>${esc(name.trim())}<button class="remove" type="button" title="Remove">✕</button>`;
-        wrap.appendChild(chip);
-        chip.querySelector(".remove").addEventListener("click", () => chip.remove());
-      }
-    });
-    document.getElementById("wizardBack")?.addEventListener("click", () => { if (step > 0) { step--; render(); } });
-    document.getElementById("wizardSkip")?.addEventListener("click", () => { window.location = "/"; });
   }
 });
 
@@ -1721,14 +1629,6 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((r) => r.json())
       .then((b) => toast(b.ok ? `Connection OK (${b.latency_ms}ms)` : `Failed: ${b.error || "unknown error"}`))
       .catch(() => toast("Test failed"));
-  });
-
-  document.getElementById("runSetupBtn")?.addEventListener("click", () => {
-    fetch("/api/v1/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ setup_completed: false }),
-    }).then((r) => { if (r.ok) window.location = "/setup"; });
   });
 
   const catForm = document.getElementById("categoryForm");

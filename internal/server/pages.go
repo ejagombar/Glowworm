@@ -42,7 +42,6 @@ type viewBase struct {
 	UserName    string
 	Privacy     bool
 	CSRFToken   string
-	SetupOpen   bool
 	SetupDone   bool
 	AuthMode    string
 	Palette     []string
