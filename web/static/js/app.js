@@ -34,14 +34,9 @@ async function apiErrorText(r, fallback) {
   return (b.error && b.error.message) || fallback;
 }
 function restoredMessage(res) {
-  const accs = (res && res.accounts) || [];
-  const names = accs.map((a) => `“${a.name}”`).join(", ");
-  const n = accs.reduce((s, a) => s + (a.transactions || 0), 0);
-  let msg = `Restored ${names} · ${n} transaction${n === 1 ? "" : "s"}`;
-  if (res && res.skipped && res.skipped.length) {
-    msg += ` · left ${res.skipped.map((n) => `“${n}”`).join(", ")} as is (already exists)`;
-  }
-  if (res && res.categories_created && res.categories_created.length) {
+  const n = res.transactions || 0;
+  let msg = `Restored “${res.name}” · ${n} transaction${n === 1 ? "" : "s"}`;
+  if (res.categories_created && res.categories_created.length) {
     msg += ` · added categor${res.categories_created.length === 1 ? "y" : "ies"} ${res.categories_created.join(", ")}`;
   }
   return msg;
@@ -1312,11 +1307,6 @@ function openAccountForm(id) {
   document.getElementById("accSaveBtn").textContent = id ? "Save changes" : "Add account";
   document.getElementById("accountModalTitle").textContent = id ? "Account settings" : "Add account";
   document.getElementById("accDeleteBtn").hidden = !id;
-  const backupBtn = document.getElementById("accBackupBtn");
-  if (backupBtn) {
-    backupBtn.hidden = !id;
-    if (id) backupBtn.href = `/api/v1/accounts/${id}/backup`;
-  }
   const today = new Date().toISOString().slice(0, 10);
   document.getElementById("accValuationDate").value = today;
   if (id) {
@@ -1407,43 +1397,84 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   });
 
-  const restoreBtn = document.getElementById("restoreBackupBtn");
-  const restoreFile = document.getElementById("restoreBackupFile");
-  restoreBtn?.addEventListener("click", () => restoreFile.click());
-  restoreFile?.addEventListener("change", async () => {
-    const file = restoreFile.files[0];
-    restoreFile.value = "";
-    if (!file) return;
-    let text, backup;
-    try {
-      text = await file.text();
-      backup = JSON.parse(text);
-    } catch (e) {
-      toast("That file isn't a Glowworm backup");
-      return;
-    }
-    if (!backup || backup.format !== "glowworm.account-backup" || !Array.isArray(backup.accounts) || !backup.accounts.length) {
-      toast("That file isn't a Glowworm account backup");
-      return;
-    }
-    const lines = backup.accounts.map((a) => {
-      const n = (a.transactions || []).length;
-      return `${a.account.name} (${n} transaction${n === 1 ? "" : "s"})`;
+  document.querySelectorAll("[data-close-modal]").forEach((b) =>
+    b.addEventListener("click", () => closeModal(b.dataset.closeModal)));
+  const instanceBackup = async (password) => {
+    const r = await fetch("/api/v1/instance/backup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ password }),
     });
-    const made = backup.created_at ? ` made ${humanDate(String(backup.created_at).slice(0, 10))}` : "";
-    showConfirm(backup.accounts.length === 1 ? "Restore this account?" : `Restore ${backup.accounts.length} accounts?`,
-      `From the backup${made}: ${lines.join(", ")}. Accounts that already exist are not overwritten.`,
-      "Restore", () => {
-        fetch("/api/v1/accounts/restore", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-          body: text,
-        }).then(async (r) => {
-          if (!r.ok) { toast(await apiErrorText(r, "Restore failed")); return; }
-          const res = await r.json();
-          reloadWithToast(restoredMessage(res));
-        }).catch(() => toast("Restore failed: network error"));
-      }, "primary");
+    if (!r.ok) throw new Error(await apiErrorText(r, "Backup failed"));
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/);
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name ? name[1] : "glowworm-backup.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const instanceBackupModal = (afterwards) => {
+    const pw = document.getElementById("instanceBackupPassword");
+    if (pw) pw.value = "";
+    document.getElementById("instanceBackupModal").dataset.after = afterwards || "";
+    openModal("instanceBackupModal");
+  };
+  document.getElementById("instanceBackupBtn")?.addEventListener("click", () => instanceBackupModal());
+  document.getElementById("instanceBackupGo")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const pw = document.getElementById("instanceBackupPassword");
+    btn.disabled = true;
+    btn.textContent = "Preparing…";
+    try {
+      await instanceBackup(pw ? pw.value : "");
+      closeModal("instanceBackupModal");
+      toast("Backup downloaded");
+      if (document.getElementById("instanceBackupModal").dataset.after === "delete") openModal("instanceDeleteModal");
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Download backup";
+    }
+  });
+  const delConfirm = document.getElementById("instanceDeleteConfirm");
+  const delGo = document.getElementById("instanceDeleteGo");
+  document.getElementById("instanceDeleteBtn")?.addEventListener("click", () => {
+    delConfirm.value = "";
+    delGo.disabled = true;
+    const pw = document.getElementById("instanceDeletePassword");
+    if (pw) pw.value = "";
+    openModal("instanceDeleteModal");
+  });
+  document.getElementById("instanceDeleteBackupFirst")?.addEventListener("click", () => {
+    closeModal("instanceDeleteModal");
+    instanceBackupModal("delete");
+  });
+  delConfirm?.addEventListener("input", () => { delGo.disabled = delConfirm.value.trim() !== "DELETE"; });
+  delGo?.addEventListener("click", () => {
+    const pw = document.getElementById("instanceDeletePassword");
+    delGo.disabled = true;
+    delGo.textContent = "Deleting…";
+    fetch("/api/v1/instance/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ password: pw ? pw.value : "", confirm: delConfirm.value.trim() }),
+    }).then(async (r) => {
+      if (!r.ok) {
+        toast(await apiErrorText(r, "Delete failed"));
+        delGo.disabled = false;
+        delGo.textContent = "Delete everything";
+        return;
+      }
+      location.href = "/setup";
+    }).catch(() => {
+      toast("Delete failed: network error");
+      delGo.disabled = false;
+      delGo.textContent = "Delete everything";
+    });
   });
 
   document.getElementById("deletedAccounts")?.addEventListener("click", (e) => {

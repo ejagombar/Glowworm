@@ -59,6 +59,7 @@ type App struct {
 	AuditWriter  *audit.Writer
 	Exec         *auditexec.Executor
 	loginLimiter *limiter
+	Version      string
 }
 
 type Repos struct {
@@ -98,11 +99,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.Settings = &settings.Service{DB: db, Repos: rp.Settings, Audit: writer}
 	app.Setup = &setup.Service{DB: db, Users: rp.Users, Settings: rp.Settings, Audit: writer}
 
-	provider := a_resolveProvider(db, secret, log)
-	if os.Getenv("GLOWWORM_AI_MOCK") == "1" {
-		log.Info("using mock AI provider (GLOWWORM_AI_MOCK=1)")
-		provider = &ai.Mock{}
-	}
+	provider := resolveProvider(db, secret, log)
 	app.Cat = &categoriser.Service{
 		DB: db, Txs: rp.Transactions, Categories: rp.Categories, Settings: rp.Settings,
 		Audit: writer, Provider: provider,
@@ -166,7 +163,11 @@ func (a *App) startMidnightSummariser(log *slog.Logger) {
 	}()
 }
 
-func a_resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai.Provider {
+func resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai.Provider {
+	if os.Getenv("GLOWWORM_AI_MOCK") == "1" {
+		log.Info("using mock AI provider (GLOWWORM_AI_MOCK=1)")
+		return &ai.Mock{}
+	}
 	var provider, models, baseURL, keyCipher string
 	err := db.QueryRow(`SELECT provider, models, base_url, key_cipher FROM ai_provider_config WHERE id = 1`).
 		Scan(&provider, &models, &baseURL, &keyCipher)

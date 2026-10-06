@@ -109,13 +109,11 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/accounts/{id}", j(a.apiAccountGet))
 	mux.HandleFunc("PATCH /api/v1/accounts/{id}", j(a.apiAccountUpdate))
 	mux.HandleFunc("DELETE /api/v1/accounts/{id}", j(a.apiAccountDelete))
-	mux.HandleFunc("GET /api/v1/accounts/backup", j(a.apiAccountsBackup))
-	mux.HandleFunc("GET /api/v1/accounts/{id}/backup", j(a.apiAccountBackup))
-	mux.HandleFunc("POST /api/v1/accounts/restore", j(a.apiAccountsRestore))
 	mux.HandleFunc("GET /api/v1/accounts/archives", j(a.apiAccountArchives))
-	mux.HandleFunc("GET /api/v1/accounts/archives/{id}/backup", j(a.apiAccountArchiveBackup))
 	mux.HandleFunc("POST /api/v1/accounts/archives/{id}/restore", j(a.apiAccountArchiveRestore))
 	mux.HandleFunc("DELETE /api/v1/accounts/archives/{id}", j(a.apiAccountArchivePurge))
+	mux.HandleFunc("POST /api/v1/instance/backup", j(a.apiInstanceBackup))
+	mux.HandleFunc("POST /api/v1/instance/delete", j(a.apiInstanceDelete))
 	mux.HandleFunc("GET /api/v1/accounts/{id}/valuations", j(a.apiValuationsList))
 	mux.HandleFunc("POST /api/v1/accounts/{id}/valuations", j(a.apiValuationCreate))
 
@@ -1048,9 +1046,7 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	p, _ := ai.New(in.Provider, models["default"], baseURL, decodeKey(a.Secret, keyCipher))
-	a.Cat.Provider = p
-	a.Imports.Provider = p
-	a.Query.Provider = p
+	a.setProvider(p)
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }

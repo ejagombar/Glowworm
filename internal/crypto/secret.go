@@ -39,12 +39,18 @@ func LoadOrCreate(fromEnv, dataDir string) (*Secret, error) {
 			raw = hexed
 		}
 	}
+	return Parse(raw)
+}
+
+func Parse(raw string) (*Secret, error) {
 	key, err := decode32(raw)
 	if err != nil {
 		return nil, fmt.Errorf("crypto: %w", err)
 	}
 	return &Secret{key: key}, nil
 }
+
+func (s *Secret) Hex() string { return hex.EncodeToString(s.key) }
 
 func decode32(raw string) ([]byte, error) {
 	raw = trimWhitespace(raw)

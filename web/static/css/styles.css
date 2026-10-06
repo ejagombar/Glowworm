@@ -1699,3 +1699,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .deleted-account-main .settings-account-name { color: var(--text-2); }
 .btn.danger-text { color: var(--danger); }
 .btn.danger-text:hover { border-color: var(--danger); }
+.setting-block code {
+  font-family: var(--mono); font-size: 11.5px; background: var(--surface-3);
+  border: 1px solid var(--line); border-radius: var(--r-xs); padding: 1px 5px;
+}

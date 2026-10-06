@@ -1,15 +1,9 @@
 package server
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
 
 	"golang.org/x/crypto/bcrypt"
-
-	"glowworm/internal/core/accounts"
 )
 
 type acctValidationError struct{ Message string }
@@ -46,64 +40,6 @@ func (a *App) apiChangePassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, map[string]any{"ok": true})
-	return nil
-}
-
-func (a *App) apiAccountsBackup(w http.ResponseWriter, r *http.Request) error {
-	b, err := a.Accounts.Backup(nil)
-	if err != nil {
-		return err
-	}
-	return a.sendBackup(w, b, "all-accounts")
-}
-
-func (a *App) apiAccountBackup(w http.ResponseWriter, r *http.Request) error {
-	b, err := a.Accounts.Backup([]string{r.PathValue("id")})
-	if err != nil {
-		return err
-	}
-	return a.sendBackup(w, b, b.Accounts[0].Account.Name)
-}
-
-func (a *App) apiAccountArchiveBackup(w http.ResponseWriter, r *http.Request) error {
-	arc, b, err := a.Accounts.ArchiveBackup(r.PathValue("id"))
-	if err != nil {
-		return err
-	}
-	return a.sendBackup(w, b, arc.Name)
-}
-
-func (a *App) sendBackup(w http.ResponseWriter, b *accounts.Backup, label string) error {
-	name := fmt.Sprintf("glowworm-backup-%s-%s.json", slug(label), a.Clock.Today())
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
-	w.Header().Set("Cache-Control", "no-store")
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(b)
-}
-
-var slugJunk = regexp.MustCompile(`[^a-z0-9]+`)
-
-func slug(s string) string {
-	s = strings.Trim(slugJunk.ReplaceAllString(strings.ToLower(s), "-"), "-")
-	if s == "" {
-		return "account"
-	}
-	return s
-}
-
-func (a *App) apiAccountsRestore(w http.ResponseWriter, r *http.Request) error {
-	r.Body = http.MaxBytesReader(w, r.Body, int64(a.Cfg.UploadMaxMB)<<20)
-	var b accounts.Backup
-	if err := decodeBody(r, &b); err != nil {
-		return &accounts.ValidationError{Message: "That file isn't a readable backup (expected the JSON file Glowworm downloads)"}
-	}
-	res, err := a.Accounts.RestoreBackup(&b)
-	if err != nil {
-		return err
-	}
-	writeJSON(w, res)
 	return nil
 }
 
