@@ -12,7 +12,7 @@
 
   <div class="accounts-grid" id="accountsGrid">
     {{range .Accounts}}
-    <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions?account={{.ID}}&period={{$.Period}}">
+    <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions?{{if ne .ID $.SelectedAcc}}account={{.ID}}&{{end}}period={{$.Period}}"{{if eq .ID $.SelectedAcc}} title="Show all accounts" aria-current="true"{{end}}>
       <div class="account-card-top">
         <span class="account-dot" style="background:{{.Color}}"></span>
         <span class="account-name">{{.Name}}</span>
@@ -62,7 +62,8 @@
       data-tx-next-offset="{{.NextOffset}}"{{if .HasMore}} data-tx-has-more="1"{{end}}
       data-tx-filter-q="{{.FiltersQ}}" data-tx-filter-category="{{.FiltersCat}}"
       data-tx-filter-type="{{.FiltersType}}" data-tx-filter-account="{{.SelectedAcc}}"
-      data-tx-filter-period="{{.Period}}" data-tx-filter-from="{{.PeriodFrom}}" data-tx-filter-to="{{.PeriodTo}}">
+      data-tx-filter-period="{{.Period}}" data-tx-filter-from="{{.PeriodFrom}}" data-tx-filter-to="{{.PeriodTo}}"
+      data-tx-sort="{{.Sort}}" data-tx-dir="{{.Dir}}">
       <thead id="transactionsHead">{{template "tx-head" .}}</thead>
       <tbody id="transactionsBody">
         {{if .Rows}}
@@ -81,13 +82,19 @@
 </section>
 {{end}}
 
-{{define "tx-head"}}{{$stmt := false}}{{if .SelectedAcc}}{{$stmt = true}}{{end}}
+{{define "tx-head"}}
 <tr>
-  <th>Date</th>
-  <th>Description</th>
-  <th>Category</th>
-  {{if $stmt}}<th>To / From</th>{{else}}<th>Account</th>{{end}}
-  <th class="num">Amount</th>
+  {{template "tx-th" dict "Key" "date" "Label" "Date" "Sort" .Sort "Dir" .Dir}}
+  {{template "tx-th" dict "Key" "description" "Label" "Description" "Sort" .Sort "Dir" .Dir}}
+  {{template "tx-th" dict "Key" "category" "Label" "Category" "Sort" .Sort "Dir" .Dir}}
+  {{if not .SelectedAcc}}{{template "tx-th" dict "Key" "account" "Label" "Account" "Sort" .Sort "Dir" .Dir}}{{end}}
+  {{template "tx-th" dict "Key" "amount" "Label" "Amount" "Sort" .Sort "Dir" .Dir "Num" true}}
   <th></th>
 </tr>
+{{end}}
+{{/* A sortable header; the default view is date, newest first. */}}
+{{define "tx-th"}}{{$on := or (eq .Sort .Key) (and (eq .Sort "") (eq .Key "date"))}}{{$asc := and $on (eq .Dir "asc")}}
+<th{{if .Num}} class="num"{{end}} aria-sort="{{if $on}}{{if $asc}}ascending{{else}}descending{{end}}{{else}}none{{end}}">
+  <button type="button" class="th-sort{{if $on}} active{{end}}" data-sort="{{.Key}}">{{.Label}}<span class="th-sort-arrow" aria-hidden="true">{{if $on}}{{if $asc}}▲{{else}}▼{{end}}{{end}}</span></button>
+</th>
 {{end}}

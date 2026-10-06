@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -523,6 +524,10 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	sortKey, sortDir := txSortParams(q)
+	if sortKey != "" {
+		repos.SortDisplayRows(allRows, sortKey, sortDir)
+	}
 	cats, err := a.Repos.Categories.List()
 	if err != nil {
 		return err
@@ -558,13 +563,31 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 		Today        string
 		HasMore      bool
 		NextOffset   int
+		Sort, Dir    string
 	}{
 		viewBase: base, Accounts: cards, Rows: rows, Categories: cats,
 		SelectedAcc: accountID, SelectedName: selectedName, Sub: sub,
 		FiltersQ: f.Q, FiltersCat: f.CategoryID, FiltersType: f.Type,
 		Today: a.Clock.Today(), HasMore: hasMore, NextOffset: len(rows),
+		Sort: sortKey, Dir: sortDir,
 	}
 	return a.Render.Render(w, "transactions", data)
+}
+
+// txSortParams reads the table's column sort; "" means the default (newest
+// first).
+func txSortParams(q url.Values) (key, dir string) {
+	switch q.Get("sort") {
+	case "date", "description", "category", "account", "amount":
+		key = q.Get("sort")
+	default:
+		return "", ""
+	}
+	dir = "desc"
+	if q.Get("dir") == "asc" {
+		dir = "asc"
+	}
+	return key, dir
 }
 
 func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) error {
@@ -597,6 +620,10 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 	allRows, err := a.Repos.Transactions.DisplayRows(f, accountID)
 	if err != nil {
 		return err
+	}
+	sortKey, sortDir := txSortParams(q)
+	if sortKey != "" {
+		repos.SortDisplayRows(allRows, sortKey, sortDir)
 	}
 	if offset >= len(allRows) {
 		return nil
