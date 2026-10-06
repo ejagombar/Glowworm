@@ -381,17 +381,20 @@ body.privacy .pie-total { filter: blur(4px); }
 .query-submit { height: 32px; padding: 0 12px; }
 .query-submit .icon { width: 15px; height: 15px; }
 
+/* The message list runs from the masthead down to the composer; only a
+   small gap is left under the suggestions. */
+.content:has(#view-queries.active) { padding-top: 0; padding-bottom: 12px; }
 #view-queries.active {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - var(--masthead-h) - 60px);
+  height: calc(100dvh - var(--masthead-h) - 12px);
   min-height: 460px;
 }
 .queries-page { flex: 1; min-height: 0; display: flex; flex-direction: row; }
 .queries-sidebar {
   flex: none;
   width: 232px;
-  margin-right: 12px;
+  margin: 12px 12px 0 0;
   border: 1px solid var(--line);
   border-radius: 3px;
   background: var(--surface);
@@ -436,11 +439,11 @@ body.privacy .pie-total { filter: blur(4px); }
 }
 
 .queries-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
-.queries-sidebar-expand { position: absolute; top: 8px; left: 8px; z-index: 5; height: 32px; }
+.queries-sidebar-expand { position: absolute; top: 12px; left: 8px; z-index: 5; height: 32px; }
 .queries-messages {
   flex: 1; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 14px;
-  padding: 2px 4px 12px 2px;
+  padding: 16px 4px 12px 2px;
 }
 .msg-day {
   align-self: center;
