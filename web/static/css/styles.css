@@ -324,6 +324,8 @@ body.privacy .pie-total { filter: blur(4px); }
   letter-spacing: 0.05em;
 }
 .tabnav-item.active .tab-index { color: var(--primary); }
+.tab-icon { display: none; }
+.cell-cat-inline { display: none; }
 .tabnav-spacer { flex: 1; }
 .tabnav-item.tabnav-icon { height: 100%; padding: 0 8px; }
 .tabnav-item.tabnav-icon .icon { width: 16px; height: 16px; }
@@ -1765,4 +1767,59 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .setting-block code {
   font-family: var(--mono); font-size: 11.5px; background: var(--surface-3);
   border: 1px solid var(--line); border-radius: var(--r-xs); padding: 1px 5px;
+}
+
+/* ---- Phones: the page tabs move to a bottom bar of icons with short
+   labels, tables drop columns they can't fit, and rows stack. ---- */
+:root { --tabbar-h: 58px; }
+@media (max-width: 760px) {
+  .tabnav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+    height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--surface); border-top: 1px solid var(--line);
+    gap: 0; overflow: visible;
+  }
+  .masthead .tabnav-item {
+    flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: center; gap: 3px;
+    padding: 0 2px; border-bottom: 0; border-top: 2px solid transparent;
+    font-size: 9.5px; font-weight: 500; letter-spacing: -0.01em;
+  }
+  .masthead .tabnav-item.active { border-top-color: var(--primary); color: var(--primary); }
+  .masthead .tabnav-item .tab-index { display: none; }
+  .masthead .tabnav-item .tab-icon { display: block; width: 19px; height: 19px; }
+  .masthead .tabnav-item .tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .masthead .period-wrap { margin-left: auto; }
+  .content { padding-bottom: calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom)); }
+  .content:has(#view-queries.active) { padding-bottom: calc(var(--tabbar-h) + 8px + env(safe-area-inset-bottom)); }
+  #view-queries.active { height: calc(100dvh - var(--masthead-h) - var(--tabbar-h) - 8px - env(safe-area-inset-bottom)); min-height: 0; }
+  .toast { bottom: calc(var(--tabbar-h) + 16px); }
+
+  /* Transactions: category moves under the description. */
+  .tx-table th, .tx-table td { padding: 8px 9px; }
+  /* Date and category move under the description. */
+  #transactionsTable .cell-cat, #transactionsTable th:nth-child(3),
+  #transactionsTable th:nth-child(1), #transactionsTable tbody td.cell-sub:first-child { display: none; }
+  #transactionsTable .cell-cat-inline { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .tx-table td.cell-sub { font-size: 11px; white-space: nowrap; }
+  .tx-table td.tx-amount { white-space: nowrap; }
+  .tx-table .row-actions { padding-left: 0; }
+
+  /* History: title on its own line, time and buttons beneath. */
+  .history-item, .history-group > summary { flex-wrap: wrap; row-gap: 4px; }
+  .history-item > .history-main, .history-group > summary > .history-main { flex: 1 1 100%; }
+  .history-item > .history-actions, .history-group > summary > .history-actions { margin-left: auto; }
+  .history-group > .history-item { padding-left: 22px; }
+  .history-diff { font-size: 11px; }
+
+  .tx-editor { flex-direction: column; align-items: stretch; }
+  .tx-field, .tx-field.grow { min-width: 0; }
+  .tx-field .field { min-width: 0; width: 100%; }
+  .tx-editor-actions { margin-left: 0; justify-content: flex-end; }
+  .tx-editor-row td { padding: 0 8px 10px !important; }
+  .modal-foot { flex-wrap: wrap; }
+}
+/* Touch screens can't hover, so controls that appear on hover stay visible. */
+@media (hover: none) {
+  .tx-table .row-actions, .widget-actions { opacity: 1; }
 }

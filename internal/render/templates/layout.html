@@ -93,12 +93,12 @@
         </a>
 
         <nav class="tabnav" aria-label="Primary">
-          <a href="/" class="tabnav-item{{if eq .View "dashboard"}} active{{end}}"><span class="tab-index">01</span>Dashboard</a>
-          <a href="/queries" class="tabnav-item{{if eq .View "queries"}} active{{end}}"><span class="tab-index">02</span>Queries</a>
-          <a href="/transactions" class="tabnav-item{{if eq .View "transactions"}} active{{end}}"><span class="tab-index">03</span>Transactions</a>
-          <a href="/categories" class="tabnav-item{{if eq .View "categories"}} active{{end}}"><span class="tab-index">04</span>Categories</a>
-          <a href="/import" class="tabnav-item{{if eq .View "import"}} active{{end}}"><span class="tab-index">05</span>Import</a>
-          <a href="/history" class="tabnav-item{{if eq .View "history"}} active{{end}}"><span class="tab-index">06</span>History</a>
+          <a href="/" class="tabnav-item{{if eq .View "dashboard"}} active{{end}}"><span class="tab-index">01</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-dashboard"/></svg><span class="tab-label">Dashboard</span></a>
+          <a href="/queries" class="tabnav-item{{if eq .View "queries"}} active{{end}}"><span class="tab-index">02</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-sparkle"/></svg><span class="tab-label">Queries</span></a>
+          <a href="/transactions" class="tabnav-item{{if eq .View "transactions"}} active{{end}}"><span class="tab-index">03</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-transactions"/></svg><span class="tab-label">Transactions</span></a>
+          <a href="/categories" class="tabnav-item{{if eq .View "categories"}} active{{end}}"><span class="tab-index">04</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-categories"/></svg><span class="tab-label">Categories</span></a>
+          <a href="/import" class="tabnav-item{{if eq .View "import"}} active{{end}}"><span class="tab-index">05</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-import"/></svg><span class="tab-label">Import</span></a>
+          <a href="/history" class="tabnav-item{{if eq .View "history"}} active{{end}}"><span class="tab-index">06</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-history"/></svg><span class="tab-label">History</span></a>
         </nav>
 
         <div class="period-wrap">
