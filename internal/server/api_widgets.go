@@ -311,7 +311,7 @@ func (a *App) apiWidgetPatch(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Title   string          `json:"title"`
 		Type    string          `json:"type"`
-		Pinned  bool            `json:"pinned"`
+		Pinned  *bool           `json:"pinned"` // only an explicit false unpins
 		Data    json.RawMessage `json:"data"`
 		Dataset json.RawMessage `json:"dataset"`
 	}
@@ -325,7 +325,7 @@ func (a *App) apiWidgetPatch(w http.ResponseWriter, r *http.Request) error {
 	if err := a.WidgetPatch(id, in.Title, in.Type, data); err != nil {
 		return err
 	}
-	if !in.Pinned {
+	if in.Pinned != nil && !*in.Pinned {
 		if err := a.WidgetUnpin(id); err != nil {
 			return err
 		}

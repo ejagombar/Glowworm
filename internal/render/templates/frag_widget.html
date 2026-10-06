@@ -26,8 +26,10 @@
 <div class="text-widget"><p>{{$w.TextBody}}</p></div>
 {{else if eq $w.Type "table"}}
 <div class="table-widget"><table>
-  <thead><tr>{{range $w.TableColumns}}<th>{{.}}</th>{{end}}</tr></thead>
-  <tbody>{{range $w.TableRows}}<tr>{{range .}}<td class="num">{{.}}</td>{{end}}</tr>{{end}}</tbody>
+  {{/* Labels on the left; only the last column (the value) is right-aligned. */}}
+  {{$last := sub (len $w.TableColumns) 1}}
+  <thead><tr>{{range $i, $c := $w.TableColumns}}<th{{if eq $i $last}} class="num"{{end}}>{{$c}}</th>{{end}}</tr></thead>
+  <tbody>{{range $w.TableRows}}{{$rl := sub (len .) 1}}<tr>{{range $i, $v := .}}<td{{if eq $i $rl}} class="num"{{end}}>{{$v}}</td>{{end}}</tr>{{end}}</tbody>
 </table></div>
 {{else if eq $w.Type "pie"}}
 <div class="pie-wrap"><div class="pie-chart" data-chart-type="pie" data-chart-data="{{jsonAttr $w.DataJSON}}"></div></div>

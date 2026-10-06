@@ -169,7 +169,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		HeroChart       string
 		HeroAvailable   string
 		HeroSavings     string
-		HeroRangeLabel  string
 		Widgets         []*WidgetView
 	}{
 		viewBase:       base,
@@ -179,11 +178,10 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		IncomeMinor: incomeMinor,
 		IncomeTrend: incomeTrendLabel, IncomeTrendDate: incomeTrendDate,
 		SpendMinor: spendMinor, SpendPct: spendPct, SpendDir: spendDir,
-		HeroChart:      seriesData,
-		HeroAvailable:  seriesAvailable,
-		HeroSavings:    seriesSavings,
-		HeroRangeLabel: "All accounts · all time",
-		Widgets:        widgetViews,
+		HeroChart:     seriesData,
+		HeroAvailable: seriesAvailable,
+		HeroSavings:   seriesSavings,
+		Widgets:       widgetViews,
 	}
 	return a.Render.Render(w, "dashboard", data)
 }

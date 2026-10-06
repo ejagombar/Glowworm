@@ -111,7 +111,6 @@ function openDrawer(id) {
     sel.appendChild(opt);
   }
   sel.value = typ;
-  document.getElementById("wPinned").checked = !!card.dataset.pinnedId;
   drawer.hidden = false;
   document.getElementById("drawerBackdrop").hidden = false;
   requestAnimationFrame(() => {
@@ -806,7 +805,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!card) { closeDrawer(); return; }
       const newType = document.getElementById("wType").value;
       const newTitle = document.getElementById("wTitle").value.trim() || card.dataset.widgetTitle;
-      const shouldPin = document.getElementById("wPinned").checked;
       const wasPinned = !!card.dataset.pinnedId;
       let data = card.dataset.widgetData ? JSON.parse(card.dataset.widgetData) : null;
       if (data && window.convertWidgetData) {
@@ -827,26 +825,17 @@ document.addEventListener("DOMContentLoaded", () => {
         fetch(`/api/v1/widgets/pinned/${card.dataset.pinnedId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-          body: JSON.stringify({ title: newTitle, type: newType, pinned: shouldPin, data }),
+          body: JSON.stringify({ title: newTitle, type: newType, data }),
         }).then((r) => {
           if (!r.ok) { toast("Could not update widget"); return; }
-          if (!shouldPin) {
-            card.remove();
-            toast("Removed from dashboard");
-          } else {
-            updateCardDOM();
-            toast("Widget updated");
-          }
+          updateCardDOM();
+          toast("Widget updated");
           closeDrawer();
         }).catch(() => toast("Could not update widget"));
         return;
       }
 
       updateCardDOM();
-      if (shouldPin) {
-        const btn = card.querySelector("[data-action='toggle-pin']");
-        if (btn) pinWidget(card, btn);
-      }
       closeDrawer();
       toast("Widget updated");
     });
@@ -888,6 +877,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (heroChart && balanceCards.length) {
     const HERO_TITLES = { all: "Balance overview", available: "Available balance", savings: "Savings" };
     const HERO_RANGES = { all: "All accounts", available: "Current and other non-savings accounts", savings: "Savings accounts" };
+    // The page opens on Available balance (rendered server-side).
+    state.balanceView = document.querySelector("[data-balance-view].selected")?.dataset.balanceView || "all";
     const setBalanceView = (view) => {
       state.balanceView = view;
       balanceCards.forEach((card) => {
