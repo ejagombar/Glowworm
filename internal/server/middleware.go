@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// statusWriter captures the response status for logging.
 type statusWriter struct {
 	http.ResponseWriter
 	status int
@@ -22,7 +21,10 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// requestID via counter + time is enough for logs.
+// Without Unwrap, http.ResponseController can't reach the real writer and
+// SSE handlers can't Flush.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 var reqCounter struct {
 	mu sync.Mutex
 	n  uint64
@@ -36,7 +38,6 @@ func nextReqID() string {
 	return time.Now().Format("150405") + "-" + hexEncode([]byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)})
 }
 
-// withLogging wraps a handler with request-id, slog and panic recovery.
 func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := nextReqID()
@@ -48,8 +49,6 @@ func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 				log.Error("panic", "req_id", id, "path", r.URL.Path, "panic", p,
 					"stack", string(debug.Stack()))
 				if sw.status == 200 {
-					// Always answer JSON so clients can show the reason
-					// instead of an unparseable body.
 					sw.Header().Set("Content-Type", "application/json")
 					sw.WriteHeader(http.StatusInternalServerError)
 					json.NewEncoder(sw).Encode(map[string]any{
@@ -65,7 +64,6 @@ func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// securityHeaders sets the app's header set (doc 14 §4).
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -76,7 +74,6 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// limiter is a tiny in-memory fixed-window rate limiter.
 type limiter struct {
 	mu     sync.Mutex
 	hits   map[string][]time.Time
@@ -88,7 +85,6 @@ func newLimiter(limit int, window time.Duration) *limiter {
 	return &limiter{hits: map[string][]time.Time{}, limit: limit, window: window}
 }
 
-// Allow records a hit and reports whether it is within budget.
 func (l *limiter) Allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -107,7 +103,6 @@ func (l *limiter) Allow(key string) bool {
 	return true
 }
 
-// clientIP resolves the real client IP behind trusted proxies.
 func clientIP(r *http.Request, trustedProxies string) string {
 	if trustedProxies != "" {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)

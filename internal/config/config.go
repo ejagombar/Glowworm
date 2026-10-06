@@ -1,6 +1,3 @@
-// Package config loads configuration from environment variables (GLOWWORM_*)
-// and an optional glowworm.toml file (env wins). Precedence: env > file >
-// defaults (doc 13 §3).
 package config
 
 import (
@@ -11,24 +8,22 @@ import (
 	"strings"
 )
 
-// Config holds the resolved runtime configuration.
 type Config struct {
-	Addr           string // GLOWWORM_ADDR
-	DataDir        string // GLOWWORM_DATA_DIR
-	DBDialect      string // GLOWWORM_DB: sqlite|postgres
-	DBDSN          string // GLOWWORM_DB_DSN (postgres)
-	Timezone       string // GLOWWORM_TIMEZONE (IANA name)
-	SecretKey      string // GLOWWORM_SECRET_KEY (hex or base64, 32 bytes)
-	AuthMode       string // GLOWWORM_AUTH_MODE: password|none
-	LogFormat      string // GLOWWORM_LOG_FORMAT: text|json
-	LogLevel       string // GLOWWORM_LOG_LEVEL
-	UploadMaxMB    int    // GLOWWORM_UPLOAD_MAX_MB
-	TrustedProxies string // GLOWWORM_TRUSTED_PROXIES (CIDR list, comma separated)
-	SetupToken     string // GLOWWORM_SETUP_TOKEN (gates first-run setup page)
-	ConfigFile     string // path of the config file that was read ("" = none)
+	Addr           string
+	DataDir        string
+	DBDialect      string
+	DBDSN          string
+	Timezone       string
+	SecretKey      string
+	AuthMode       string
+	LogFormat      string
+	LogLevel       string
+	UploadMaxMB    int
+	TrustedProxies string
+	SetupToken     string
+	ConfigFile     string
 }
 
-// Defaults per doc 13 §3.
 func defaults() Config {
 	return Config{
 		Addr:        "127.0.0.1:8080",
@@ -42,10 +37,8 @@ func defaults() Config {
 	}
 }
 
-// Load resolves the configuration: defaults < optional config file < env.
 func Load() (Config, error) {
 	c := defaults()
-	// Optional config file: glowworm.toml in cwd or data dir.
 	for _, p := range []string{"glowworm.toml", "data/glowworm.toml"} {
 		if fileExists(p) {
 			if err := c.loadFile(p); err != nil {
@@ -103,7 +96,6 @@ func Load() (Config, error) {
 	return c, nil
 }
 
-// DSNSQLite returns the SQLite DSN (the file path inside the data dir).
 func (c Config) DSNSQLite() string {
 	if filepath.IsAbs(c.DBDSN) && c.DBDSN != "" {
 		return c.DBDSN
@@ -111,8 +103,6 @@ func (c Config) DSNSQLite() string {
 	return filepath.Join(c.DataDir, "glowworm.db")
 }
 
-// loadFile parses a flat glowworm.toml ("key = value" lines; # comments).
-// Keys are case-insensitive and mapped to the env names (glowworm_addr, …).
 func (c *Config) loadFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -136,7 +126,6 @@ func (c *Config) loadFile(path string) error {
 		key := strings.ToLower(strings.TrimSpace(line[:eq]))
 		val := strings.TrimSpace(line[eq+1:])
 		val = strings.Trim(val, `"'`)
-		// env overrides file — apply only when env unset.
 		if get(key) != "" {
 			continue
 		}

@@ -1,6 +1,3 @@
-// Tests for the query agent: read-only SQL sandbox enforcement, the agent
-// loop mechanics (tool calls feeding results back), widget sanitisation and
-// the legacy fallback.
 package query
 
 import (
@@ -52,8 +49,6 @@ type fixedClock struct{}
 
 func (fixedClock) Today() string { return "2024-06-15" }
 
-// --- sandbox ---
-
 func TestSandboxRejectsWrites(t *testing.T) {
 	db := newAgentTestDB(t)
 	defer db.Close()
@@ -66,8 +61,8 @@ func TestSandboxRejectsWrites(t *testing.T) {
 		"ALTER TABLE transactions ADD COLUMN x",
 		"PRAGMA journal_mode=WAL",
 		"ATTACH DATABASE 'x' AS x",
-		"SELECT 1; DELETE FROM transactions",            // stacked statements
-		"WITH d AS (SELECT 1) DELETE FROM transactions", // CTE write
+		"SELECT 1; DELETE FROM transactions",
+		"WITH d AS (SELECT 1) DELETE FROM transactions",
 		"REPLACE INTO transactions VALUES (1)",
 		"VACUUM",
 	}
@@ -83,10 +78,10 @@ func TestSandboxAcceptsSelects(t *testing.T) {
 	defer db.Close()
 	good := []string{
 		"SELECT 1",
-		"  SELECT COUNT(*) FROM transactions  ", // leading whitespace
+		"  SELECT COUNT(*) FROM transactions  ",
 		"WITH s AS (SELECT 1 AS x) SELECT * FROM s",
-		"SELECT 'delete from transactions' AS lit",                       // keyword inside a string
-		"SELECT date, SUM(amount_minor) FROM transactions GROUP BY date", // 'date' not a keyword issue
+		"SELECT 'delete from transactions' AS lit",
+		"SELECT date, SUM(amount_minor) FROM transactions GROUP BY date",
 	}
 	for _, q := range good {
 		if _, err := RunReadonlyQuery(db, q); err != nil {
@@ -98,7 +93,6 @@ func TestSandboxAcceptsSelects(t *testing.T) {
 func TestSandboxRowCapAndTruncation(t *testing.T) {
 	db := newAgentTestDB(t)
 	defer db.Close()
-	// generate >200 rows via a numbers table trick (recursive CTE)
 	q := `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x < 300) SELECT x FROM n`
 	res, err := RunReadonlyQuery(db, q)
 	if err != nil {
@@ -111,8 +105,6 @@ func TestSandboxRowCapAndTruncation(t *testing.T) {
 		t.Error("result should be marked truncated")
 	}
 }
-
-// --- agent loop ---
 
 func TestAgentLoopRunsQueryThenAnswers(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{
@@ -133,13 +125,11 @@ func TestAgentLoopRunsQueryThenAnswers(t *testing.T) {
 	if len(ans.Widgets) != 1 || ans.Widgets[0].Type != "bar" {
 		t.Fatalf("widgets = %+v", ans.Widgets)
 	}
-	// series values + assigned palette color survive sanitisation
 	data := ans.Widgets[0].Data.(map[string]any)
 	series := data["series"].([]map[string]any)
 	if series[0]["color"] == "" {
 		t.Error("expected palette color to be assigned")
 	}
-	// steps streamed: one for the query, one for the widget build
 	joined := strings.Join(steps, "|")
 	if !strings.Contains(joined, "Generated query:") {
 		t.Errorf("steps missing query step: %v", steps)
@@ -150,8 +140,6 @@ func TestAgentLoopRunsQueryThenAnswers(t *testing.T) {
 }
 
 func TestAgentLoopFeedsResultBack(t *testing.T) {
-	// The scripted second reply only makes sense if the provider saw the tool
-	// result — proves results are returned to the model.
 	var sawResult string
 	provider := &ai.MockAgent{Replies: []string{
 		`{"action":"run_query","sql":"SELECT COUNT(*) AS n FROM transactions"}`,
@@ -199,8 +187,6 @@ func TestAgentFallsBackToLegacyPipeline(t *testing.T) {
 
 type brokenAgentProvider struct{ ai.Mock }
 
-// CompleteStructured breaks only the agent capability, so the legacy
-// query_planning path still works through the embedded Mock.
 func (p brokenAgentProvider) CompleteStructured(req *ai.StructuredRequest) (string, *ai.Usage, error) {
 	if req.Capability == "query_agent" {
 		return "sorry, I cannot answer that in JSON", nil, nil
@@ -208,20 +194,16 @@ func (p brokenAgentProvider) CompleteStructured(req *ai.StructuredRequest) (stri
 	return p.Mock.CompleteStructured(req)
 }
 
-// --- widget sanitisation ---
-
 func TestSanitizeWidgets(t *testing.T) {
 	specs := []agentWidgetSpec{
 		{Type: "bar", Title: "ok", Data: raw(`{"labels":["a","b"],"series":[{"name":"S","values":[1,2]},{"name":"T","color":"not-a-color","values":[3,4]},{"name":"U","values":[5,6]},{"name":"V","values":[7,8]},{"name":"W","values":[9,10]},{"name":"X","values":[11,12]},{"name":"Y","values":[13,14]}]}`)},
 		{Type: "pie", Title: "neg", Data: raw(`{"labels":["a","b"],"values":[-5, 10]}`)},
 		{Type: "number", Title: "", Data: raw(`{"value":"£12.00"}`)},
 		{Type: "table", Title: "tbl", Data: raw(`{"columns":["A","B"],"rows":[["1","2"],["3","4"]]}`)},
-		{Type: "bogus", Title: "bad", Data: raw(`{}`)},                        // unknown type → dropped
-		{Type: "number", Title: "empty", Data: raw(`{"caption":"no value"}`)}, // no value → dropped
+		{Type: "bogus", Title: "bad", Data: raw(`{}`)},
+		{Type: "number", Title: "empty", Data: raw(`{"caption":"no value"}`)},
 	}
 	ws := sanitizeWidgets(specs)
-	// bar, pie, number survive; the per-answer cap (3) drops the table even
-	// though it is valid; bogus/empty specs are dropped outright.
 	if len(ws) != agentMaxWidgets {
 		t.Fatalf("widgets kept = %d, want %d", len(ws), agentMaxWidgets)
 	}
@@ -257,9 +239,6 @@ func TestSanitizeWidgetsCap(t *testing.T) {
 
 func raw(s string) json.RawMessage { return json.RawMessage(s) }
 
-// The example queries embedded in the agent's system prompt must actually
-// run through the sandbox and compute the right numbers — if the schema or
-// a prompt example drifts, this catches it.
 func TestExampleQueriesRun(t *testing.T) {
 	db := newAgentTestDB(t)
 	defer db.Close()
@@ -276,7 +255,6 @@ func TestExampleQueriesRun(t *testing.T) {
 		       ('t2','a1','2024-02-05','out',-2000,'GBP','expense','h','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z'),
 		       ('t3','a1','2024-03-05','out',-1000,'GBP','expense','h','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
 
-	// Example 1: current balance per account = 10000 + 5000 - 2000 - 1000 = 12000.
 	res, err := RunReadonlyQuery(db, `SELECT a.name, a.opening_balance_minor + COALESCE((SELECT SUM(t.amount_minor)
 		FROM transactions t WHERE t.account_id = a.id AND t.deleted_at IS NULL
 		AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date)), 0)
@@ -288,7 +266,6 @@ func TestExampleQueriesRun(t *testing.T) {
 		t.Errorf("balance example: got %v, want 12000", got)
 	}
 
-	// Example 2: month-end balance series 15000, 13000, 12000.
 	res, err = RunReadonlyQuery(db, `WITH months AS (SELECT DISTINCT strftime('%Y-%m', date) AS m FROM transactions WHERE deleted_at IS NULL)
 		SELECT m.m AS month, (SELECT COALESCE(SUM(opening_balance_minor),0) FROM accounts WHERE deleted_at IS NULL)
 		+ COALESCE(SUM(t.amount_minor), 0) AS balance
@@ -304,7 +281,6 @@ func TestExampleQueriesRun(t *testing.T) {
 		}
 	}
 
-	// Example 3: spend by category.
 	res, err = RunReadonlyQuery(db, `SELECT c.name AS category, SUM(-t.amount_minor) AS spend FROM transactions t
 		LEFT JOIN categories c ON c.id = t.category_id
 		WHERE t.deleted_at IS NULL AND t.type = 'expense' AND t.date BETWEEN '2024-01-01' AND '2024-06-30'
@@ -316,19 +292,14 @@ func TestExampleQueriesRun(t *testing.T) {
 		t.Errorf("spend example: got %v, want 3000", got)
 	}
 
-	// Fenced SQL (models sometimes wrap it) must be stripped before running.
 	if got := stripFences("```sql\nSELECT 1\n```"); got != "SELECT 1" {
 		t.Errorf("stripFences: %q", got)
 	}
 }
 
-// --- sidebar day entries + summaries ---
-
 func TestDayEntriesAndSummaries(t *testing.T) {
 	svc := newAgentService(t, &ai.Mock{})
 	defer svc.DB.Close()
-	// Two messages today, one yesterday, in two conversations (same-second
-	// within a day exercises the MAX(created_at) conversation pick).
 	db := svc.DB
 	must := func(q string, args ...any) {
 		t.Helper()
@@ -361,7 +332,6 @@ func TestDayEntriesAndSummaries(t *testing.T) {
 		t.Error("no summary should exist yet")
 	}
 
-	// SummariseDay generates a ≤50-char summary and persists it.
 	sum, err := svc.SummariseDay("2024-06-15")
 	if err != nil {
 		t.Fatal(err)
@@ -374,22 +344,19 @@ func TestDayEntriesAndSummaries(t *testing.T) {
 		t.Errorf("summary not joined: %+v", entries[0])
 	}
 
-	// Catch-up fills the remaining day.
 	svc.CatchUpSummaries()
 	entries, _ = svc.DayEntries()
 	if !entries[1].HasSummary {
 		t.Error("catch-up did not fill yesterday's summary")
 	}
 
-	// With no provider, catch-up is a no-op (not an error).
 	svc2 := newAgentService(t, nil)
 	defer svc2.DB.Close()
-	svc2.CatchUpSummaries() // must not panic
+	svc2.CatchUpSummaries()
 }
 
-// Merchant/payee matching must use the description fallback — the merchant
-// column is frequently empty on imported rows (this is what made
-// "Virgin Trains" come back as "no expenses").
+// The merchant column is often empty on imported rows; matching on merchant
+// alone made "Virgin Trains" return no expenses.
 func TestMerchantDescriptionFallback(t *testing.T) {
 	db := newAgentTestDB(t)
 	defer db.Close()
@@ -405,7 +372,6 @@ func TestMerchantDescriptionFallback(t *testing.T) {
 		VALUES ('t1','a1','2024-06-22','Virgin Trains',-1275,'GBP','expense','h','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z'),
 		       ('t2','a1','2024-06-30','Virgin Trains',-1275,'GBP','expense','h','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
 
-	// The prompt's example query pattern must run and find both rows.
 	res, err := RunReadonlyQuery(db, `SELECT SUM(-t.amount_minor) AS spend, COUNT(*) AS n, MIN(t.date) AS first, MAX(t.date) AS last
 		FROM transactions t
 		WHERE t.deleted_at IS NULL AND t.type = 'expense'
@@ -416,8 +382,6 @@ func TestMerchantDescriptionFallback(t *testing.T) {
 	if res.Rows[0][0].(int64) != 2550 || res.Rows[0][1].(int64) != 2 {
 		t.Errorf("merchant fallback: got %v", res.Rows[0])
 	}
-	// And the naive pattern the model first tried must be the one the prompt
-	// warns against: merchant alone finds nothing.
 	res2, err := RunReadonlyQuery(db, `SELECT COUNT(*) FROM transactions WHERE merchant = 'Virgin Trains'`)
 	if err != nil {
 		t.Fatal(err)
@@ -427,8 +391,6 @@ func TestMerchantDescriptionFallback(t *testing.T) {
 	}
 }
 
-// The current view period must be injected into the prompt so answers
-// respect the period selector unless the question names its own range.
 func TestAgentPromptIncludesViewWindow(t *testing.T) {
 	svc := newAgentService(t, &ai.Mock{})
 	defer svc.DB.Close()
@@ -443,14 +405,11 @@ func TestAgentPromptIncludesViewWindow(t *testing.T) {
 		!strings.Contains(with, "Last 12 months") {
 		t.Errorf("window not in prompt:\n%s", with)
 	}
-	// Single-figure answers must be pinned to the number widget.
 	if !strings.Contains(with, "ALWAYS a number widget") {
 		t.Error("number-widget mandate missing")
 	}
 }
 
-// List questions: empty text + transactions widget must survive sanitisation
-// and finishAgent (the widget alone answers — no fallback text injected).
 func TestListAnswerEmptyTextWithTransactionsWidget(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{
 		`{"action":"run_query","sql":"SELECT * FROM transactions LIMIT 10"}`,
@@ -474,10 +433,7 @@ func TestListAnswerEmptyTextWithTransactionsWidget(t *testing.T) {
 	}
 }
 
-// Models sometimes put payload keys at the widget's top level or send array
-// data — normalisation must recover them instead of dropping the widget.
 func TestWidgetSpecNormalisation(t *testing.T) {
-	// Stray top-level keys merged into data.
 	act, err := parseAction(`{"action":"final","text":"ok","widgets":[
 		{"type":"number","title":"T","value":"£5","caption":"c"},
 		{"type":"transactions","title":"R","transactions":[{"date":"2024-06-30","description":"Rent","category":"Bills","amount_minor":-106266,"currency":"GBP","type":"expense"}]},
@@ -498,9 +454,6 @@ func TestWidgetSpecNormalisation(t *testing.T) {
 	}
 }
 
-// An empty final (empty text, no widgets) gets one corrective round; if the
-// retry still has no content, the legacy plan pipeline answers instead of
-// dead-ending with a fallback message.
 func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{
 		`{"action":"final","text":"","widgets":[]}`,
@@ -516,8 +469,6 @@ func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
 		t.Errorf("corrective retry failed: %+v", ans)
 	}
 
-	// Both rounds empty → legacy pipeline takes over (brokenAgentProvider
-	// fails query_agent but the embedded Mock serves query_planning).
 	svc2 := newAgentService(t, &emptyThenBroken{})
 	defer svc2.DB.Close()
 	ans2, err := svc2.Ask("list my recent transactions")
@@ -529,8 +480,6 @@ func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
 	}
 }
 
-// emptyThenBroken answers the first two agent rounds with empty finals, then
-// errors — so the loop exhausts and the service must fall back to legacy.
 type emptyThenBroken struct {
 	rounds int
 }

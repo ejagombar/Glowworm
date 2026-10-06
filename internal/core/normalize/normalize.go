@@ -1,5 +1,3 @@
-// Package normalize implements the shared text normalisation pipeline
-// (doc 07 §3) used by categorisation, dedupe and the transfer detector.
 package normalize
 
 import (
@@ -15,12 +13,6 @@ var (
 	trailingNums = regexp.MustCompile(`\s+\d+(\s+\d+)*$`)
 )
 
-// Text normalises a statement description (doc 07 §3):
-//  1. lowercase + trim
-//  2. strip card chunks / ISO timestamps / long digit runs
-//  3. strip UK payment suffixes
-//  4. collapse whitespace/punctuation
-//  5. drop trailing number tokens
 func Text(desc string) string {
 	s := strings.ToLower(strings.TrimSpace(desc))
 	s = cardChunks.ReplaceAllString(s, " ")
@@ -28,7 +20,7 @@ func Text(desc string) string {
 	s = longDigits.ReplaceAllString(s, "#")
 	s = stripSuffixes(s)
 	var b strings.Builder
-	prevSpace := true // trim leading
+	prevSpace := true
 	for _, r := range s {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '#' {
 			b.WriteRune(r)
@@ -62,12 +54,10 @@ func stripSuffixes(s string) string {
 	return s
 }
 
-// Tokens splits normalised text into unigrams.
 func Tokens(desc string) []string {
 	return strings.Fields(Text(desc))
 }
 
-// Bigrams returns unigrams + adjacent bigrams (classifier features).
 func Bigrams(desc string) []string {
 	toks := strings.Fields(Text(desc))
 	out := make([]string, 0, len(toks)*2)

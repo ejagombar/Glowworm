@@ -1,5 +1,3 @@
-// Package crypto owns the instance secret key: session cookie signing and
-// AES-256-GCM encryption of AI provider API keys at rest (doc 14 §6, doc 09 §4).
 package crypto
 
 import (
@@ -16,13 +14,10 @@ import (
 	"path/filepath"
 )
 
-// Secret is the 32-byte instance master key.
 type Secret struct {
 	key []byte
 }
 
-// LoadOrCreate reads GLOWWORM_SECRET_KEY or data-dir/secret.key,
-// generating and persisting a random key on first boot (0600).
 func LoadOrCreate(fromEnv, dataDir string) (*Secret, error) {
 	raw := fromEnv
 	if raw == "" {
@@ -62,7 +57,6 @@ func decode32(raw string) ([]byte, error) {
 	if b, err := base64.RawStdEncoding.DecodeString(raw); err == nil && len(b) == 32 {
 		return b, nil
 	}
-	// Fallback: derive from arbitrary-length secret material.
 	h := sha256.Sum256([]byte(raw))
 	return h[:], nil
 }
@@ -78,14 +72,12 @@ func trimWhitespace(s string) string {
 	return string(out)
 }
 
-// Sign returns HMAC-SHA256(data) hex — session token signing.
 func (s *Secret) Sign(data []byte) string {
 	m := hmac.New(sha256.New, s.key)
 	m.Write(data)
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-// VerifySign checks an HMAC hex signature in constant time.
 func (s *Secret) VerifySign(data []byte, sigHex string) bool {
 	want := s.Sign(data)
 	got, err := hex.DecodeString(sigHex)
@@ -104,7 +96,6 @@ func (s *Secret) gcm() (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// Encrypt seals plaintext with AES-256-GCM (nonce prefixed).
 func (s *Secret) Encrypt(plaintext []byte) (string, error) {
 	g, err := s.gcm()
 	if err != nil {
@@ -118,7 +109,6 @@ func (s *Secret) Encrypt(plaintext []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Decrypt opens an AES-256-GCM ciphertext produced by Encrypt.
 func (s *Secret) Decrypt(ciphertext string) ([]byte, error) {
 	raw, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {

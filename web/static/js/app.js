@@ -1,11 +1,4 @@
-/* ============================================================
-   Glowworm — app glue (server-rendered UI + HTMX)
-   Theme, privacy, shortcuts, modals/drawer, composer, widget
-   edit-mode, chat streaming client (docs/design/04 §4).
-   No mock data; the server owns all state.
-   ============================================================ */
 
-/* ---------- Theme (prototype logic, verbatim) ---------- */
 function applyTheme(t) {
   const dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -23,7 +16,6 @@ function initTheme() {
   });
 }
 
-/* ---------- Toast ---------- */
 let toastTimer;
 function toast(msg) {
   const el = document.getElementById("toast");
@@ -33,13 +25,33 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), 2600);
 }
+function reloadWithToast(msg) {
+  try { sessionStorage.setItem("glowworm-toast", msg); } catch (e) {}
+  location.reload();
+}
+async function apiErrorText(r, fallback) {
+  const b = await r.json().catch(() => ({}));
+  return (b.error && b.error.message) || fallback;
+}
+function restoredMessage(res) {
+  const accs = (res && res.accounts) || [];
+  const names = accs.map((a) => `“${a.name}”`).join(", ");
+  const n = accs.reduce((s, a) => s + (a.transactions || 0), 0);
+  let msg = `Restored ${names} · ${n} transaction${n === 1 ? "" : "s"}`;
+  if (res && res.skipped && res.skipped.length) {
+    msg += ` · left ${res.skipped.map((n) => `“${n}”`).join(", ")} as is (already exists)`;
+  }
+  if (res && res.categories_created && res.categories_created.length) {
+    msg += ` · added categor${res.categories_created.length === 1 ? "y" : "ies"} ${res.categories_created.join(", ")}`;
+  }
+  return msg;
+}
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
 
-/* ---------- Modals / drawer ---------- */
 function openModal(id) {
   const m = document.getElementById(id);
   if (!m) return;
@@ -61,20 +73,18 @@ function closePasswordModal() {
 function closeNameModal() {
   closeModal("nameModal");
 }
-function showConfirm(title, message, okLabel, callback) {
+function showConfirm(title, message, okLabel, callback, tone) {
   document.getElementById("confirmTitle").textContent = title;
   document.getElementById("confirmMessage").textContent = message;
-  document.getElementById("confirmOk").textContent = okLabel || "Delete";
+  const ok = document.getElementById("confirmOk");
+  ok.textContent = okLabel || "Delete";
+  ok.classList.toggle("btn-danger", tone !== "primary");
+  ok.classList.toggle("btn-primary", tone === "primary");
   confirmCallback = callback;
   document.getElementById("confirmModal").hidden = false;
 }
 let confirmCallback = null;
 
-/* ---------- Widget drawer ---------- */
-// Which widget types can be converted to which. Groups keep data shapes that
-// actually make sense together: bar/line/table share labels+series, pie/table
-// share single-value breakdowns, and number/text/transactions keep to
-// themselves because their data shape doesn't translate elsewhere.
 const WIDGET_CONVERSIONS = {
   bar: ["bar", "line", "table"],
   line: ["bar", "line", "table"],
@@ -94,8 +104,6 @@ function openDrawer(id) {
   document.getElementById("wTitle").value = card.dataset.widgetTitle || "";
   const sel = document.getElementById("wType");
   const typ = card.dataset.widgetType || "bar";
-  // Only let the user switch between types that share a data shape with the
-  // current widget (so pie <-> number can't blank the card).
   const allowed = WIDGET_CONVERSIONS[typ] || [typ];
   Array.from(sel.options).forEach((o) => {
     o.hidden = !allowed.includes(o.value);
@@ -124,7 +132,6 @@ function closeDrawer() {
   state.editingId = null;
 }
 
-/* ---------- State ---------- */
 const state = {
   editMode: false,
   editingId: null,
@@ -134,7 +141,6 @@ const state = {
   customTo: null,
 };
 
-/* ---------- Pinned grid edit mode (drag-swap + resize, prototype logic) ---------- */
 const GRID_GAP = 12, GRID_ROW = 72;
 
 function setEditMode(on) {
@@ -172,14 +178,11 @@ function pinnedOrder() {
 
 function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
-/* ---------- Chat streaming client (doc 10 §8) ---------- */
 function csrfToken() {
   const c = document.cookie.match(/(?:^|; )glowworm_csrf=([^;]*)/);
   return c ? decodeURIComponent(c[1]) : "";
 }
 
-// currentViewPeriod reports the masthead period selector state so chat
-// answers respect it unless the question names its own range.
 function currentViewPeriod() {
   const sel = document.getElementById("periodSelect");
   if (!sel) return {};
@@ -192,21 +195,17 @@ function currentViewPeriod() {
   return out;
 }
 
-/* ---------- Sent-message recall (up-arrow, standard chat behaviour) ---------- */
 let sentHistory = [];
 let sentHistoryIdx = -1;
 
 function pushSentHistory(text) {
   if (!text) return;
-  if (sentHistory[sentHistory.length - 1] === text) return; // no consecutive dupes
+  if (sentHistory[sentHistory.length - 1] === text) return;
   sentHistory.push(text);
   if (sentHistory.length > 100) sentHistory.shift();
   sentHistoryIdx = -1;
 }
 
-// Seed sentHistory from the user bubbles currently on the page. Oldest first
-// (chronological) so ArrowUp walks backwards through time naturally. Called
-// on initial load and whenever older messages are paged in at the top.
 function seedSentHistoryFromDOM(box) {
   if (!box) return;
   const bubbles = box.querySelectorAll(".msg.user .msg-bubble");
@@ -215,19 +214,14 @@ function seedSentHistoryFromDOM(box) {
     const t = (b.textContent || "").trim();
     if (t) texts.push(t);
   });
-  // Rebuild the history keeping relative order; dedupe consecutive repeats.
   const next = [];
   for (const t of texts) {
     if (next[next.length - 1] !== t) next.push(t);
   }
-  sentHistory = next.slice(-100); // same cap as pushSentHistory
+  sentHistory = next.slice(-100);
   sentHistoryIdx = -1;
 }
 
-// direction: "up" recalls older sent messages, "down" returns towards the
-// empty composer. The first ArrowUp requires an empty composer; while
-// recalling, up/down walk the history regardless of the caret position
-// (typing always resets the position).
 function recallSent(direction, input) {
   if (!input || !sentHistory.length) return false;
   if (direction === "up") {
@@ -255,7 +249,6 @@ function recallSent(direction, input) {
   return false;
 }
 
-/* ---------- Sidebar day summaries (async catch-up poll) + day jump ---------- */
 function pollDaySummaries() {
   if (!document.querySelector('[data-day-summarising="1"]')) return;
   setTimeout(() => {
@@ -279,9 +272,6 @@ function renderDaySidebar(entries) {
   }).join("");
 }
 
-// Scroll to a day from a sidebar entry (?day=YYYY-MM-DD): page older
-// messages in until the day is loaded, then align the first message of the
-// day near the top of the viewport.
 function jumpToDay(date) {
   const box = queriesScrollBox();
   if (!box) return;
@@ -290,9 +280,8 @@ function jumpToDay(date) {
     const hit = Array.from(box.querySelectorAll(".msg[data-created]")).find(
       (m) => localDayKey(m.dataset.created) === date);
     if (hit) {
-      // getBoundingClientRect().top is viewport-relative, so add the current
-      // scrollTop to get the hit's absolute offset within the scroll box
-      // (otherwise this lands wherever the box happens to be scrolled).
+      // getBoundingClientRect is viewport-relative; add scrollTop to get the
+      // offset within the box.
       const offset = (hit.getBoundingClientRect().top - box.getBoundingClientRect().top) + box.scrollTop;
       box.scrollTop = Math.max(0, offset - 40);
       return;
@@ -313,7 +302,6 @@ function jumpToDay(date) {
   requestAnimationFrame(seek);
 }
 
-/* ---------- Queries history: session scroll position + paging (doc 10 §8) ---------- */
 const QUERIES_PAGE_SIZE = 20;
 
 function queriesScrollBox() { return document.getElementById("queryMessages"); }
@@ -322,15 +310,12 @@ function queriesConvID() {
   return main ? main.dataset.conversationId || "" : "";
 }
 
-// Restore the conversation + scroll offset last viewed in this session.
-// First load in a session (nothing saved) starts at the bottom.
 function initQueriesScroll() {
   const box = queriesScrollBox();
   if (!box) return;
   const savedConv = sessionStorage.getItem("glowworm-queries-conv");
   const urlConv = new URLSearchParams(location.search).get("c");
   if (savedConv && !urlConv && savedConv !== queriesConvID()) {
-    // Resume the conversation the user was reading when they left.
     location.replace("/queries?c=" + encodeURIComponent(savedConv));
     return;
   }
@@ -350,14 +335,13 @@ function initQueriesScroll() {
     saveTimer = setTimeout(saveQueriesScroll, 150);
     maybeLoadOlder();
   }, { passive: true });
-  // The debounce can drop the last 150ms of movement when the user navigates
-  // away — pagehide fires reliably on soft nav and tab close, so save there
-  // too to keep the restore point in sync with what the user actually saw.
+  // The debounce can miss the last movement before navigating away; pagehide
+  // always fires.
   window.addEventListener("pagehide", saveQueriesScroll);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") saveQueriesScroll();
   });
-  maybeLoadOlder(); // a restored position may already sit near the top
+  maybeLoadOlder();
 }
 
 function scrollQueriesToBottom() {
@@ -373,7 +357,6 @@ function saveQueriesScroll() {
   try { sessionStorage.setItem(key, atBottom ? "bottom" : String(box.scrollTop)); } catch (e) {}
 }
 
-// Page older messages in as the user scrolls towards the top.
 let loadingOlder = false;
 function maybeLoadOlder() {
   const box = queriesScrollBox();
@@ -402,15 +385,14 @@ function loadOlderMessages() {
         box.dataset.oldest = items[0].created_at + "|" + items[0].id;
         prependMessages(box, items);
         if (window.drawChartHosts) drawChartHosts(box);
-        seedSentHistoryFromDOM(box); // older user bubbles are now in the DOM
+        seedSentHistoryFromDOM(box);
       }
       loadingOlder = false;
-      maybeLoadOlder(); // still near the top → keep filling
+      maybeLoadOlder();
     })
     .catch(() => { loader.remove(); loadingOlder = false; });
 }
 
-// Render one persisted message (API shape: {role, text, steps, widgets, created_at}).
 function messageHTML(m) {
   const created = esc(m.created_at || "");
   if (m.role === "user") {
@@ -423,8 +405,6 @@ function messageHTML(m) {
   return `<div class="msg assistant" data-created="${created}"><div class="msg-content">${content}</div></div>`;
 }
 
-// Prepend an ascending (oldest→newest) batch of messages, keeping the
-// viewport anchored and day badges correct across the new boundary.
 function prependMessages(box, items) {
   const firstMsg = box.querySelector(".msg");
   const prevHeight = box.scrollHeight;
@@ -446,7 +426,6 @@ function prependMessages(box, items) {
   }
   box.prepend(frag);
   box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
-  // The previously-first message loses its badge if the day now starts earlier.
   if (firstMsg && firstMsg.dataset.created) {
     const badgeEl = firstMsg.previousElementSibling;
     if (badgeEl && badgeEl.classList.contains("msg-day") &&
@@ -456,8 +435,8 @@ function prependMessages(box, items) {
   }
 }
 
-/* Day keys/labels in the server's local timezone (the server computes the
-   same way) — UTC grouping mislabels late-evening messages. */
+// Local-timezone day keys, matching the server: UTC grouping mislabels
+// late-evening messages.
 function localDayKey(ts) {
   const d = new Date(ts || "");
   if (isNaN(d)) return "";
@@ -484,10 +463,8 @@ function sendChat(text) {
   const convEl = document.querySelector("[data-conversation-id]");
   const conversationID = convEl ? convEl.dataset.conversationId : "";
 
-  // User bubble + pending assistant with worm loader (prototype choreography).
-  // The day badge shows only when the day changes — decided from the DOM's
-  // last message, never from a cached format string (that mismatch produced
-  // duplicate/incorrect Today badges).
+  // The day badge is decided from the DOM's last message, never a cached
+  // format string (that produced duplicate Today badges).
   const user = document.createElement("div");
   user.className = "msg user msg-in";
   user.innerHTML = `<div class="msg-content"><div class="msg-bubble">${esc(text)}</div></div>`;
@@ -552,7 +529,6 @@ function sendChat(text) {
   });
 }
 
-/* ---------- Pin / unpin widgets (chat + dashboard cards) ---------- */
 function pinWidget(card, btn) {
   const payload = {
     title: card.dataset.widgetTitle || "",
@@ -584,13 +560,11 @@ function unpinWidget(card, btn) {
     btn.classList.remove("pinned-on");
     btn.title = "Pin to dashboard";
     const grid = document.getElementById("pinnedGrid");
-    if (grid && grid.contains(card)) card.remove(); // dashboard card
+    if (grid && grid.contains(card)) card.remove();
     toast("Removed from dashboard");
   }).catch(() => toast("Could not unpin widget"));
 }
 
-// adoptConversation binds the conversation id to the page so follow-up
-// questions continue the same thread, and lists it in the history sidebar.
 function adoptConversation(id, firstQuestion) {
   if (!id) return;
   const main = document.querySelector(".queries-main");
@@ -617,8 +591,6 @@ function renderSteps(pending, steps) {
     .join("");
 }
 
-// Minimal assistant-text formatting: escaped HTML, **bold** and line breaks
-// (white-space: pre-wrap on .msg-text). Mirrors formatAssistantText in Go.
 function fmtAssistantText(text) {
   const escd = esc(text || "");
   return escd.split("**").map((p, i) => (i % 2 ? `<strong>${p}</strong>` : p)).join("");
@@ -630,10 +602,8 @@ function finishAssistant(pending, out) {
   const loader = pending.querySelector(".glowworm-loader");
   const reveal = () => {
     let content = "";
-    // A clarification with suggestions isn't a failure — style it as normal text.
     const errCls = isError && !(suggestions && suggestions.length) ? " msg-error" : "";
     if (text) content += `<div class="msg-text${errCls}">${fmtAssistantText(text)}</div>`;
-    // Errors never get a thinking section — nothing was analysed.
     if (!isError && steps && steps.length) content += msgReasonHTML(steps);
     if (suggestions && suggestions.length) {
       content += `<div class="msg-suggestions">${suggestions
@@ -715,8 +685,6 @@ function widgetCardHTML(widget) {
 }
 function widgetBodyHTML(widget) {
   const data = widget.data || {};
-  // transactions rows carry signed minor units (amount_minor); older
-  // payloads may use amount — normalise before rendering.
   if (data.transactions) {
     data.transactions = data.transactions.map((tx) => {
       const v = tx.amount_minor ?? tx.amount ?? 0;
@@ -767,25 +735,42 @@ function widgetBodyHTML(widget) {
   return "";
 }
 
-/* ---------- Boot ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
+  try {
+    const pending = sessionStorage.getItem("glowworm-toast");
+    if (pending) { sessionStorage.removeItem("glowworm-toast"); toast(pending); }
+  } catch (e) {}
 
-  // Privacy toggle.
   const privacyBtn = document.getElementById("privacyToggle");
+  const applyPrivacy = (on) => {
+    state.privacy = on;
+    document.body.classList.toggle("privacy", on);
+    if (!privacyBtn) return;
+    privacyBtn.classList.toggle("active", on);
+    privacyBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    privacyBtn.title = on ? "Show balances" : "Hide balances";
+    privacyBtn.innerHTML = on
+      ? '<svg class="icon"><use href="#i-eye-off"/></svg>'
+      : '<svg class="icon"><use href="#i-eye"/></svg>';
+  };
+  const privacyCookie = () => {
+    const m = document.cookie.match(/(?:^|;\s*)glowworm_privacy=([^;]*)/);
+    return m ? m[1] === "1" : null;
+  };
+  state.privacy = document.body.classList.contains("privacy");
   if (privacyBtn) {
     privacyBtn.addEventListener("click", () => {
-      state.privacy = !state.privacy;
-      document.body.classList.toggle("privacy", state.privacy);
-      privacyBtn.classList.toggle("active", state.privacy);
-      privacyBtn.title = state.privacy ? "Show balances" : "Hide balances";
-      privacyBtn.innerHTML = state.privacy
-        ? '<svg class="icon"><use href="#i-eye-off"/></svg>'
-        : '<svg class="icon"><use href="#i-eye"/></svg>';
+      applyPrivacy(!state.privacy);
+      document.cookie = `glowworm_privacy=${state.privacy ? "1" : "0"}; Path=/; Max-Age=31536000; SameSite=Lax`;
     });
   }
+  // bfcache restores the old state; resync with a choice made on another page.
+  window.addEventListener("pageshow", (e) => {
+    const saved = privacyCookie();
+    if (e.persisted && saved !== null && saved !== state.privacy) applyPrivacy(saved);
+  });
 
-  // Theme select.
   const themeSel = document.getElementById("themeSelect");
   if (themeSel) {
     themeSel.addEventListener("change", (e) => {
@@ -795,10 +780,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Charts on load + resize.
   if (window.drawChartHosts) drawChartHosts(document);
 
-  // Brand wiggle.
   const brand = document.getElementById("brandMark");
   if (brand) {
     let timer;
@@ -812,14 +795,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Confirm modal.
   const confirmOk = document.getElementById("confirmOk");
   const confirmCancel = document.getElementById("confirmCancel");
   if (confirmOk) confirmOk.addEventListener("click", () => { const cb = confirmCallback; confirmCallback = null; document.getElementById("confirmModal").hidden = true; if (cb) cb(); });
   if (confirmCancel) confirmCancel.addEventListener("click", () => { confirmCallback = null; document.getElementById("confirmModal").hidden = true; });
   document.querySelectorAll("[data-action='close-confirm']").forEach((b) => b.addEventListener("click", () => { confirmCallback = null; document.getElementById("confirmModal").hidden = true; }));
 
-  // Drawer.
   document.getElementById("drawerBackdrop")?.addEventListener("click", closeDrawer);
   document.querySelectorAll("[data-action='close-drawer']").forEach((b) => b.addEventListener("click", closeDrawer));
   const wApply = document.getElementById("wApply");
@@ -848,7 +829,6 @@ document.addEventListener("DOMContentLoaded", () => {
       };
 
       if (wasPinned) {
-        // Dashboard widget: server owns the row (keeps plan + layout).
         fetch(`/api/v1/widgets/pinned/${card.dataset.pinnedId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -867,7 +847,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // Chat widget: update the card in place, then honour the pin state.
       updateCardDOM();
       if (shouldPin) {
         const btn = card.querySelector("[data-action='toggle-pin']");
@@ -878,8 +857,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Widget actions (delegated: works for live chat cards and server-rendered
-  // dashboard/chat cards alike).
   document.addEventListener("click", (e) => {
     const edit = e.target.closest("[data-action='edit-widget']");
     if (edit) {
@@ -904,13 +881,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Suggestion chips (delegated so chips rendered mid-conversation also work).
   document.addEventListener("click", (e) => {
     const chip = e.target.closest("[data-chat-suggest]");
     if (chip) sendChat(chip.dataset.chatSuggest);
   });
 
-  // Pinned grid edit mode (drag-swap + resize) — prototype pointer logic.
   const pinnedEditBtn = document.getElementById("pinnedEditBtn");
   if (pinnedEditBtn) {
     pinnedEditBtn.addEventListener("click", () => setEditMode(!state.editMode));
@@ -996,9 +971,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (!move) return;
       if (move.moved && move.target) {
-        // Swap both the DOM positions and the col/rows of the two cards —
-        // matches the prototype behaviour (each card takes the other's slot
-        // and size), then persist.
         const a = move.card, b = move.target;
         const aCol = a.dataset.widgetCol || "8", aRows = a.dataset.widgetRows || "4";
         const bCol = b.dataset.widgetCol || "8", bRows = b.dataset.widgetRows || "4";
@@ -1024,7 +996,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Queries composer.
   const queryInput = document.getElementById("queryInput");
   const queryBtn = document.getElementById("queryBtn");
   if (queryInput) {
@@ -1042,9 +1013,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     queryInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); return; }
-      // Up/down recall the sent-message history (standard chat behaviour):
-      // up loads the previous sent message when the composer is empty (or
-      // already recalling), down walks back towards the empty composer.
       if (e.key === "ArrowUp") {
         if (queryInput.value === "" || sentHistoryIdx !== -1) {
           if (recallSent("up", queryInput)) e.preventDefault();
@@ -1057,12 +1025,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const qbox = document.getElementById("queryMessages");
     if (qbox) {
       initQueriesScroll();
-      seedSentHistoryFromDOM(qbox); // ArrowUp recalls server-known history, not just this session
+      seedSentHistoryFromDOM(qbox);
       pollDaySummaries();
       const jumpDay = document.querySelector(".queries-main")?.dataset.jumpDay;
       if (jumpDay) jumpToDay(jumpDay);
     }
-    // Conversation sidebar collapse.
     const sidebar = document.getElementById("queriesSidebar");
     document.getElementById("queriesSidebarToggle")?.addEventListener("click", () => {
       sidebar.classList.add("collapsed");
@@ -1074,7 +1041,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Recurring modal open (delegated).
   document.addEventListener("click", (e) => {
     const rec = e.target.closest("[data-recurring-key]");
     if (rec) openRecurring(rec.dataset.recurringKey);
@@ -1084,7 +1050,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target.id === "accountModal") closeModal("accountModal");
   });
 
-  // Custom range popover.
   const periodSelect = document.getElementById("periodSelect");
   if (periodSelect) {
     periodSelect.addEventListener("change", (e) => {
@@ -1117,7 +1082,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Keyboard shortcuts (doc 04 §9).
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
@@ -1138,7 +1102,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // New transaction modal (manual entry, doc 04 §5.2).
   const newTxBtn = document.getElementById("newTxBtn");
   if (newTxBtn) {
     newTxBtn.addEventListener("click", () => openModal("txModal"));
@@ -1174,7 +1137,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Setup wizard footer.
   const wizardNext = document.getElementById("wizardNext");
   if (wizardNext) {
     const WIZARD_STEPS = 6;
@@ -1202,7 +1164,6 @@ document.addEventListener("DOMContentLoaded", () => {
     wizardNext.addEventListener("click", async () => {
       if (step === 0) { step++; render(); return; }
       if (step === 2) {
-        // Persist the remaining category chips (doc 12 §3 step 2).
         const chips = Array.from(document.querySelectorAll("#wizardCategories .wizard-cat"))
           .map((chip) => chip.textContent.replace(/[\u2715\u2717]|✕/g, "").trim())
           .filter((n) => n.length > 0);
@@ -1218,7 +1179,6 @@ document.addEventListener("DOMContentLoaded", () => {
         step++; render(); return;
       }
       if (step === 1) {
-        // Create the owner account (setup claim, doc 12 §3).
         const u = document.getElementById("wizUsername").value.trim();
         const p = document.getElementById("wizPassword").value;
         const pc = document.getElementById("wizPasswordConfirm").value;
@@ -1245,7 +1205,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (step < WIZARD_STEPS - 1) {
         if (step === WIZARD_STEPS - 2) {
-          // Final step marker: complete setup then show success.
           try { await fetch("/api/v1/setup/complete", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } }); } catch (e2) {}
           step++; render(); return;
         }
@@ -1271,7 +1230,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-/* ---------- Recurring modal ---------- */
 function openRecurring(key) {
   fetch(`/api/v1/recurring/${encodeURIComponent(key)}/transactions`)
     .then((r) => r.json())
@@ -1329,12 +1287,10 @@ function shortDate(iso) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-/* ---------- Toast event hook ---------- */
 document.addEventListener("glowworm-toast", (e) => {
   if (e.detail && e.detail.value) toast(e.detail.value);
 });
 
-/* ---------- Accounts modal (doc 04 §5.8) ---------- */
 function accountPayload() {
   const opening = parseFloat(document.getElementById("accOpening").value);
   return {
@@ -1356,6 +1312,11 @@ function openAccountForm(id) {
   document.getElementById("accSaveBtn").textContent = id ? "Save changes" : "Add account";
   document.getElementById("accountModalTitle").textContent = id ? "Account settings" : "Add account";
   document.getElementById("accDeleteBtn").hidden = !id;
+  const backupBtn = document.getElementById("accBackupBtn");
+  if (backupBtn) {
+    backupBtn.hidden = !id;
+    if (id) backupBtn.href = `/api/v1/accounts/${id}/backup`;
+  }
   const today = new Date().toISOString().slice(0, 10);
   document.getElementById("accValuationDate").value = today;
   if (id) {
@@ -1426,21 +1387,90 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accSaveBtn")?.addEventListener("click", (e) => { e.preventDefault(); saveAccount(); });
   document.getElementById("accCancelBtn")?.addEventListener("click", () => closeModal("accountModal"));
   document.querySelectorAll("[data-action='close-account']").forEach((b) => b.addEventListener("click", () => closeModal("accountModal")));
-  // (The new-transaction modal is wired in the boot handler above, guarded by
-  // #newTxBtn. A duplicate here — with an unguarded #txAddForm — threw on
-  // every page without the tx modal and killed every binding below it:
-  // settings, category form and audit actions.)
+  // The new-transaction modal is wired in the boot handler (guarded by
+  // #newTxBtn). An unguarded copy here threw on pages without it and killed
+  // every binding below.
   document.getElementById("accDeleteBtn")?.addEventListener("click", () => {
     const form = document.getElementById("accountForm");
     const id = form.dataset.accountId;
     if (!id) return;
-    showConfirm("Delete account?", "Delete this account and all of its transactions? This can't be undone.", "Delete account", () => {
-      fetch(`/api/v1/accounts/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
-        .then((r) => { if (!r.ok) { toast("Could not delete"); return; } closeModal("accountModal"); toast("Account deleted"); location.reload(); });
-    });
+    const name = document.getElementById("accName").value.trim() || "this account";
+    showConfirm(`Delete “${name}”?`,
+      "Its transactions, valuations and transfer links are removed everywhere. A copy is kept under Deleted accounts in Settings, so you can restore it later.",
+      "Delete account", () => {
+        fetch(`/api/v1/accounts/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
+          .then(async (r) => {
+            if (!r.ok) { toast(await apiErrorText(r, "Could not delete the account")); return; }
+            closeModal("accountModal");
+            reloadWithToast(`Deleted “${name}” — restore it from Deleted accounts`);
+          });
+      });
   });
 
-  // Account: change password (doc 14: >=10 chars, current verified) — opens in a modal.
+  const restoreBtn = document.getElementById("restoreBackupBtn");
+  const restoreFile = document.getElementById("restoreBackupFile");
+  restoreBtn?.addEventListener("click", () => restoreFile.click());
+  restoreFile?.addEventListener("change", async () => {
+    const file = restoreFile.files[0];
+    restoreFile.value = "";
+    if (!file) return;
+    let text, backup;
+    try {
+      text = await file.text();
+      backup = JSON.parse(text);
+    } catch (e) {
+      toast("That file isn't a Glowworm backup");
+      return;
+    }
+    if (!backup || backup.format !== "glowworm.account-backup" || !Array.isArray(backup.accounts) || !backup.accounts.length) {
+      toast("That file isn't a Glowworm account backup");
+      return;
+    }
+    const lines = backup.accounts.map((a) => {
+      const n = (a.transactions || []).length;
+      return `${a.account.name} (${n} transaction${n === 1 ? "" : "s"})`;
+    });
+    const made = backup.created_at ? ` made ${humanDate(String(backup.created_at).slice(0, 10))}` : "";
+    showConfirm(backup.accounts.length === 1 ? "Restore this account?" : `Restore ${backup.accounts.length} accounts?`,
+      `From the backup${made}: ${lines.join(", ")}. Accounts that already exist are not overwritten.`,
+      "Restore", () => {
+        fetch("/api/v1/accounts/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+          body: text,
+        }).then(async (r) => {
+          if (!r.ok) { toast(await apiErrorText(r, "Restore failed")); return; }
+          const res = await r.json();
+          reloadWithToast(restoredMessage(res));
+        }).catch(() => toast("Restore failed: network error"));
+      }, "primary");
+  });
+
+  document.getElementById("deletedAccounts")?.addEventListener("click", (e) => {
+    const li = e.target.closest("[data-archive-id]");
+    if (!li) return;
+    const { archiveId, archiveName } = li.dataset;
+    const restore = e.target.closest("[data-archive-restore]");
+    if (restore) {
+      restore.disabled = true;
+      fetch(`/api/v1/accounts/archives/${archiveId}/restore`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
+        .then(async (r) => {
+          if (!r.ok) { restore.disabled = false; toast(await apiErrorText(r, "Restore failed")); return; }
+          reloadWithToast(restoredMessage(await r.json()));
+        });
+    } else if (e.target.closest("[data-archive-purge]")) {
+      showConfirm(`Delete “${archiveName}” forever?`,
+        "Its transactions can't be restored after this. Use Download first if you might need them.",
+        "Delete forever", () => {
+          fetch(`/api/v1/accounts/archives/${archiveId}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
+            .then(async (r) => {
+              if (!r.ok) { toast(await apiErrorText(r, "Could not delete")); return; }
+              reloadWithToast(`“${archiveName}” deleted for good`);
+            });
+        });
+    }
+  });
+
   const pwOpen = document.getElementById("changePasswordBtn");
   if (pwOpen) {
     pwOpen.addEventListener("click", () => openModal("passwordModal"));
@@ -1468,7 +1498,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Account: update your name — opens in a modal (shown on the dashboard greeting).
   const nameOpen = document.getElementById("changeNameBtn");
   if (nameOpen) {
     nameOpen.addEventListener("click", () => {
@@ -1502,7 +1531,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Appearance save (theme + currency; the name lives in the Account block).
   document.getElementById("appearanceSave")?.addEventListener("click", () => {
     const theme = document.getElementById("themeSelect").value;
     const currency = document.getElementById("currencySelect").value;
@@ -1518,7 +1546,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }).catch(() => toast("Could not save settings"));
   });
 
-  // AI provider save + test.
   const KEY_MASK = "*********";
   const aiProviderSel = document.getElementById("aiProvider");
   const aiKeyInput = document.getElementById("aiKey");
@@ -1529,8 +1556,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const syncAIKeyRow = () => {
     if (!aiKeyInput) return;
     if (aiHasSavedKey && !aiKeyUnlocked) {
-      aiKeyInput.value = KEY_MASK; // never re-display the real key
-      aiKeyInput.type = "text";    // literal mask, not password dots
+      aiKeyInput.value = KEY_MASK;
+      aiKeyInput.type = "text";
       aiKeyInput.readOnly = true;
     } else {
       aiKeyInput.type = "password";
@@ -1542,16 +1569,16 @@ document.addEventListener("DOMContentLoaded", () => {
   if (aiKeyInput) {
     aiKeyInput.addEventListener("focus", () => {
       if (aiHasSavedKey && !aiKeyUnlocked) {
-        aiKeyUnlocked = true; // typing a new key replaces the saved one
+        aiKeyUnlocked = true;
         aiKeyInput.value = "";
         aiKeyInput.placeholder = "Type a new key to replace the saved one";
-        aiKeyInput.type = "password"; // hide the replacement key as it is typed
+        aiKeyInput.type = "password";
         aiKeyInput.readOnly = false;
       }
     });
     aiKeyInput.addEventListener("blur", () => {
       if (aiHasSavedKey && aiKeyUnlocked && aiKeyInput.value.trim() === "") {
-        aiKeyUnlocked = false; // left empty — keep showing the saved key
+        aiKeyUnlocked = false;
         syncAIKeyRow();
       }
     });
@@ -1583,7 +1610,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (base && !base.value) base.placeholder = "https://openrouter.ai/api/v1";
     }
   };
-  // Model list: fetch the provider's live catalogue and populate the select.
   const aiModelSel = document.getElementById("aiModel");
   const aiModelsStatus = document.getElementById("aiModelsStatus");
   const aiLoadBtn = document.getElementById("aiLoadModels");
@@ -1602,7 +1628,7 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({
           provider: aiProviderSel.value,
           base_url: document.getElementById("aiBaseUrl")?.value.trim() || "",
-          api_key: (aiKeyInput.value.trim() === KEY_MASK ? "" : aiKeyInput.value.trim()), // empty falls back to the stored key
+          api_key: (aiKeyInput.value.trim() === KEY_MASK ? "" : aiKeyInput.value.trim()),
         }),
       });
       const b = await r.json().catch(() => ({}));
@@ -1634,7 +1660,7 @@ document.addEventListener("DOMContentLoaded", () => {
   aiProviderSel?.addEventListener("change", () => { syncAIBaseUrlRow(); if (aiProviderSel.value) loadAIModels(); });
   syncAIBaseUrlRow();
   syncAIKeyRow();
-  if (aiProviderSel && aiProviderSel.value) loadAIModels(); // saved provider: populate on page load
+  if (aiProviderSel && aiProviderSel.value) loadAIModels();
   document.getElementById("aiSave")?.addEventListener("click", () => {
     const provider = aiProviderSel.value;
     const baseUrl = document.getElementById("aiBaseUrl")?.value.trim() || "";
@@ -1642,13 +1668,11 @@ document.addEventListener("DOMContentLoaded", () => {
       toast("Enter the endpoint URL for this provider");
       return;
     }
-    // The masked placeholder means "keep the saved key" — never send the mask.
-    // A freshly typed key is sent whether or not the field was "unlocked"
-    // (first-time setup has no saved key, so there is nothing to unlock).
+    // The masked placeholder means "keep the saved key": never send the mask.
     const typedKey = aiKeyInput.value.trim();
     const key = typedKey === KEY_MASK ? "" : typedKey;
     const model = aiModelSel ? aiModelSel.value : "";
-    const models = { default: model }; // always send: Auto ("") clears a stale selection
+    const models = { default: model };
     fetch("/api/v1/settings/ai", {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -1658,7 +1682,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!r.ok) { toast((b.error && b.error.message) || "Could not save"); return; }
       if (key) { aiHasSavedKey = true; aiKeyUnlocked = false; syncAIKeyRow(); }
       toast("AI provider updated");
-      if (aiProviderSel.value) loadAIModels(); // a fresh key may unlock the live catalogue
+      if (aiProviderSel.value) loadAIModels();
     }).catch(() => toast("Could not save"));
   });
   document.getElementById("aiTest")?.addEventListener("click", () => {
@@ -1668,7 +1692,6 @@ document.addEventListener("DOMContentLoaded", () => {
       .catch(() => toast("Test failed"));
   });
 
-  // Re-run setup walkthrough.
   document.getElementById("runSetupBtn")?.addEventListener("click", () => {
     fetch("/api/v1/settings", {
       method: "PUT",
@@ -1677,7 +1700,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }).then((r) => { if (r.ok) window.location = "/setup"; });
   });
 
-  // Category form (create / edit / delete).
   const catForm = document.getElementById("categoryForm");
   const catGrid = document.getElementById("categoriesGrid");
   const catColors = document.getElementById("catColors");
@@ -1753,8 +1775,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Audit entry actions (jump back / revert / forget / delete). Bound via
-  // wireAuditActions so freshly injected audit panes get them too.
   function wireAuditActions(root) {
     (root || document).querySelectorAll("[data-jump-back]").forEach((btn) => {
       if (btn.dataset.wired) return;
@@ -1784,7 +1804,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   }
-  window.wireAuditActions = wireAuditActions; // history pane switcher uses this
+  window.wireAuditActions = wireAuditActions;
   wireAuditActions(document);
   function auditAction(id, url, method, title, body, confirmLabel, okMsg) {
     showConfirm(title, body, confirmLabel, () => {
@@ -1863,7 +1883,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
-/* ---------- Transactions infinite scroll ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   const table = document.getElementById("transactionsTable");
   if (!table) return;
@@ -1920,7 +1939,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }, { rootMargin: "200px" });
     io.observe(sentinel);
   } else {
-    // Older browsers: fall back to a scroll listener.
     window.addEventListener("scroll", () => {
       if (!sentinel) return;
       const rect = sentinel.getBoundingClientRect();
@@ -1929,7 +1947,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-/* ---------- Inline transaction editor (doc 04 §5.2.4) ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   const body = document.getElementById("transactionsBody");
   if (!body) return;
@@ -1985,8 +2002,6 @@ document.addEventListener("DOMContentLoaded", () => {
       tr.after(editor);
       document.getElementById("txeDescription").focus();
 
-      // Populate the transfer-link select (always visible; the type is
-      // derived server-side from the link/category).
       const cpField = document.getElementById("txeCounterpartField") || document.getElementById("txeTransferField");
       const catSel = document.getElementById("txeCategory");
       const loadTransferSuggestions = async () => {
@@ -2013,8 +2028,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const cpSel = document.getElementById("txeCounterpart");
         if (cpSel) {
           cpSel.addEventListener("change", () => {
-            // Picking a counterpart means this becomes a transfer: force the
-            // Internal transfer category (the link endpoint does too).
             if (cpSel.value) {
               const internal = (window.__CAT_OPTIONS__ || []).find((c) => c.internal);
               if (internal) catSel.value = internal.id;
@@ -2091,21 +2104,39 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
-/* ---------- Import flow (doc 06 §7) ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   const dropzone = document.getElementById("dropzone");
   const fileInput = document.getElementById("fileInput");
   const flowBox = document.getElementById("importFlow");
+  const view = document.getElementById("view-import");
   if (!dropzone || !flowBox) return;
+
+  const openFlow = (html) => {
+    view?.classList.add("import-active");
+    flowBox.hidden = false;
+    flowBox.innerHTML = html;
+  };
+  const closeFlow = () => {
+    view?.classList.remove("import-active");
+    flowBox.hidden = true;
+    flowBox.innerHTML = "";
+  };
+  const flowMessage = (html, withRetry) => {
+    openFlow(`<div class="thinking-card panel"><div class="head">${html}</div>
+      ${withRetry ? '<button class="btn btn-ghost btn-xs" type="button" data-close-flow>Try another file</button>' : ""}</div>`);
+  };
+  flowBox.addEventListener("click", (e) => {
+    if (e.target.closest("[data-close-flow]")) closeFlow();
+  });
+  const jsonHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrfToken() });
+  const errMessage = (b, status) => (b && b.error && b.error.message) || `server error ${status}`;
 
   const upload = (file) => {
     const fd = new FormData();
     fd.append("file", file);
     const accSel = document.getElementById("importAccount");
     if (accSel && accSel.value) fd.append("account_id", accSel.value);
-    flowBox.hidden = false;
-    flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">
-      <span class="spinner"></span> Reading ${esc(file.name)}…</div></div>`;
+    flowMessage(`<span class="spinner"></span> Reading ${esc(file.name)}…`);
     fetch("/api/v1/imports", {
       method: "POST",
       headers: { "X-CSRF-Token": csrfToken() },
@@ -2113,13 +2144,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }).then(async (r) => {
       const b = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const why = (b.error && b.error.message) || `server error ${r.status}`;
-        flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">Upload failed: ${esc(why)}</div></div>`;
+        flowMessage(`Upload failed: ${esc(errMessage(b, r.status))}`, true);
         return;
       }
       renderBatch(b);
     }).catch((e) => {
-      flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">Upload failed: ${esc(e && e.message ? e.message : "network error — is the server running?")}</div></div>`;
+      flowMessage(`Upload failed: ${esc(e && e.message ? e.message : "network error — is the server running?")}`, true);
     });
   };
 
@@ -2132,251 +2162,720 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("dropzoneBrowse")?.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
     if (fileInput.files.length) upload(fileInput.files[0]);
+    fileInput.value = "";
   });
 
-  // One row of the column→role mapping editor (doc 06 §5.2). The collector
-  // below reads tr.dataset.source and the select's value.
-  function mappingRowHTML(col) {
+  // The server parses Go reference layouts ("02/01/2006" = DD/MM/YYYY); users
+  // only see the familiar codes.
+  const GO_TO_HUMAN = [["January", "MMMM"], ["Jan", "MMM"], ["Monday", "dddd"], ["Mon", "ddd"],
+    ["2006", "YYYY"], ["Z07:00", "Z"], ["15", "HH"], ["06", "YY"], ["01", "MM"], ["02", "DD"],
+    ["03", "hh"], ["04", "mm"], ["05", "ss"], ["_2", "D"], ["PM", "A"], ["pm", "a"],
+    ["1", "M"], ["2", "D"], ["3", "h"], ["4", "m"], ["5", "s"]];
+  const HUMAN_TO_GO = [["YYYY", "2006"], ["YY", "06"], ["MMMM", "January"], ["MMM", "Jan"], ["MM", "01"], ["M", "1"],
+    ["dddd", "Monday"], ["ddd", "Mon"], ["DD", "02"], ["D", "2"], ["HH", "15"], ["hh", "03"], ["h", "3"],
+    ["mm", "04"], ["m", "4"], ["ss", "05"], ["s", "5"], ["A", "PM"], ["a", "pm"], ["Z", "Z07:00"]];
+  const convertLayout = (str, table) => {
+    let out = "";
+    for (let i = 0; i < str.length;) {
+      const hit = table.find(([from]) => str.startsWith(from, i));
+      out += hit ? hit[1] : str[i];
+      i += hit ? hit[0].length : 1;
+    }
+    return out;
+  };
+  const goLayoutToHuman = (layout) => convertLayout(layout || "", GO_TO_HUMAN);
+  const humanToGoLayout = (fmt) => (!fmt || fmt.includes("2006") ? fmt : convertLayout(fmt, HUMAN_TO_GO));
+
+  function mappingRowHTML(col, prevRole) {
     const roles = ["date","description","amount","amount_in","amount_out","currency","balance","type_hint","memo","source","destination","ignore"];
+    const role = col.role || "ignore";
     const opts = roles.map((r) =>
-      `<option value="${r}"${(col.role || "ignore") === r ? " selected" : ""}>${r.replace(/_/g, " ")}</option>`).join("");
-    return `<tr data-source="${esc(col.source)}"><td>${esc(col.source)}</td><td><select class="field select" style="min-width:150px">${opts}</select></td></tr>`;
+      `<option value="${r}"${role === r ? " selected" : ""}>${r.replace(/_/g, " ")}</option>`).join("");
+    const changed = prevRole !== undefined && prevRole !== role;
+    return `<tr data-source="${esc(col.source)}"${changed ? ' class="mapping-changed"' : ""}><td>${esc(col.source)}</td>
+      <td><select class="field select" style="min-width:150px">${opts}</select>
+      ${changed ? `<span class="badge badge-transfer" title="Was “${esc((prevRole || "ignore").replace(/_/g, " "))}”">AI changed</span>` : ""}</td></tr>`;
   }
 
-  const renderBatch = (b) => {
+  const renderBatch = (b, prev) => {
     if (b.status === "failed") {
       const why = b.parse_error || "The file could not be read.";
       const kind = (b.mime || "").toLowerCase();
       const pdfHint = kind.includes("pdf")
         ? '<p class="login-error" style="margin-top:8px">Scanned PDFs have no text layer — the optional AI vision path (Settings → AI) can read them, or export a CSV from your bank.</p>'
         : "";
-      flowBox.innerHTML = `
+      openFlow(`
         <div class="panel category-form">
           <h3 class="category-form-title">Import failed</h3>
           <p class="login-error">${esc(why)}</p>
           ${pdfHint}
           <p class="login-error" style="color:var(--muted)">Nothing was imported, and this attempt does not appear in your history.</p>
-          <button class="btn btn-primary" id="importRetry">Try another file</button>
-        </div>`;
-      const retry = document.getElementById("importRetry");
-      if (retry) retry.addEventListener("click", () => location.reload());
+          <button class="btn btn-primary" type="button" data-close-flow>Try another file</button>
+        </div>`);
       return;
     }
     if (b.status === "awaiting_review") {
-      loadReview(b.id);
+      openReview(b.id, true);
       return;
     }
-    // awaiting_schema: show the detected schema + sample + mapping editor.
     const d = b.detection || {};
+    const aiProposal = !!d.ai_proposed;
+    const prevRoles = {};
+    if (aiProposal && prev) (prev.columns || []).forEach((c) => { prevRoles[c.source] = c.role || "ignore"; });
     const sheets = (d.sheets || []).map((s) => `<option value="${esc(s)}"${s === d.sheet ? " selected" : ""}>${esc(s)}</option>`).join("");
-    const cols = (d.columns || []).map((c) => mappingRowHTML(c)).join("");
-    const sample = (d.sample || []).slice(0, 4).map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("");
-    flowBox.innerHTML = `
+    const cols = (d.columns || []).map((c) => mappingRowHTML(c, aiProposal && prev ? (prevRoles[c.source] || "ignore") : undefined)).join("");
+    const nChanged = aiProposal && prev ? (d.columns || []).filter((c) => (prevRoles[c.source] || "ignore") !== (c.role || "ignore")).length : 0;
+    const sampleHeader = (d.sample && d.sample[0]) || [];
+    const sampleBody = (d.sample || []).slice(1, 5);
+    const headerHTML = sampleHeader.map((c) => `<th>${esc(c)}</th>`).join("");
+    const sample = sampleBody.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("");
+    const title = d.matched_schema ? `Matched saved schema “${esc(d.matched_schema)}”`
+      : aiProposal ? `AI proposal${d.proposed_name ? `: ${esc(d.proposed_name)}` : ""}`
+      : "Detected schema (local)";
+    const dateColIdx = sampleHeader.findIndex((h) => {
+      const col = (d.columns || []).find((c) => c.source === h);
+      return col && col.role === "date";
+    });
+    let dateSample = "";
+    if (dateColIdx >= 0) {
+      for (const row of sampleBody) {
+        if (row[dateColIdx]) { dateSample = row[dateColIdx]; break; }
+      }
+    }
+    const intro = aiProposal
+      ? `<div class="ai-review-banner">
+          <strong>Review the AI's mapping before continuing.</strong>
+          ${prev ? (nChanged ? `It changed ${nChanged} column role${nChanged === 1 ? "" : "s"} (highlighted).` : "It agreed with the existing roles.") : ""}
+          Nothing is parsed or imported until you accept — fix any role first if it looks wrong.
+        </div>`
+      : `<p class="muted">Check the column roles below. If they look wrong, fix them inline or ask the AI to suggest a mapping (uses tokens).</p>`;
+    openFlow(`
       <div class="panel category-form">
-        <h3 class="category-form-title">${d.matched_schema ? "Matched saved schema “" + esc(d.matched_schema) + "”" : "Detected schema"}${d.confidence ? ` <span class="schema-conf">· ${Math.round(d.confidence * 100)}% match</span>` : ""}</h3>
+        <h3 class="category-form-title">${title}${d.confidence ? ` <span class="schema-conf">· ${Math.round(d.confidence * 100)}% ${aiProposal ? "confidence" : "match"}</span>` : ""}</h3>
         ${b.parse_error ? `<p class="login-error">${esc(b.parse_error)}</p>` : ""}
+        ${intro}
         <div class="tx-table-wrap" style="overflow-x:auto">
         <table class="tx-table"><thead><tr><th>Column</th><th>Role</th></tr></thead>
         <tbody id="mappingRows">${cols}</tbody></table></div>
         <div class="field-row" style="margin-top:10px">
-          <label>Date format</label>
-          <input class="field" id="mapDateFormat" value="${esc(d.date_format || "")}" placeholder="e.g. 02/01/2006 (auto-detected)" />
+          <label>Date format
+            <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button>
+          </label>
+          <input class="field" id="mapDateFormat" value="${esc(goLayoutToHuman(d.date_format))}" placeholder="leave blank to auto-detect, or e.g. DD/MM/YYYY" />
+        </div>
+        <div class="date-preview muted" id="datePreview" data-sample="${esc(dateSample)}">${dateSample ? "Checking date format…" : "No date column detected yet — set a column's role to “date”."}</div>
+        <div id="dateInfoPopover" class="info-popover" hidden>
+          <strong>How date formats work</strong>
+          <p class="muted">Leave the field blank to let Glowworm auto-detect from ~15 common layouts.</p>
+          <p class="muted">To pin a format, write it with these codes — anything else (<code>/</code>, <code>-</code>, spaces) must appear exactly as written:</p>
+          <p class="muted"><code>DD</code> day 02 · <code>D</code> day 2 · <code>MM</code> month 06 · <code>MMM</code> Jun · <code>MMMM</code> June · <code>YYYY</code> 2026 · <code>YY</code> 26 · <code>HH</code> hour 0–23 · <code>hh</code> hour 1–12 · <code>mm</code> minutes · <code>ss</code> seconds · <code>A</code> AM/PM</p>
+          <p class="muted">Click a format to use it:</p>
+          <ul class="date-format-list">
+            <li><button type="button" data-fmt="DD/MM/YYYY">DD/MM/YYYY</button> — UK, e.g. 02/06/2026</li>
+            <li><button type="button" data-fmt="MM/DD/YYYY">MM/DD/YYYY</button> — US, e.g. 06/02/2026</li>
+            <li><button type="button" data-fmt="YYYY-MM-DD">YYYY-MM-DD</button> — ISO, e.g. 2026-06-02</li>
+            <li><button type="button" data-fmt="D MMM YYYY">D MMM YYYY</button> — e.g. 2 Jun 2026</li>
+            <li><button type="button" data-fmt="D MMMM YYYY">D MMMM YYYY</button> — e.g. 2 June 2026</li>
+            <li><button type="button" data-fmt="YYYY-MM-DD HH:mm:ss">YYYY-MM-DD HH:mm:ss</button> — ISO with time</li>
+            <li><button type="button" data-fmt="DD/MM/YYYY HH:mm">DD/MM/YYYY HH:mm</button> — UK with time</li>
+          </ul>
         </div>
         ${sheets ? `<div class="field-row"><label>Sheet</label><select class="field select" id="mapSheet">${sheets}</select></div>` : ""}
-        <div class="section-head"><h2>Sample rows</h2></div>
-        <table class="tx-table"><tbody>${sample}</tbody></table>
-        <div class="field-row" style="margin-top:12px">
-          <label>Import into</label>
-          <select class="field select" id="reviewAccount">
-            ${(window.__IMPORT_ACCOUNTS__ || []).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("")}
-          </select>
-        </div>
+        <div class="section-head"><h2>Sample rows <span class="muted" style="font-weight:normal">(raw text from the file)</span></h2></div>
+        <div style="overflow-x:auto"><table class="tx-table"><thead><tr>${headerHTML}</tr></thead><tbody>${sample}</tbody></table></div>
         <div class="category-form-actions">
+          ${aiProposal
+            ? (prev ? '<button class="btn btn-ghost" id="mapDiscardAI" type="button">Discard AI proposal</button>' : "")
+            : '<button class="btn btn-ghost" id="mapAI" type="button">Ask AI to detect</button>'}
           <span class="spacer"></span>
-          <button class="btn btn-ghost" id="mapCancel">Cancel</button>
-          <button class="btn btn-primary" id="mapApply">Re-parse &amp; review</button>
+          <button class="btn btn-ghost" id="mapCancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="mapApply" type="button">${aiProposal ? "Accept &amp; continue" : "Parse &amp; continue"}</button>
         </div>
-      </div>`;
-    document.getElementById("mapCancel").addEventListener("click", () => { flowBox.hidden = true; flowBox.innerHTML = ""; });
-    document.getElementById("mapApply").addEventListener("click", () => {
+      </div>`);
+    document.getElementById("mapCancel").addEventListener("click", closeFlow);
+    document.getElementById("mapDiscardAI")?.addEventListener("click", () => {
+      renderBatch(Object.assign({}, b, { detection: prev, parse_error: null }));
+      toast("AI proposal discarded");
+    });
+
+    const infoBtn = document.getElementById("dateInfoBtn");
+    const infoPop = document.getElementById("dateInfoPopover");
+    infoBtn?.addEventListener("click", () => { infoPop.hidden = !infoPop.hidden; });
+    infoPop?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-fmt]");
+      if (!btn) return;
+      document.getElementById("mapDateFormat").value = btn.dataset.fmt;
+      refreshDatePreview();
+      infoPop.hidden = true;
+    });
+
+    const previewEl = document.getElementById("datePreview");
+    const dateInput = document.getElementById("mapDateFormat");
+    let previewToken = 0;
+    function refreshDatePreview() {
+      const sample = previewEl?.dataset.sample || "";
+      if (!sample) return;
+      const fmt = dateInput.value.trim();
+      const myToken = ++previewToken;
+      previewEl.textContent = "Checking date format…";
+      fetch("/api/v1/imports/preview-date", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ sample, format: humanToGoLayout(fmt) }),
+      }).then((r) => r.json()).then((body) => {
+        if (myToken !== previewToken) return;
+        if (!body.iso) {
+          previewEl.innerHTML = `<span class="date-preview-fail">Couldn't read “${esc(sample)}”${fmt ? ` as ${esc(fmt)}` : ""} — pick a format from the “i” menu${fmt ? " or clear the field to auto-detect" : ""}.</span>`;
+          return;
+        }
+        const detected = esc(goLayoutToHuman(body.layout));
+        if (fmt && body.layout !== humanToGoLayout(fmt)) {
+          // The parser falls back to auto-detection when a pinned format
+          // doesn't match, so don't imply the pin worked.
+          previewEl.innerHTML = `<span class="date-preview-fail">${esc(fmt)} doesn't match “${esc(sample)}”.</span>
+            <span class="muted">Auto-detection would read it as ${esc(humanDate(body.iso))} (${detected}) — fix the format or clear it.</span>`;
+          return;
+        }
+        const layoutNote = fmt ? "" : ` <span class="muted">· detected format ${detected}</span>`;
+        previewEl.innerHTML = `<span class="date-preview-ok">Reads “${esc(sample)}” as ${esc(humanDate(body.iso))}</span>${layoutNote}`;
+      }).catch(() => {
+        if (myToken !== previewToken) return;
+        previewEl.textContent = "Preview unavailable";
+      });
+    }
+    dateInput?.addEventListener("input", () => {
+      clearTimeout(dateInput._t);
+      dateInput._t = setTimeout(refreshDatePreview, 250);
+    });
+    refreshDatePreview();
+
+    document.getElementById("mapAI")?.addEventListener("click", (e) => {
+      e.currentTarget.disabled = true;
+      const ncols = (d.columns || []).length;
+      const nrows = Math.max(0, (d.sample || []).length - 1);
+      const panel = document.createElement("div");
+      panel.className = "ai-progress panel";
+      panel.innerHTML = `
+        <div class="ai-progress-head"><span class="spinner"></span> Asking the AI to detect your schema</div>
+        <ul class="ai-progress-steps">
+          <li id="aiStep0" class="active">Preparing ${ncols} column${ncols === 1 ? "" : "s"} and ${nrows} sample row${nrows === 1 ? "" : "s"}…</li>
+          <li id="aiStep1">Waiting for the model to respond…</li>
+          <li id="aiStep2">Validating the proposed mapping…</li>
+        </ul>
+        <div class="muted" id="aiElapsed">Elapsed: 0.0s</div>`;
+      flowBox.querySelector(".category-form").appendChild(panel);
+      const t0 = Date.now();
+      const tick = setInterval(() => {
+        const dt = (Date.now() - t0) / 1000;
+        panel.querySelector("#aiElapsed").textContent = `Elapsed: ${dt.toFixed(1)}s`;
+        if (dt > 1.5) panel.querySelector("#aiStep0").classList.remove("active");
+        if (dt > 1.5) panel.querySelector("#aiStep1").classList.add("active");
+      }, 100);
+      const fail = (msg) => {
+        clearInterval(tick);
+        panel.querySelector(".ai-progress-head").innerHTML = `<strong>AI detection failed</strong>`;
+        toast(msg || "AI detection failed");
+        setTimeout(() => panel.remove(), 1200);
+        const btn = document.getElementById("mapAI");
+        if (btn) btn.disabled = false;
+      };
+      fetch(`/api/v1/imports/${b.id}/schema/ai-detect`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+      }).then(async (r) => {
+        panel.querySelector("#aiStep1").classList.remove("active");
+        panel.querySelector("#aiStep2").classList.add("active");
+        const nb = await r.json().catch(() => ({}));
+        if (!r.ok) { fail(errMessage(nb, r.status)); return; }
+        clearInterval(tick);
+        panel.querySelector(".ai-progress-head").innerHTML = `<strong>Got a proposal · loading it for your review…</strong>`;
+        setTimeout(() => renderBatch(nb, d), 350);
+      }).catch(() => fail());
+    });
+    document.getElementById("mapApply").addEventListener("click", (e) => {
+      const btn = e.currentTarget;
       const rows = Array.from(document.querySelectorAll("#mappingRows tr")).map((tr) => ({
         source: tr.dataset.source,
         role: tr.querySelector("select").value,
-        date_format: document.getElementById("mapDateFormat").value.trim(),
+        date_format: humanToGoLayout(document.getElementById("mapDateFormat").value.trim()),
       }));
       const m = {
         kind: d.kind || "csv", has_header: d.has_header !== false, delimiter: d.delimiter || ",",
-        columns: rows, date_format: document.getElementById("mapDateFormat").value.trim(),
+        columns: rows, date_format: humanToGoLayout(document.getElementById("mapDateFormat").value.trim()),
         sheet: document.getElementById("mapSheet") ? document.getElementById("mapSheet").value : undefined,
         confidence: d.confidence || 0.5,
       };
+      btn.disabled = true;
       fetch(`/api/v1/imports/${b.id}/schema`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        headers: jsonHeaders(),
         body: JSON.stringify({ mapping: m }),
       }).then(async (r) => {
         const nb = await r.json().catch(() => ({}));
-        if (!r.ok) { toast((nb.error && nb.error.message) || "Re-parse failed"); return; }
+        btn.disabled = false;
+        if (!r.ok) { toast(errMessage(nb, r.status)); return; }
         renderBatch(nb);
-      });
+      }).catch(() => { btn.disabled = false; toast("Re-parse failed"); });
     });
   };
 
-  const loadReview = (batchID) => {
-    flowBox.innerHTML = `<div class="thinking-card panel"><div class="head"><span class="spinner"></span> Loading review…</div></div>`;
-    fetch(`/api/v1/imports/${batchID}/review`).then((r) => r.json()).then((body) => {
-      const rows = body.rows || [];
-      const needsReview = body.needs_review || 0;
-      const confident = body.confident || 0;
-      const duplicates = body.duplicates || 0;
-      const rowHTML = rows.map((row) => {
-        const status = row.duplicate_of ? "dup" : (row.needs_review ? "review" : "ok");
-        const badge = status === "dup" ? `<span class="badge badge-stale">duplicate</span>`
-          : status === "review" ? `<span class="badge badge-needsreview">needs review</span>`
-          : `<span class="badge badge-income">${esc(row.category_source || "")}</span>`;
-        const catName = row.category_name || "Uncategorised";
-        return `<tr data-row-id="${esc(row.id)}" data-status="${status}">
-          <td class="cell-sub">${esc(row.date)}</td>
-          <td><div class="cell-merchant">${esc(row.description)} ${badge}</div></td>
-          <td class="num tx-amount ${row.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(row.amount_minor, row.currency || "GBP")}</td>
-          <td>
-            <select class="field select" data-cat-select style="min-width:150px">
-              <option value="">Uncategorised</option>
-              ${(window.__IMPORT_CATS__ || []).map((c) => `<option value="${esc(c.id)}"${c.id === row.category_id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
-            </select>
-          </td>
-          <td><button class="btn btn-ghost btn-xs" data-apply-similar>Apply to similar</button></td>
-        </tr>`;
-      }).join("");
-      flowBox.innerHTML = `
-        <div class="panel category-form">
-          <h3 class="category-form-title">Review import</h3>
-          <p class="muted">${rows.length} rows · ${confident} confident · ${needsReview} need review · ${duplicates} duplicates</p>
-          <div style="overflow-x:auto"><table class="tx-table">
-            <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Category</th><th></th></tr></thead>
-            <tbody id="reviewRows">${rowHTML}</tbody>
-          </table></div>
-          <div class="field-row" style="margin-top:12px">
-            <label>Import into</label>
-            <select class="field select" id="reviewAccount">
-              ${(window.__IMPORT_ACCOUNTS__ || []).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("")}
-            </select>
-          </div>
-          <div class="category-form-actions">
-            <button class="btn btn-ghost" id="reviewAccept" type="button">Accept ${confident} confident</button>
-            <span class="spacer"></span>
-            <button class="btn btn-ghost" id="reviewCancel" type="button">Cancel</button>
-            <button class="btn btn-primary" id="reviewConfirm" type="button">Import ${rows.length - duplicates} transactions</button>
-          </div>
-        </div>`;
-      document.getElementById("reviewCancel").addEventListener("click", () => {
-        fetch(`/api/v1/imports/${batchID}/cancel`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } });
-        flowBox.hidden = true; flowBox.innerHTML = "";
-      });
-      const acceptBtn = document.getElementById("reviewAccept");
-      if (acceptBtn && confident > 0) {
-        acceptBtn.addEventListener("click", () => {
-          fetch(`/api/v1/imports/${batchID}/review`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-            body: JSON.stringify({ accept_confident: true }),
-          }).then(() => loadReview(batchID));
-        });
-      }
-      // Per-row category change + apply-to-similar.
-      document.getElementById("reviewRows").addEventListener("change", (e) => {
-        const sel = e.target.closest("[data-cat-select]");
-        if (!sel) return;
-        const tr = sel.closest("tr");
-        const rowID = tr.dataset.rowId;
-        const catID = sel.value || null;
-        const desc = tr.querySelector(".cell-merchant").textContent.trim();
-        const similar = Array.from(document.querySelectorAll("#reviewRows tr")).filter((r2) => {
-          const r2desc = r2.querySelector(".cell-merchant").textContent.trim();
-          return r2 !== tr && normaliseForSimilar(r2desc) === normaliseForSimilar(desc);
-        });
-        const patch = { set_category: { row_ids: [rowID, ...similar.map((r2) => r2.dataset.rowId)], category_id: catID } };
-        fetch(`/api/v1/imports/${batchID}/review`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-          body: JSON.stringify(patch),
-        }).then(() => toast(similar.length ? `Applied to ${similar.length + 1} rows` : "Category set"));
-      });
-      function normaliseForSimilar(s) {
-        return s.toLowerCase().replace(/[0-9]/g, "#").replace(/\s+/g, " ").trim();
-      }
-      const d2 = (row) => row.querySelector(".cell-merchant").textContent.trim();
-      document.getElementById("reviewRows").addEventListener("click", (e) => {
-        const btn = e.target.closest("[data-apply-similar]");
-        if (!btn) return;
-        const tr = btn.closest("tr");
-        const sel = tr.querySelector("[data-cat-select]");
-        const catID = sel.value || null;
-        const desc = d2(tr);
-        const similar = Array.from(document.querySelectorAll("#reviewRows tr")).filter((r2) =>
-          r2 !== tr && normaliseForSimilar(d2(r2)) === normaliseForSimilar(desc));
-        if (!similar.length) { toast("No similar rows found"); return; }
-        const apply = () => {
-          const patch = { set_category: { row_ids: [tr.dataset.rowId, ...similar.map((r) => r.dataset.rowId)], category_id: catID } };
-          fetch(`/api/v1/imports/${batchID}/review`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-            body: JSON.stringify(patch),
-          }).then(async (r) => {
-            if (!r.ok) {
-              const b = await r.json().catch(() => ({}));
-              toast((b.error && b.error.message) || "Could not apply");
-              return;
-            }
-            similar.forEach((r2) => { const s2 = r2.querySelector("[data-cat-select]"); if (s2) s2.value = catID || ""; });
-            toast(`Category applied to ${similar.length + 1} rows`);
-          });
+
+  const catsFor = (type) => (window.__IMPORT_CATS__ || []).filter((c) =>
+    c.type === "internal" || (type === "income" ? c.type === "income" : c.type === "spend"));
+  const pct = (f) => `${Math.round((f || 0) * 100)}%`;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  function sourceBadge(g) {
+    if (g.source === "user") return '<span class="badge badge-income">You</span>';
+    if (g.source === "ai") return `<span class="badge badge-transfer" title="AI confidence">AI · ${pct(g.confidence)}</span>`;
+    if (g.source === "local") {
+      return g.confidence >= 0.999
+        ? '<span class="badge badge-soft" title="Matched one of your rules">Rule</span>'
+        : `<span class="badge badge-soft" title="Local classifier confidence">Classifier · ${pct(g.confidence)}</span>`;
+    }
+    return "";
+  }
+
+  function buildReview(body) {
+    const R = {
+      batchID: body.batch.id, batch: body.batch, aiAvailable: !!body.ai_available,
+      groups: [], byKey: new Map(), dups: [], running: false, finished: false, aiFailed: false,
+    };
+    (body.rows || []).forEach((row) => {
+      if (row.duplicate_of) { R.dups.push(row); return; }
+      let g = R.byKey.get(row.group_key);
+      if (!g) {
+        g = {
+          id: R.groups.length, key: row.group_key, type: row.type, description: row.description,
+          destination: row.destination || "", currency: row.currency || "GBP", rows: [], total: 0, firstLine: row.line_no,
+          categoryId: null, categoryName: "", source: "none", confidence: 0, suggestion: null, note: "",
         };
-        if (similar.length > 4) {
-          showConfirm(`Apply to ${similar.length} similar rows?`, "Rows with a matching description (ignoring digits) will receive the same category.", "Apply", apply);
-        } else {
-          apply();
-        }
-      });
-      document.getElementById("reviewConfirm").addEventListener("click", () => {
-        const accountID = document.getElementById("reviewAccount").value;
-        if (!accountID) { toast("Choose the account to import into"); return; }
-        fetch(`/api/v1/imports/${batchID}/confirm`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-          body: JSON.stringify({ account_id: accountID }),
-        }).then(async (r) => {
-          const b = await r.json().catch(() => ({}));
-          if (!r.ok) {
-            toast(`Import failed: ${(b.error && b.error.message) || `server error ${r.status}`}`);
-            return;
-          }
-          flowBox.innerHTML = `<div class="thinking-card panel"><div class="head">
-            <svg class="icon" style="color:var(--income)"><use href="#i-check"/></svg>
-            Imported ${b.rows || 0} transactions — see the <a href="/transactions">transactions</a> and <a href="/history?mode=audit">audit log</a>.</div></div>`;
-          toast("Import complete");
-        });
-      });
+        R.byKey.set(row.group_key, g);
+        R.groups.push(g);
+      }
+      g.rows.push(row);
+      g.total += row.amount_minor;
+      if (g.rows.length === 1 || row.category_source === "user") {
+        g.categoryId = !row.needs_review && row.category_id ? row.category_id : null;
+        g.categoryName = row.category_name || "";
+        g.source = row.category_source || "none";
+        g.confidence = row.category_confidence || 0;
+        g.suggestion = row.suggested_category_id
+          ? { id: row.suggested_category_id, name: row.suggested_category_name, conf: row.suggested_confidence || 0 } : null;
+      }
     });
+    R.groups.sort((a, b) => (b.rows.length - a.rows.length) || (a.firstLine - b.firstLine));
+    R.groups.forEach((g, i) => { g.order = i; g.state = g.categoryId ? "done" : "review"; });
+    R.byId = new Map(R.groups.map((g) => [String(g.id), g]));
+    return R;
+  }
+
+  function groupHTML(g, R) {
+    const n = g.rows.length;
+    const dates = g.rows.map((r) => r.date).sort();
+    const when = n > 1 && dates[0] !== dates[n - 1] ? `${dates[0]} – ${dates[n - 1]}` : dates[0];
+    const opts = catsFor(g.type);
+    if (g.categoryId && !opts.some((c) => c.id === g.categoryId)) {
+      opts.push({ id: g.categoryId, name: g.categoryName || "Current category" });
+    }
+    const select = `<select class="field select" data-cat aria-label="Category for ${esc(g.description)}">
+        <option value="">${g.state === "done" ? "Move back to review" : "Choose category…"}</option>
+        ${opts.map((c) => `<option value="${esc(c.id)}"${c.id === g.categoryId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
+      </select>`;
+    let status = "";
+    if (g.state === "pending") {
+      status = `<span class="review-checking"><span class="spinner"></span>${R.phase === "ai" ? "Asking the AI…" : "Checking…"}</span>`;
+    } else if (g.state === "review") {
+      if (g.suggestion) {
+        status = `<button type="button" class="review-suggest" data-accept title="Accept the AI's suggestion">
+          AI suggests <strong>${esc(g.suggestion.name)}</strong> · ${pct(g.suggestion.conf)} <svg class="icon"><use href="#i-check"/></svg></button>`;
+      } else if (g.note) {
+        status = `<span class="review-note">${esc(g.note)}</span>`;
+      }
+    } else {
+      status = sourceBadge(g);
+    }
+    const rowsTable = n > 1 ? `<details class="review-group-rows"><summary>Show ${n} transactions</summary><table>
+        ${g.rows.map((r) => `<tr><td>${esc(r.date)}</td><td class="num tx-amount ${r.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(r.amount_minor, r.currency || g.currency)}</td></tr>`).join("")}
+      </table></details>` : "";
+    return `<div class="review-group" data-group="${g.id}" data-order="${g.order}" data-state="${g.state}">
+        <div class="review-group-main">
+          <div class="review-group-desc" title="${esc(g.description)}">${esc(g.description)}${n > 1 ? ` <span class="badge badge-soft">×${n}</span>` : ""}</div>
+          <div class="review-group-sub">${g.destination ? `→ ${esc(g.destination)} · ` : ""}${esc(when)}</div>
+        </div>
+        <div class="tx-amount ${g.total >= 0 ? "pos" : "neg"}" title="${n > 1 ? "Total of the group" : ""}">${fmtMoneySigned(g.total, g.currency)}</div>
+        <div class="review-group-cat">${select}${status}</div>
+        ${rowsTable}
+      </div>`;
+  }
+
+  const openReview = (batchID, run) => {
+    openFlow(`<div class="thinking-card panel"><div class="head"><span class="spinner"></span> Loading transactions…</div></div>`);
+    fetch(`/api/v1/imports/${batchID}/review`).then(async (r) => {
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) { flowMessage(`Couldn't load the review: ${esc(errMessage(body, r.status))}`, true); return; }
+      const R = buildReview(body);
+      if (run) R.groups.forEach((g) => { if (g.source !== "user") { g.state = "pending"; g.suggestion = null; } });
+      renderReview(R);
+      if (run && R.groups.length) {
+        startPipeline(R, `/api/v1/imports/${batchID}/categorise/stream`, "full");
+        return;
+      }
+      setStep("local", "done", "Done");
+      setStep("ai", R.aiAvailable ? "done" : "skipped", R.aiAvailable ? "Done" : "Not configured — add a provider in Settings → AI");
+      finishPipeline(R);
+    }).catch(() => flowMessage("Couldn't load the review — is the server running?", true));
   };
+
+  function renderReview(R) {
+    const b = R.batch;
+    const d = b.detection || null;
+    const kind = d && d.kind ? d.kind : "";
+    const nRows = R.groups.reduce((s, g) => s + g.rows.length, 0);
+    const accounts = window.__IMPORT_ACCOUNTS__ || [];
+    const defaultAcc = b.account_id || document.getElementById("importAccount")?.value || (accounts[0] && accounts[0].id) || "";
+    const remembersSchema = kind === "csv" || kind === "xlsx";
+    const dupRows = R.dups.map((row) => `<tr data-row-id="${esc(row.id)}">
+        <td class="cell-sub">${esc(row.date)}</td><td>${esc(row.description)}</td>
+        <td class="num tx-amount ${row.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(row.amount_minor, row.currency || "GBP")}</td>
+        <td><button class="btn btn-ghost btn-xs" type="button" data-force>Import anyway</button></td></tr>`).join("");
+    openFlow(`
+      <div class="panel import-review" id="importReview">
+        <div class="import-review-head">
+          <div>
+            <h3 class="category-form-title">Review categories</h3>
+            <p class="muted">${esc(b.filename || "")} · ${plural(nRows, "transaction")} in ${plural(R.groups.length, "group")}${R.dups.length ? ` · ${plural(R.dups.length, "duplicate")} skipped` : ""}${b.schema_name ? ` · recognised format “${esc(b.schema_name)}”` : ""}</p>
+          </div>
+        </div>
+        <ol class="cat-pipeline">
+          <li data-step="local"><span class="step-num">1</span><div><strong>Quick match</strong><span class="step-note">Your rules and trained classifier</span></div></li>
+          <li data-step="ai"><span class="step-num">2</span><div><strong>AI</strong><span class="step-note">${R.aiAvailable ? "Categorises what's left, with a confidence score" : "Not configured — add a provider in Settings → AI"}</span></div></li>
+          <li data-step="you"><span class="step-num">3</span><div><strong>Your review</strong><span class="step-note">Anything the AI wasn't sure about</span></div></li>
+        </ol>
+        <div class="progress-bar" id="catProgress"><div class="progress-fill" id="catBar" style="width:0%"></div></div>
+        <div class="review-cols">
+          <section class="review-col review-col-todo" aria-label="Needs your review">
+            <header class="review-col-head"><h4>Needs your review</h4><span class="count" id="todoCount"></span>
+              <button class="btn btn-ghost btn-xs" type="button" id="acceptAllSuggestions" hidden>Accept all AI suggestions</button></header>
+            <div class="review-list" id="todoList"></div>
+            <div class="review-empty" id="todoEmpty" hidden>Nothing left to review.</div>
+          </section>
+          <section class="review-col review-col-done" aria-label="Categorised">
+            <header class="review-col-head"><h4>Categorised</h4><span class="count" id="doneCount"></span></header>
+            <div class="review-list" id="doneList"></div>
+            <div class="review-empty" id="doneEmpty" hidden>Categorised transactions will appear here.</div>
+          </section>
+        </div>
+        ${R.dups.length ? `<details class="review-dups"><summary>${plural(R.dups.length, "duplicate")} already imported — skipped</summary>
+          <div style="overflow-x:auto"><table class="tx-table"><tbody>${dupRows}</tbody></table></div></details>` : ""}
+        <div class="review-footer">
+          <div class="field-row">
+            <label for="reviewAccount">Import into</label>
+            <select class="field select" id="reviewAccount">
+              ${accounts.map((a) => `<option value="${esc(a.id)}"${a.id === defaultAcc ? " selected" : ""}>${esc(a.name)}</option>`).join("")}
+            </select>
+          </div>
+          ${remembersSchema ? `<div class="field-row review-schema-name">
+            <label for="reviewSchemaName">Remember this format as</label>
+            <input class="field" id="reviewSchemaName" maxlength="80" />
+          </div>` : ""}
+          <span class="spacer"></span>
+          <button class="btn btn-ghost" id="reviewCancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="reviewConfirm" type="button">Finalise import</button>
+        </div>
+      </div>`);
+
+    const todoList = document.getElementById("todoList");
+    const doneList = document.getElementById("doneList");
+    R.el = { todoList, doneList, root: document.getElementById("importReview") };
+    const frag = { todo: document.createDocumentFragment(), done: document.createDocumentFragment() };
+    R.groups.forEach((g) => {
+      const tpl = document.createElement("template");
+      tpl.innerHTML = groupHTML(g, R).trim();
+      g.el = tpl.content.firstElementChild;
+      (g.state === "done" ? frag.done : frag.todo).appendChild(g.el);
+    });
+    todoList.appendChild(frag.todo);
+    doneList.appendChild(frag.done);
+    updateCounts(R);
+
+    const nameInput = document.getElementById("reviewSchemaName");
+    const accSel = document.getElementById("reviewAccount");
+    const defaultName = () => {
+      if (b.schema_name) return b.schema_name;
+      if (d && d.proposed_name) return d.proposed_name;
+      const acc = accounts.find((a) => a.id === accSel.value);
+      return acc ? `${acc.name} ${kind.toUpperCase()}` : (b.filename || "");
+    };
+    if (nameInput) {
+      nameInput.value = defaultName();
+      nameInput.addEventListener("input", () => { nameInput.dataset.touched = "1"; });
+      accSel.addEventListener("change", () => { if (!nameInput.dataset.touched) nameInput.value = defaultName(); });
+    }
+
+    R.el.root.addEventListener("change", (e) => {
+      const sel = e.target.closest("[data-cat]");
+      if (!sel) return;
+      const g = R.byId.get(sel.closest(".review-group").dataset.group);
+      if (g) setGroupCategory(R, g, sel.value || null);
+    });
+    R.el.root.addEventListener("click", (e) => {
+      const accept = e.target.closest("[data-accept]");
+      if (accept) {
+        const g = R.byId.get(accept.closest(".review-group").dataset.group);
+        if (g && g.suggestion) setGroupCategory(R, g, g.suggestion.id, g.suggestion.name);
+        return;
+      }
+      const force = e.target.closest("[data-force]");
+      if (force) {
+        force.disabled = true;
+        patchReview(R, { force_import: [force.closest("tr").dataset.rowId] })
+          .then(() => openReview(R.batchID, false))
+          .catch((err) => { force.disabled = false; toast(err.message); });
+        return;
+      }
+      if (e.target.closest("[data-retry-ai]")) {
+        R.groups.forEach((g) => { if (g.state === "review" && g.source !== "user") { g.state = "pending"; g.note = ""; placeGroup(R, g); } });
+        startPipeline(R, `/api/v1/imports/${R.batchID}/categorise/ai/stream`, "ai");
+      }
+    });
+    document.getElementById("acceptAllSuggestions").addEventListener("click", () => {
+      const targets = R.groups.filter((g) => g.state === "review" && g.suggestion);
+      patchReview(R, { accept_suggestions: true }).then(() => {
+        targets.forEach((g) => {
+          Object.assign(g, { state: "done", categoryId: g.suggestion.id, categoryName: g.suggestion.name, source: "ai", confidence: g.suggestion.conf, suggestion: null });
+          placeGroup(R, g);
+        });
+        updateCounts(R);
+        toast(`Accepted ${plural(targets.length, "suggestion")}`);
+      }).catch((err) => toast(err.message));
+    });
+    document.getElementById("reviewCancel").addEventListener("click", () => {
+      if (R.es) R.es.close();
+      fetch(`/api/v1/imports/${R.batchID}/cancel`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() } });
+      closeFlow();
+    });
+    document.getElementById("reviewConfirm").addEventListener("click", () => {
+      const left = R.groups.filter((g) => g.state !== "done").reduce((s, g) => s + g.rows.length, 0);
+      if (left > 0) {
+        showConfirm(`${plural(left, "transaction")} still ${left === 1 ? "needs" : "need"} a category`,
+          "They'll be imported as Uncategorised — you can categorise them later from Transactions.",
+          "Import anyway", () => confirmImport(R), "primary");
+      } else {
+        confirmImport(R);
+      }
+    });
+  }
+
+  function patchReview(R, patch) {
+    return fetch(`/api/v1/imports/${R.batchID}/review`, {
+      method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(patch),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        throw new Error(errMessage(b, r.status));
+      }
+    });
+  }
+
+  function setGroupCategory(R, g, catID, catName) {
+    const before = { state: g.state, categoryId: g.categoryId, categoryName: g.categoryName, source: g.source, confidence: g.confidence };
+    if (catID) {
+      const c = (window.__IMPORT_CATS__ || []).find((x) => x.id === catID);
+      Object.assign(g, { state: "done", categoryId: catID, categoryName: catName || (c ? c.name : ""), source: "user", confidence: 0 });
+    } else {
+      Object.assign(g, { state: "review", categoryId: null, categoryName: "", source: "none", confidence: 0 });
+    }
+    placeGroup(R, g);
+    updateCounts(R);
+    patchReview(R, { set_category: { row_ids: g.rows.map((r) => r.id), category_id: catID || "" } }).catch((err) => {
+      Object.assign(g, before);
+      placeGroup(R, g);
+      updateCounts(R);
+      toast(`Couldn't save: ${err.message}`);
+    });
+  }
+
+  function placeGroup(R, g) {
+    if (!R.el) return;
+    const wasOpen = g.el && g.el.querySelector("details[open]");
+    const tpl = document.createElement("template");
+    tpl.innerHTML = groupHTML(g, R).trim();
+    const el = tpl.content.firstElementChild;
+    if (wasOpen) el.querySelector("details")?.setAttribute("open", "");
+    const list = g.state === "done" ? R.el.doneList : R.el.todoList;
+    let before = null;
+    for (const child of list.children) {
+      if (child !== g.el && Number(child.dataset.order) > g.order) { before = child; break; }
+    }
+    if (g.el) g.el.remove();
+    list.insertBefore(el, before);
+    g.el = el;
+  }
+
+  function updateCounts(R) {
+    const sum = (gs) => gs.reduce((s, g) => s + g.rows.length, 0);
+    const todo = R.groups.filter((g) => g.state !== "done");
+    const done = R.groups.filter((g) => g.state === "done");
+    const label = (gs) => {
+      const n = sum(gs);
+      return n === gs.length ? plural(n, "transaction") : `${plural(n, "transaction")} · ${plural(gs.length, "group")}`;
+    };
+    document.getElementById("todoCount").textContent = todo.length ? label(todo) : "";
+    document.getElementById("doneCount").textContent = done.length ? label(done) : "";
+    document.getElementById("todoEmpty").hidden = todo.length > 0;
+    document.getElementById("doneEmpty").hidden = done.length > 0;
+    document.getElementById("acceptAllSuggestions").hidden = R.running || !todo.some((g) => g.state === "review" && g.suggestion);
+    const btn = document.getElementById("reviewConfirm");
+    const total = sum(R.groups);
+    btn.disabled = R.running || total === 0;
+    btn.textContent = R.running ? "Categorising…" : `Finalise import · ${plural(total, "transaction")}`;
+  }
+
+  function setStep(name, state, note) {
+    const li = document.querySelector(`.cat-pipeline [data-step="${name}"]`);
+    if (!li) return;
+    li.dataset.state = state;
+    if (note !== undefined) li.querySelector(".step-note").innerHTML = note;
+  }
+  function setBar(fraction) {
+    const bar = document.getElementById("catBar");
+    if (bar) bar.style.width = `${Math.max(0, Math.min(100, Math.round(fraction * 100)))}%`;
+  }
+
+  function startPipeline(R, url, mode) {
+    R.running = true;
+    R.finished = false;
+    R.aiFailed = false;
+    R.phase = mode === "ai" ? "ai" : "local";
+    const localShare = R.aiAvailable ? 0.25 : 1;
+    document.getElementById("catProgress").hidden = false;
+    setBar(mode === "ai" ? localShare : 0);
+    if (mode === "full") setStep("local", "active", "Matching your rules and classifier…");
+    setStep("you", "", "Anything the AI wasn't sure about");
+    updateCounts(R);
+    const es = new EventSource(url);
+    R.es = es;
+    es.onmessage = (ev) => {
+      let p;
+      try { p = JSON.parse(ev.data); } catch { return; }
+      switch (p.phase) {
+        case "group": {
+          const g = R.byKey.get(p.group_key);
+          if (!g || g.source === "user") break;
+          if (p.needs_review) {
+            g.state = R.phase === "local" && R.aiAvailable ? "pending" : "review";
+            g.categoryId = null; g.categoryName = ""; g.source = "none"; g.confidence = 0;
+            g.suggestion = p.suggested_category_id ? { id: p.suggested_category_id, name: p.suggested_category, conf: p.suggested_confidence || 0 } : null;
+            g.note = p.message || "";
+          } else {
+            Object.assign(g, { state: "done", categoryId: p.category_id, categoryName: p.category, source: p.source, confidence: p.confidence || 0, suggestion: null, note: "" });
+          }
+          placeGroup(R, g);
+          if (R.phase === "local" && p.total) setBar(localShare * (p.index / p.total));
+          break;
+        }
+        case "local_done":
+          setStep("local", "done", p.categorised ? `Placed ${plural(p.categorised, "group")}` : "No matches yet — rules grow as you import");
+          setBar(localShare);
+          break;
+        case "ai_start":
+          R.phase = "ai";
+          setStep("ai", "active", `Asking about ${plural(p.total || 0, "group")}${p.batches > 1 ? ` in ${p.batches} batches` : ""}…`);
+          R.groups.forEach((g) => { if (g.state === "pending") placeGroup(R, g); });
+          break;
+        case "ai_progress":
+          setBar(localShare + (1 - localShare) * (p.index / p.total));
+          if (p.total > 1) setStep("ai", "active", `Batch ${p.index} of ${p.total} answered…`);
+          break;
+        case "ai_done":
+          setStep("ai", R.aiFailed ? "failed" : "done", R.aiFailed
+            ? `Stopped early — ${plural(p.categorised || 0, "group")} placed. <button class="link" type="button" data-retry-ai>Retry</button>`
+            : `Placed ${plural(p.categorised || 0, "group")} confidently · ${p.pending || 0} unsure`);
+          if (mode === "ai") finishPipeline(R);
+          break;
+        case "ai_skipped":
+          setStep("ai", "skipped", p.message === "AI is not configured"
+            ? "Not configured — add a provider in Settings → AI" : esc(p.message || "Skipped"));
+          if (mode === "ai") finishPipeline(R);
+          break;
+        case "warning":
+          R.aiFailed = true;
+          toast(p.message || "AI problem");
+          break;
+        case "done":
+          finishPipeline(R);
+          break;
+        case "error":
+          toast(p.message || "Categorisation failed");
+          setStep(R.phase === "ai" ? "ai" : "local", "failed", esc(p.message || "Failed"));
+          finishPipeline(R);
+          break;
+      }
+      updateCounts(R);
+    };
+    es.onerror = () => {
+      es.close(); // never auto-reconnect: that re-runs the pipeline and spends AI tokens again
+      if (!R.finished) {
+        toast("Lost the connection while categorising");
+        finishPipeline(R);
+      }
+    };
+  }
+
+  function finishPipeline(R) {
+    if (R.es) { R.es.close(); R.es = null; }
+    R.running = false;
+    R.finished = true;
+    R.phase = "done";
+    R.groups.forEach((g) => { if (g.state === "pending") { g.state = "review"; placeGroup(R, g); } });
+    const todo = R.groups.filter((g) => g.state !== "done");
+    setStep("you", todo.length ? "active" : "done", todo.length
+      ? `${plural(todo.length, "group")} for you to check`
+      : "Nothing to check — ready to import");
+    setBar(1);
+    const prog = document.getElementById("catProgress");
+    if (prog) setTimeout(() => { if (!R.running) prog.hidden = true; }, 600);
+    updateCounts(R);
+  }
+
+  function confirmImport(R) {
+    const btn = document.getElementById("reviewConfirm");
+    const accountID = document.getElementById("reviewAccount").value;
+    if (!accountID) { toast("Choose the account to import into"); return; }
+    const nameInput = document.getElementById("reviewSchemaName");
+    btn.disabled = true;
+    btn.textContent = "Importing…";
+    fetch(`/api/v1/imports/${R.batchID}/confirm`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ account_id: accountID, schema_name: nameInput ? nameInput.value.trim() : "" }),
+    }).then(async (r) => {
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast(`Import failed: ${errMessage(b, r.status)}`);
+        updateCounts(R);
+        return;
+      }
+      const acc = (window.__IMPORT_ACCOUNTS__ || []).find((a) => a.id === accountID);
+      const imported = R.groups.reduce((s, g) => s + g.rows.length, 0);
+      openFlow(`<div class="thinking-card panel"><div class="head">
+          <svg class="icon" style="color:var(--income)"><use href="#i-check"/></svg>
+          Imported ${plural(imported, "transaction")}${acc ? ` into ${esc(acc.name)}` : ""} — see the <a href="/transactions">transactions</a> and <a href="/history?mode=audit">audit log</a>.</div>
+        ${b.schema_name ? `<p class="muted">Saved the format as “${esc(b.schema_name)}”${acc ? ` for ${esc(acc.name)}` : ""} — next time this file shape skips straight to review.</p>` : ""}
+        <button class="btn btn-ghost btn-xs" type="button" data-close-flow>Import another file</button></div>`);
+      toast("Import complete");
+    }).catch(() => { toast("Import failed: network error"); updateCounts(R); });
+  }
 });
 
 
-/* ---------- Timeline slider (doc 04 §5.7) ---------- */
-/* Initialised on load and re-run whenever the transactions pane is injected
-   by the history mode switcher (the old nodes — and their listeners — die
-   with the replaced innerHTML). */
 function initHistoryTimeline() {
   const slider = document.getElementById("timelineSlider");
   if (!slider) return;
-  // Steps are every day the balance can change (opening balances,
-  // valuations, transactions) plus today — one slider stop per data point.
-  // Months travel with the pane (data-months) so fragment swaps work too.
   let months = [];
   try { months = JSON.parse(slider.dataset.months || "[]"); } catch (e) { months = []; }
   if (!months.length) months = (window.__TIMELINE_MONTHS__ || []);
-  // Full balance series (server-rendered into #timelineChart). Sliced per
-  // slider position so the chart shows only the selected period.
   const chartHost = document.getElementById("timelineChart");
   let fullSeries = null;
   if (chartHost && chartHost.dataset.chartData) {
@@ -2423,7 +2922,6 @@ function initHistoryTimeline() {
     clearTimeout(timer);
     timer = setTimeout(() => render(idx), 80);
   });
-  // Ticks (≤7 evenly spread, prototype logic).
   const ticks = document.getElementById("timelineTicks");
   if (ticks && months.length) {
     const count = Math.min(months.length, 7);
@@ -2452,10 +2950,6 @@ function humanDate(iso) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
 
-/* ---------- History mode switch (doc 04 §5.7) ----------
-   Switching Transactions ⇄ Audit log (and audit filter chips) swaps the pane
-   fragment in place: the page shows a skeleton instantly while /history/pane
-   loads, instead of a slow full-page reload. */
 let historyPaneToken = 0;
 
 function historySkeletonHTML(mode) {
@@ -2474,7 +2968,6 @@ function loadHistoryPane(url, push) {
   const filter = u.searchParams.get("filter") || "all";
   const period = u.searchParams.get("period") || "all";
 
-  // Immediate feedback: segmented state + skeleton while the fragment loads.
   document.querySelectorAll(".history-mode .segmented-item").forEach((a) => {
     const on = a.dataset.historyMode === mode;
     a.classList.toggle("active", on);
@@ -2485,13 +2978,12 @@ function loadHistoryPane(url, push) {
   const token = ++historyPaneToken;
   fetch(`/history/pane?mode=${mode}&filter=${filter}&period=${period}`, { headers: { "X-Requested-With": "fetch" } })
     .then((r) => {
-      // A redirect (e.g. to /setup while not initialised) would otherwise be
-      // injected as pane HTML — treat it as a failure and navigate fully.
+      // A redirect (e.g. to /setup) would otherwise be injected as pane HTML.
       if (!r.ok || r.redirected) throw new Error("pane " + r.status);
       return r.text();
     })
     .then((html) => {
-      if (token !== historyPaneToken) return; // a newer switch superseded this
+      if (token !== historyPaneToken) return;
       host.innerHTML = html;
       if (mode === "audit") {
         if (window.wireAuditActions) window.wireAuditActions(host);
@@ -2500,21 +2992,19 @@ function loadHistoryPane(url, push) {
         if (window.drawChartHosts) drawChartHosts(host);
       }
     })
-    .catch(() => { location.href = u.href; }); // fragment failed — fall back to full navigation
+    .catch(() => { location.href = u.href; });
   if (push) history.pushState({}, "", u.href);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   const view = document.getElementById("view-history");
   if (!view) return;
-  // Segmented tabs + audit filter chips are plain /history? links; intercept.
   view.addEventListener("click", (e) => {
     const a = e.target.closest && e.target.closest('a[href^="/history?"]');
     if (!a) return;
     e.preventDefault();
     loadHistoryPane(a.getAttribute("href"), true);
   });
-  // Back/forward between modes restores the right pane.
   window.addEventListener("popstate", () => {
     if (document.getElementById("historyPaneHost")) loadHistoryPane(location.href, false);
   });

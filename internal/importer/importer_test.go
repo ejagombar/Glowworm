@@ -55,6 +55,37 @@ func TestReadCSVParse(t *testing.T) {
 	}
 }
 
+func TestReadCSVSkipsPreamble(t *testing.T) {
+	data := []byte("Exported from BankX on 02/06/2024\n\n" +
+		"Date,Description,Amount\n" +
+		"02/06/2024,Tesco Express,-42.35\n" +
+		"01/06/2024,\"Acme Ltd — Salary\",2450.00\n")
+	table, delim, err := ReadCSV(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delim != "," {
+		t.Errorf("delimiter = %q, want \",\"", delim)
+	}
+	if len(table) != 3 {
+		t.Fatalf("got %d rows (header + 2), want 3; table = %v", len(table), table)
+	}
+	if table[0][0] != "Date" || table[0][1] != "Description" || table[0][2] != "Amount" {
+		t.Errorf("header row = %v, want [Date Description Amount]", table[0])
+	}
+	m := AutoMapping(KindCSV, table[0], nil)
+	rows, err := ParseRows(m, table, "GBP")
+	if err != nil {
+		t.Fatalf("ParseRows: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("parsed %d rows, want 2", len(rows))
+	}
+	if rows[0].Description != "Tesco Express" || rows[0].AmountMinor != -4235 {
+		t.Errorf("row0 = %+v", rows[0])
+	}
+}
+
 func TestReadQIF(t *testing.T) {
 	rows, err := ReadQIF(testdata(t, "natwest.qif"), "GBP")
 	if err != nil {
@@ -175,7 +206,7 @@ func TestParseRowsLineNumbers(t *testing.T) {
 	table := [][]string{
 		{"Date", "Amount"},
 		{"2 June 2026 11:36", "-5.00"},
-		{"bad-date", "-7.00"}, // file line 3
+		{"bad-date", "-7.00"},
 		{"3 June 2026", "-9.00"},
 	}
 	_, err := ParseRows(m, table, "GBP")

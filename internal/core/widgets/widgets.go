@@ -1,5 +1,3 @@
-// Package widgets implements the canonical dataset → presentation derivation
-// (doc 05 §3) shared by chat widgets and pinned dashboard widgets.
 package widgets
 
 import (
@@ -11,21 +9,18 @@ import (
 	"glowworm/internal/money"
 )
 
-// Dataset is the canonical tabular result behind a widget (doc 05 §3).
 type Dataset struct {
 	Columns []Column `json:"columns"`
 	Rows    [][]any  `json:"rows"`
 	Meta    Meta     `json:"meta"`
 }
 
-// Column describes one dataset column.
 type Column struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
-	Type  string `json:"type"` // string|number|money|date
+	Type  string `json:"type"`
 }
 
-// Meta carries presentation hints.
 type Meta struct {
 	Currency    string `json:"currency"`
 	RowCount    int    `json:"row_count"`
@@ -38,7 +33,6 @@ type Meta struct {
 	} `json:"time_range"`
 }
 
-// Widget is the frontend-agnostic JSON widget (doc 05 §2).
 type Widget struct {
 	ID      string   `json:"id,omitempty"`
 	Type    string   `json:"type"`
@@ -48,25 +42,20 @@ type Widget struct {
 	Plan    any      `json:"plan,omitempty"`
 }
 
-// palette matches WIDGET_COLORS (doc 05 §3).
 var palette = []string{
 	"#0e6f51", "#4f5bc7", "#c9822e", "#c0483f",
 	"#2f7fb0", "#7a58b8", "#2e9d8f", "#6b7280",
 }
 
-// PaletteAt returns the series color for index i (wrapping).
 func PaletteAt(i int) string {
 	return palette[i%len(palette)]
 }
 
-// DataJSON marshals the presentation payload.
 func (w *Widget) DataJSON() string {
 	b, _ := json.Marshal(w.Data)
 	return string(b)
 }
 
-// Derive renders a widget for the given presentation type from a dataset
-// (doc 05 §3 derivation table).
 func Derive(datasetType string, ds *Dataset, title string) *Widget {
 	if ds == nil {
 		return &Widget{Type: datasetType, Title: title, Data: map[string]any{}}
@@ -87,8 +76,6 @@ func Derive(datasetType string, ds *Dataset, title string) *Widget {
 	}
 }
 
-// deriveSeries derives bar/line: x = first string/date column; series = each
-// money/number column.
 func deriveSeries(kind string, ds *Dataset, title string) *Widget {
 	xIdx, seriesCols := seriesColumns(ds)
 	labels := make([]string, len(ds.Rows))
@@ -124,8 +111,6 @@ func deriveSeries(kind string, ds *Dataset, title string) *Widget {
 		Data: map[string]any{"labels": labels, "series": seriesOut}}
 }
 
-// seriesColumns picks the x column (first string/date) and value columns
-// (money/number).
 func seriesColumns(ds *Dataset) (int, []int) {
 	xIdx := -1
 	var valueCols []int
@@ -145,8 +130,6 @@ func seriesColumns(ds *Dataset) (int, []int) {
 	return xIdx, valueCols
 }
 
-// derivePie derives the donut: labels = first string column; values = first
-// money column.
 func derivePie(ds *Dataset, title string) *Widget {
 	xIdx, valueCols := seriesColumns(ds)
 	if len(valueCols) == 0 {
@@ -176,7 +159,6 @@ func derivePie(ds *Dataset, title string) *Widget {
 		Data: map[string]any{"labels": labels, "values": values, "colors": colors}}
 }
 
-// deriveTable passes the dataset through with formatted money cells.
 func deriveTable(ds *Dataset, title string) *Widget {
 	cols := make([]string, len(ds.Columns))
 	for i, c := range ds.Columns {
@@ -204,7 +186,6 @@ func deriveTable(ds *Dataset, title string) *Widget {
 		Data: map[string]any{"columns": cols, "rows": rows}}
 }
 
-// deriveNumber renders the headline figure (doc 05 §4.6).
 func deriveNumber(ds *Dataset, title string) *Widget {
 	var value int64
 	currency := ds.Meta.Currency
@@ -223,7 +204,6 @@ func deriveNumber(ds *Dataset, title string) *Widget {
 			}
 		}
 	}
-	// Negative totals (spend) display positive with the caption clarifying.
 	display := value
 	if value < 0 {
 		display = -value
@@ -236,7 +216,6 @@ func deriveNumber(ds *Dataset, title string) *Widget {
 		Data: map[string]any{"value": money.Format(display, currency), "caption": caption}}
 }
 
-// SortedKeys is a small helper for deterministic maps (tests).
 func SortedKeys(m map[string]int64) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

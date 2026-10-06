@@ -1,5 +1,3 @@
-// Models listing (doc 09): fetch the models a provider currently offers so
-// the settings UI can offer real choices instead of a hardcoded guess.
 package ai
 
 import (
@@ -12,14 +10,11 @@ import (
 	"time"
 )
 
-// ModelInfo is one selectable model: ID is what the provider API expects
-// (e.g. "openai/gpt-4o-mini"), Name is a human label.
 type ModelInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// getJSON fetches url with headers and decodes the JSON body into out.
 func getJSON(ctx context.Context, url string, headers map[string]string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -40,10 +35,6 @@ func getJSON(ctx context.Context, url string, headers map[string]string, out any
 	return json.Unmarshal(data, out)
 }
 
-// ListModels fetches the live model list for a provider. base and key may be
-// empty for providers that need neither (OpenRouter's model catalogue is
-// public). Returns an error when the provider is unknown or the API is
-// unreachable — the caller decides whether to fall back to FallbackModels.
 func ListModels(provider, baseURL, apiKey string, timeout time.Duration) ([]ModelInfo, error) {
 	if timeout == 0 {
 		timeout = 10 * time.Second
@@ -188,9 +179,6 @@ func ListModels(provider, baseURL, apiKey string, timeout time.Duration) ([]Mode
 	}
 }
 
-// FallbackModels is a small curated list per provider, used when the live
-// catalogue can't be fetched (offline, wrong key, provider down) so the UI
-// still offers sensible choices.
 func FallbackModels(provider string) []ModelInfo {
 	list := func(ids ...string) []ModelInfo {
 		out := make([]ModelInfo, 0, len(ids))
@@ -223,7 +211,7 @@ func FallbackModels(provider string) []ModelInfo {
 	case "ollama":
 		return list("llama3.2", "qwen2.5", "mistral", "phi4")
 	case "custom":
-		return nil // no sensible guess for an arbitrary endpoint
+		return nil
 	default:
 		return nil
 	}

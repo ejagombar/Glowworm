@@ -1,5 +1,3 @@
-// Package categoriser implements the four-tier cascade (doc 07):
-// rules → local classifier → AI fallback → human review.
 package categoriser
 
 import (
@@ -17,18 +15,16 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Service runs the cascade.
 type Service struct {
 	DB         *store.DB
 	Txs        *repos.Transactions
 	Categories *repos.Categories
 	Settings   *repos.Settings
 	Audit      *audit.Writer
-	Provider   ai.Provider // nil = AI disabled
+	Provider   ai.Provider
 	Model      *classifier.Model
 }
 
-// Result summarises one categorisation run.
 type Result struct {
 	Rules    int
 	Local    int
@@ -37,7 +33,6 @@ type Result struct {
 	Assigned []Assignment
 }
 
-// Assignment is one row outcome (audit diff lines).
 type Assignment struct {
 	TxID       string
 	CategoryID string
@@ -45,15 +40,12 @@ type Assignment struct {
 	Source     string
 }
 
-// Thresholds from settings (doc 07 §2).
 func (s *Service) thresholds() (local, ai float64, minExamples int) {
 	return s.Settings.GetFloat("cat_local_threshold", 0.75),
 		s.Settings.GetFloat("cat_ai_threshold", 0.8),
 		int(s.Settings.GetFloat("cat_min_examples", 3))
 }
 
-// eligibleCategories returns live categories keyed by id, filtered by the
-// transaction type (doc 07 §1 masking).
 func (s *Service) eligibleCategories(txType string) (map[string]*core.Category, error) {
 	cats, err := s.Categories.List()
 	if err != nil {
@@ -75,7 +67,6 @@ func (s *Service) eligibleCategories(txType string) (map[string]*core.Category, 
 	return out, nil
 }
 
-// Categorise runs the cascade for the given transactions (in a tx).
 func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, error) {
 	res := &Result{}
 	internalCat, err := s.internalCategoryID(tx)
@@ -84,7 +75,6 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 	}
 	localThresh, aiThresh, minExamples := s.thresholds()
 
-	// Training-example counts per category (guard, doc 07 §2).
 	examples := map[string]int{}
 	rows, err := tx.Query(`SELECT category_id, COUNT(*) FROM transactions
 		WHERE deleted_at IS NULL AND category_source = 'user' AND category_id IS NOT NULL GROUP BY category_id`)
@@ -99,7 +89,6 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 	}
 	rows.Close()
 
-	// Rules tier table (doc 07 §4).
 	rules := map[string]string{}
 	rrows, err := tx.Query(`SELECT pattern, category_id FROM category_rules`)
 	if err != nil {
@@ -133,7 +122,6 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 		}
 		key := normalize.Text(t.Description)
 
-		// Tier 1: rules.
 		if catID, ok := rules[key]; ok && allowedIDs[catID] {
 			if err := assign(tx, t, catID, core.CategorySourceLocal, 1.0); err != nil {
 				return nil, err
@@ -143,7 +131,6 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 			continue
 		}
 
-		// Tier 2: local classifier.
 		if s.Model != nil {
 			preds := s.Model.Predict(key, allowedIDs)
 			if len(preds) > 0 && examples[preds[0].CategoryID] >= minExamples && preds[0].Confidence >= localThresh {
@@ -156,13 +143,11 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 			}
 		}
 
-		// Tier 3: AI fallback (batched later).
 		if s.Provider != nil && len(candidates) > 0 {
 			needAI = append(needAI, t)
 			continue
 		}
 
-		// Tier 4: review.
 		if err := assign(tx, t, "", core.CategorySourceNone, 0); err != nil {
 			return nil, err
 		}
@@ -172,7 +157,7 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 	if len(needAI) > 0 && s.Provider != nil {
 		assigned, err := s.aiBatch(tx, needAI, aiThresh)
 		if err != nil {
-			for _, t := range needAI { // degrade gracefully (doc 09 §9)
+			for _, t := range needAI {
 				_ = updateCategory(tx, t.ID, "", core.CategorySourceNone, 0)
 				res.Review++
 			}
@@ -185,7 +170,6 @@ func (s *Service) Categorise(tx *sql.Tx, txs []*core.Transaction) (*Result, erro
 	return res, nil
 }
 
-// aiBatch sends one structured-output batch per type group (doc 09 §6.2).
 func (s *Service) aiBatch(tx *sql.Tx, txs []*core.Transaction, aiThresh float64) ([]Assignment, error) {
 	type item struct {
 		Index       int    `json:"index"`
@@ -270,8 +254,6 @@ func (s *Service) aiBatch(tx *sql.Tx, txs []*core.Transaction, aiThresh float64)
 	return assigned, nil
 }
 
-// updateCategory writes the DB row AND the in-memory struct (the staging
-// flow re-reads the struct after the cascade, doc 06 §6).
 func updateCategory(tx *sql.Tx, txID, categoryID, source string, confidence float64) error {
 	var catID any
 	if categoryID != "" {
@@ -286,7 +268,6 @@ func updateCategory(tx *sql.Tx, txID, categoryID, source string, confidence floa
 	return err
 }
 
-// assign updates a transaction's category in the DB and memory.
 func assign(tx *sql.Tx, t *core.Transaction, categoryID, source string, confidence float64) error {
 	if err := updateCategory(tx, t.ID, categoryID, source, confidence); err != nil {
 		return err
@@ -317,11 +298,8 @@ func (s *Service) internalCategoryID(tx *sql.Tx) (string, error) {
 
 func utilNow() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// RefreshRules rebuilds the rules table from user-confirmed history
-// (doc 07 §4): pattern → majority category (≥2 votes, ≥60%).
 func (s *Service) RefreshRules() error {
 	return s.DB.WithTx(func(tx *sql.Tx) error {
-		// Delete stale rules then rebuild from history.
 		if _, err := tx.Exec(`DELETE FROM category_rules`); err != nil {
 			return err
 		}
@@ -331,7 +309,6 @@ func (s *Service) RefreshRules() error {
 			return err
 		}
 		rows.Close()
-		// Real aggregation: group by normalised description.
 		agg := map[string]map[string]int{}
 		rows2, err := tx.Query(`SELECT description, category_id FROM transactions
 			WHERE deleted_at IS NULL AND category_source = 'user' AND category_id IS NOT NULL`)
@@ -371,8 +348,6 @@ func (s *Service) RefreshRules() error {
 	})
 }
 
-// TrainFromUserRows builds the local model from category_source='user' rows
-// and persists a new version (doc 07 §5.3).
 func (s *Service) TrainFromUserRows() (*classifier.Model, error) {
 	rows, err := s.DB.Query(`SELECT description, COALESCE(merchant,''), category_id FROM transactions
 		WHERE deleted_at IS NULL AND category_source = 'user' AND category_id IS NOT NULL`)
@@ -413,7 +388,6 @@ func (s *Service) TrainFromUserRows() (*classifier.Model, error) {
 	return model, nil
 }
 
-// LoadLatestModel reads the newest persisted model (nil when none).
 func (s *Service) LoadLatestModel() (*classifier.Model, error) {
 	var payload string
 	err := s.DB.QueryRow(`SELECT payload FROM classifier_models ORDER BY version DESC LIMIT 1`).Scan(&payload)
@@ -426,7 +400,6 @@ func (s *Service) LoadLatestModel() (*classifier.Model, error) {
 	return classifier.DecodeModel(payload)
 }
 
-// Retrain refits the model and audits it (doc 07 §5.3).
 func (s *Service) Retrain() (*classifier.Model, error) {
 	model, err := s.TrainFromUserRows()
 	if err != nil {

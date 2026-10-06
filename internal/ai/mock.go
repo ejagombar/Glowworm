@@ -6,18 +6,12 @@ import (
 	"strings"
 )
 
-// Mock is a deterministic provider for tests and the GLOWWORM_AI_MOCK=1
-// dev hook (doc 07 §10: AI-fallback verified with a mock provider). It is
-// never selected by user configuration.
 type Mock struct{}
 
 func (p *Mock) Name() string { return "mock" }
 
-// MockAgent is a deterministic multi-turn agent provider for tests: it
-// walks a scripted list of JSON replies (one per turn) so the query
-// service's agent loop can be exercised end-to-end without a network.
 type MockAgent struct {
-	Replies []string // one JSON reply per agent round, in order
+	Replies []string
 	turn    int
 }
 
@@ -50,17 +44,17 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 		}
 		items := []map[string]any{}
 		for _, tx := range payload.Transactions {
-			cat := "Uncategorised"
+			cat, conf := pick(payload.AllowedCategories, ""), 0.4
 			d := strings.ToLower(tx.Description)
 			switch {
 			case strings.Contains(d, "tesco"), strings.Contains(d, "sainsbury"), strings.Contains(d, "grocer"):
-				cat = pick(payload.AllowedCategories, "Food & Dining")
+				cat, conf = pick(payload.AllowedCategories, "Food & Dining"), 0.9
 			case strings.Contains(d, "uber"), strings.Contains(d, "transport"), strings.Contains(d, "tfl"):
-				cat = pick(payload.AllowedCategories, "Transport")
+				cat, conf = pick(payload.AllowedCategories, "Transport"), 0.9
 			case strings.Contains(d, "energy"), strings.Contains(d, "octopus"), strings.Contains(d, "bill"):
-				cat = pick(payload.AllowedCategories, "Bills & Utilities")
+				cat, conf = pick(payload.AllowedCategories, "Bills & Utilities"), 0.9
 			}
-			items = append(items, map[string]any{"index": tx.Index, "category": cat, "confidence": 0.9})
+			items = append(items, map[string]any{"index": tx.Index, "category": cat, "confidence": conf})
 		}
 		return marshal(map[string]any{"items": items}), &Usage{Model: "mock"}, nil
 	case "query_planning":
@@ -104,10 +98,6 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 		}
 		return marshal(plan), &Usage{Model: "mock"}, nil
 	case "query_agent":
-		// Minimal scripted agent: the last user message in the transcript is
-		// either the question or a tool result. If no tool has run yet, ask for
-		// total spend by category this month; when the result arrives, finish
-		// with a text answer + widget built from whatever rows came back.
 		last := ""
 		for _, m := range req.Messages {
 			last = m.Content
@@ -145,7 +135,6 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 	case "merchant_extraction":
 		return marshal(map[string]any{"items": []any{}}), &Usage{Model: "mock"}, nil
 	case "chat_summary":
-		// Deterministic: lean on the day's first user question.
 		var payload struct {
 			Date     string `json:"date"`
 			Messages []struct {
@@ -176,9 +165,15 @@ func pick(m map[string]string, preferred string) string {
 			return preferred
 		}
 	}
-	// fall back to the first name
+	// fall back to the alphabetically first name (map order is random)
+	best := ""
 	for _, name := range m {
-		return name
+		if best == "" || name < best {
+			best = name
+		}
+	}
+	if best != "" {
+		return best
 	}
 	return preferred
 }

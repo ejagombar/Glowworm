@@ -1,5 +1,3 @@
-// Package server assembles the HTTP app (doc 01 §5): pages, fragments and
-// the JSON API under /api/v1, with static assets embedded and cached.
 package server
 
 import (
@@ -37,7 +35,6 @@ import (
 	staticFS "glowworm/web/static"
 )
 
-// App wires every layer together.
 type App struct {
 	Cfg    config.Config
 	Clock  *clock.Clock
@@ -64,7 +61,6 @@ type App struct {
 	loginLimiter *limiter
 }
 
-// Repos bundles the repo structs.
 type Repos struct {
 	Users        *repos.Users
 	Settings     *repos.Settings
@@ -74,7 +70,6 @@ type Repos struct {
 	Transactions *repos.Transactions
 }
 
-// New builds the app from resolved config.
 func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logger) (*App, error) {
 	r, err := render.New()
 	if err != nil {
@@ -103,8 +98,6 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.Settings = &settings.Service{DB: db, Repos: rp.Settings, Audit: writer}
 	app.Setup = &setup.Service{DB: db, Users: rp.Users, Settings: rp.Settings, Audit: writer}
 
-	// AI provider from encrypted config (doc 09 §4); GLOWWORM_AI_MOCK=1
-	// injects the deterministic mock (tests/dev only).
 	provider := a_resolveProvider(db, secret, log)
 	if os.Getenv("GLOWWORM_AI_MOCK") == "1" {
 		log.Info("using mock AI provider (GLOWWORM_AI_MOCK=1)")
@@ -125,20 +118,8 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		DB: db, Accounts: rp.Accounts, Txs: rp.Transactions, Audit: writer,
 		Cat: app.Cat, Provider: provider, DisplayCC: displayCC,
 	}
-	app.Imports.AfterCommit = func(batchID string) {
-		if n, err := app.Transfers.Detect(); err == nil && n > 0 {
-			log.Info("transfer detection", "linked", n)
-		}
-		if n, err := app.Recurring.Detect(); err == nil && n > 0 {
-			log.Info("recurring detection", "series", n)
-		}
-		if err := app.Cat.RefreshRules(); err != nil {
-			log.Error("rules refresh", "err", err)
-		}
-		if _, err := app.Cat.Retrain(); err != nil {
-			log.Info("retrain skipped", "reason", err.Error())
-		}
-	}
+	app.Imports.AfterCommit = func(string) { app.refreshDerived() }
+	app.Accounts.AfterChange = app.refreshDerived
 	app.Transfers = &transfers.Service{
 		DB: db, Txs: rp.Transactions, Accounts: rp.Accounts, Audit: writer,
 		Settings: rp.Settings, Clock: clk,
@@ -169,14 +150,10 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	return app, nil
 }
 
-// applyEntry adapts the audit engine's hook to the executor.
 func (a *App) applyEntry(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	return a.Exec.Apply(tx, ent, reapply)
 }
 
-// startMidnightSummariser regenerates chat-day summaries at midnight every
-// day (doc 10 §8): the timer fires once per local day; a missed midnight
-// (app down) is recovered by the page-load catch-up.
 func (a *App) startMidnightSummariser(log *slog.Logger) {
 	go func() {
 		for {
@@ -184,12 +161,11 @@ func (a *App) startMidnightSummariser(log *slog.Logger) {
 			next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1)
 			timer := time.NewTimer(time.Until(next))
 			<-timer.C
-			a.Query.CatchUpSummaries() // the day that just ended is now < today
+			a.Query.CatchUpSummaries()
 		}
 	}()
 }
 
-// a_resolveProvider builds the AI provider from the encrypted config row.
 func a_resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai.Provider {
 	var provider, models, baseURL, keyCipher string
 	err := db.QueryRow(`SELECT provider, models, base_url, key_cipher FROM ai_provider_config WHERE id = 1`).
@@ -215,21 +191,16 @@ func a_resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai
 	return p
 }
 
-// Router builds the full route table (doc 01 §5.1, doc 03).
 func (a *App) Router() http.Handler {
 	mux := http.NewServeMux()
 
-	// Static + vendored assets (strip the URL mount prefix, then read from
-	// the embedded FS root).
 	mux.Handle("GET /static/{path...}", a.staticHandlerFS(staticFS.FS, "/static/"))
 
-	// Health.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Pages.
 	mux.HandleFunc("GET /{$}", a.page(a.handleDashboard))
 	mux.HandleFunc("GET /transactions", a.page(a.handleTransactions))
 	mux.HandleFunc("GET /transactions/rows", a.page(a.handleTransactionsRows))
@@ -244,10 +215,8 @@ func (a *App) Router() http.Handler {
 	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /setup", a.handleSetupPage)
 
-	// JSON API v1.
 	a.registerAPI(mux)
 
-	// Auth + CSRF gates.
 	var handler http.Handler = mux
 	if a.Cfg.AuthMode == "password" {
 		handler = a.withAuth(handler)
@@ -257,7 +226,6 @@ func (a *App) Router() http.Handler {
 	return handler
 }
 
-// page wraps a page handler with the common pre-render step.
 func (a *App) page(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := fn(w, r); err != nil {
@@ -267,7 +235,6 @@ func (a *App) page(fn func(http.ResponseWriter, *http.Request) error) http.Handl
 	}
 }
 
-// withAuth gates pages/API behind a valid session (doc 14 §2).
 func (a *App) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -275,7 +242,6 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Setup claim: while no user exists, everything goes to /setup.
 		if !a.Audit.HasUser() {
 			if path == "/setup" || strings.HasPrefix(path, "/api/v1/setup/") {
 				next.ServeHTTP(w, r)
@@ -296,7 +262,6 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		// CSRF on unsafe methods (doc 14 §3).
 		switch r.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 			if !checkCSRF(r) {
@@ -312,8 +277,6 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 	})
 }
 
-// staticHandlerFS serves embedded assets with immutable caching + ETags
-// (doc 04 §12). strip is the URL mount prefix to remove before the FS lookup.
 func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 	etags := map[string]string{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -332,10 +295,8 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		if etags[path] == "" {
 			etags[path] = etag
 		}
-		// ETag revalidation (304s keep it cheap) — deliberately NOT
-		// `immutable`: a self-hosted app updated in place must never serve a
-		// browser-cached stale app.js (documented deviation from doc 04 §12,
-		// which specified immutable caching).
+		// Deliberately not `immutable`: the binary is updated in place and must
+		// never serve a cached stale app.js.
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "no-cache")
 		if r.Header.Get("If-None-Match") == etag {
@@ -354,4 +315,19 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		}
 		w.Write(data)
 	})
+}
+
+func (a *App) refreshDerived() {
+	if n, err := a.Transfers.Detect(); err == nil && n > 0 {
+		a.Log.Info("transfer detection", "linked", n)
+	}
+	if n, err := a.Recurring.Detect(); err == nil && n > 0 {
+		a.Log.Info("recurring detection", "series", n)
+	}
+	if err := a.Cat.RefreshRules(); err != nil {
+		a.Log.Error("rules refresh", "err", err)
+	}
+	if _, err := a.Cat.Retrain(); err != nil {
+		a.Log.Info("retrain skipped", "reason", err.Error())
+	}
 }

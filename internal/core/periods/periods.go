@@ -1,10 +1,7 @@
-// Package periods resolves the global period selector (doc 04 §5.3) —
-// prototype periodRange parity.
 package periods
 
 import "time"
 
-// IDs of the period selector.
 const (
 	All       = "all"
 	YTD       = "ytd"
@@ -15,14 +12,12 @@ const (
 	Custom    = "custom"
 )
 
-// Labels mirrors PERIOD_LABELS in the prototype.
 var Labels = map[string]string{
 	All: "All time", YTD: "Year to date", Last12M: "Last 12 months",
 	Last3M: "Last 3 months", LastMonth: "Last month", LastDay: "Last day",
 	Custom: "Custom range",
 }
 
-// Range resolves a period to [from, to] ISO dates ("" = open) plus a label.
 func Resolve(period, from, to string, today time.Time) (string, string, string) {
 	iso := func(t time.Time) string { return t.Format("2006-01-02") }
 	switch period {
@@ -54,13 +49,11 @@ func Resolve(period, from, to string, today time.Time) (string, string, string) 
 	}
 }
 
-// ThisMonth returns [first of current month, today] (dashboard cards).
 func ThisMonth(today time.Time) (string, string) {
 	start := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
 	return start.Format("2006-01-02"), today.Format("2006-01-02")
 }
 
-// PrevMonth returns [first, last] of the previous calendar month.
 func PrevMonth(today time.Time) (string, string) {
 	start := time.Date(today.Year(), today.Month()-1, 1, 0, 0, 0, 0, today.Location())
 	end := time.Date(today.Year(), today.Month(), 0, 0, 0, 0, 0, today.Location())

@@ -7,9 +7,6 @@ import (
 	"glowworm/internal/store"
 )
 
-// doc 11 §8: audit engine round-trips — jump back, restore path, forget,
-// delete — over fixture mutations. The apply hook mirrors the production
-// executor contract (soft-delete/re-restore on revert/re-apply).
 func TestHistoryEngineRoundTrip(t *testing.T) {
 	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
 	if err != nil {
@@ -22,11 +19,7 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 	e := NewEngine(db, w)
 	policy := &Policy{}
 
-	// apply mirrors auditexec: revert = soft-delete the created row;
-	// reapply = restore it.
 	apply := func(tx *sql.Tx, ent *AuditRow, reapply bool) error {
-		// Record-only markers (audit.*) have nothing to apply — same contract
-		// as the production executor.
 		if len(ent.Action) > 6 && ent.Action[:6] == "audit." {
 			return nil
 		}
@@ -80,13 +73,11 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 		return out
 	}
 
-	// Three mutations.
 	e1, e2, e3 := write("alpha"), write("beta"), write("gamma")
 	if len(live()) != 3 {
 		t.Fatalf("live = %v, want 3 rows", live())
 	}
 
-	// 1. Jump back to e1: beta+gamma shelved (reverted + inactive).
 	res, err := e.JumpBack(e1, apply)
 	if err != nil {
 		t.Fatal(err)
@@ -99,20 +90,18 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 		t.Fatalf("after jump-back live = %v", got)
 	}
 
-	// 2. New change on the new path, then restore the original path.
 	write("delta")
 	if len(live()) != 2 {
 		t.Fatalf("live = %v", live())
 	}
-	// Entry 2 (beta) belongs to the shelved main path — restore it.
 	res2, err := e.RestorePath("main", apply)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res2.Reactivated) != 2 { // beta + gamma
+	if len(res2.Reactivated) != 2 {
 		t.Fatalf("reactivated = %v", res2.Reactivated)
 	}
-	if len(res2.Shelved) != 2 { // jumpback marker + delta
+	if len(res2.Shelved) != 2 {
 		t.Fatalf("shelved = %v", res2.Shelved)
 	}
 	got = live()
@@ -120,7 +109,6 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 		t.Fatalf("after restore live = %v", got)
 	}
 
-	// 3. Delete-with-undo one entry: effect undone + record scrubbed.
 	caps, err := e.Capabilities(e3)
 	if err != nil {
 		t.Fatal(err)
@@ -141,12 +129,11 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 		t.Fatal("deleted entry should be scrubbed")
 	}
 
-	// 4. Forget: remove the record, keep the effect.
 	if err := e.Forget(e2); err != nil {
 		t.Fatal(err)
 	}
 	got = live()
-	if len(got) != 2 { // effect retained
+	if len(got) != 2 {
 		t.Fatalf("after forget live = %v", got)
 	}
 	_ = db.QueryRow(`SELECT COUNT(*) FROM audit_entries WHERE id = ?`, e2).Scan(&n)
@@ -154,7 +141,6 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 		t.Fatal("forgotten entry should be scrubbed")
 	}
 
-	// 5. Policy: import.confirmed can't be forgotten/deleted.
 	pol := policy.Evaluate("import.confirmed", "active")
 	if pol.Revert != true || pol.Forget != false || pol.Delete != false {
 		t.Fatalf("import.confirmed policy = %+v", pol)

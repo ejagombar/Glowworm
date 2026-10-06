@@ -1,4 +1,4 @@
-# Glowworm configuration (doc 13 §3) — env vars take precedence.
+# Glowworm configuration — env vars take precedence.
 # Copy to glowworm.toml or /etc/glowworm/glowworm.toml.
 
 addr = "127.0.0.1:8080"

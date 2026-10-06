@@ -1,6 +1,3 @@
-// Package importer parses statement files (doc 06): CSV/TSV, xlsx, OFX, QIF,
-// PDF text. Detection = sniff + saved-schema fingerprint; the mapping model
-// is doc 06 §5.2.
 package importer
 
 import (
@@ -11,7 +8,6 @@ import (
 	"time"
 )
 
-// Kind is a statement format.
 type Kind string
 
 const (
@@ -22,7 +18,6 @@ const (
 	KindPDF  Kind = "pdf"
 )
 
-// Sniff detects the format from content (doc 06 §3).
 func Sniff(name string, data []byte) Kind {
 	lower := strings.ToLower(name)
 	switch {
@@ -52,10 +47,9 @@ func isZip(data []byte) bool {
 	return false
 }
 
-// Row is one parsed statement line.
 type Row struct {
 	Line            int
-	Date            string // YYYY-MM-DD
+	Date            string
 	Description     string
 	AmountMinor     int64
 	Currency        string
@@ -66,7 +60,6 @@ type Row struct {
 	Raw             map[string]string
 }
 
-// ParseError reports the first bad row (doc 06 §11).
 type ParseError struct {
 	Line    int
 	Message string
@@ -81,8 +74,8 @@ var dateRefFormats = []string{
 	"2 Jan 06", "Jan 2 2006",
 }
 
-// dateTimeFormats are datetime-first layouts (ISO etc.). Month names and
-// AM/PM match case-insensitively in time.Parse, so "2 JUNE 2026" is covered.
+// time.Parse matches month names and AM/PM case-insensitively, so "2 JUNE 2026"
+// is covered.
 var dateTimeFormats = []string{
 	"2006-01-02T15:04:05Z07:00", "2006-01-02T15:04:05", "2006-01-02T15:04",
 	"2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02 3:04 PM",
@@ -91,9 +84,8 @@ var dateTimeFormats = []string{
 	"2 Jan 2006 15:04", "2 Jan 2006 3:04 PM", "Jan 2, 2006 15:04",
 }
 
-// tryDate attempts each reference format (bare dates, then with time
-// suffixes) and returns (ISO date, matched layout). Tolerates extra
-// whitespace and a comma between date and time ("02/06/2026, 11:36").
+func TryDate(s string) (string, string) { return tryDate(s) }
+
 func tryDate(s string) (string, string) {
 	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
 	candidates := []string{s}

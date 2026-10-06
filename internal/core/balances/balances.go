@@ -1,5 +1,3 @@
-// Package balances implements the checkpoint-replay balance formula
-// (doc 02 §3.2 / doc 11 §5.1) — the single normative implementation.
 package balances
 
 import (
@@ -8,13 +6,6 @@ import (
 	"time"
 )
 
-// Account computes the account's balance at date D ("YYYY-MM-DD"; "" = today).
-//
-//	balance(account, D) = latest valuation V (V.date ≤ D)
-//	    ? V.value_minor + Σ tx.amount_minor for V.date < tx.date ≤ D
-//	    : opening_balance_minor + Σ tx.amount_minor for opening_date < tx.date ≤ D
-//
-// Soft-deleted rows are excluded (doc 02 §2).
 func Account(db *sql.DB, accountID, date string) (int64, error) {
 	if date == "" {
 		date = "9999-12-31"
@@ -32,7 +23,6 @@ func Account(db *sql.DB, accountID, date string) (int64, error) {
 	if openingDate.Valid && openingDate.String != "" {
 		since = openingDate.String
 	}
-	// Latest active valuation at/before D = the checkpoint.
 	var val int64
 	var valDate string
 	err = db.QueryRow(`SELECT value_minor, date FROM valuations
@@ -43,7 +33,6 @@ func Account(db *sql.DB, accountID, date string) (int64, error) {
 		balance = val
 		since = valDate
 	case sql.ErrNoRows:
-		// keep opening + all transactions (since may be "" → all tx ≤ D)
 	default:
 		return 0, err
 	}
@@ -54,7 +43,6 @@ func Account(db *sql.DB, accountID, date string) (int64, error) {
 	return balance + sum, nil
 }
 
-// All computes balances for every live account at date D, keyed by account id.
 func All(db *sql.DB, date string) (map[string]int64, error) {
 	ids := map[string]int64{}
 	rows, err := db.Query(`SELECT id FROM accounts WHERE deleted_at IS NULL`)
@@ -81,8 +69,6 @@ func All(db *sql.DB, date string) (map[string]int64, error) {
 	return out, nil
 }
 
-// SumTransactions sums a transaction window — used by Account and exported
-// for tests/tools.
 func SumTransactions(db *sql.DB, accountID, fromExclusive, toInclusive string) (int64, error) {
 	return sumTransactions(db, accountID, fromExclusive, toInclusive)
 }
@@ -100,9 +86,6 @@ func sumTransactions(db *sql.DB, accountID, fromExclusive, toInclusive string) (
 	return sum, err
 }
 
-// Series computes the balance series for one account over monthly buckets
-// between from and to (ISO months, inclusive). When accountID is "" the
-// series covers all live accounts (totals).
 func Series(db *sql.DB, accountID, from, to string) (labels []string, values []int64, err error) {
 	months := MonthKeys(from, to)
 	labels = make([]string, 0, len(months))
@@ -144,7 +127,6 @@ func Series(db *sql.DB, accountID, from, to string) (labels []string, values []i
 	return labels, values, nil
 }
 
-// MonthKeys returns ISO month keys ("2024-06") from..to inclusive.
 func MonthKeys(from, to string) []string {
 	if len(from) < 7 {
 		from = "1970-01"
@@ -169,7 +151,6 @@ func MonthKeys(from, to string) []string {
 	return out
 }
 
-// MonthEnd returns the last day of the month key.
 func MonthEnd(month string) string {
 	y, m := atoi(month[:4]), atoi(month[5:7])
 	nextY, nextM := y, m+1
@@ -178,7 +159,6 @@ func MonthEnd(month string) string {
 		nextY++
 	}
 	end := pad(nextY) + "-" + pad(nextM) + "-01"
-	// step back one day
 	t, _ := parseISO(end)
 	t = t.AddDate(0, 0, -1)
 	return t.Format("2006-01-02")

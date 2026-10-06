@@ -1,5 +1,3 @@
-// Package setup implements the first-run walkthrough backend (doc 12 §3):
-// instance claim (account creation), status, completion.
 package setup
 
 import (
@@ -15,7 +13,6 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Service owns the setup flow.
 type Service struct {
 	DB       *store.DB
 	Users    *repos.Users
@@ -23,12 +20,10 @@ type Service struct {
 	Audit    *audit.Writer
 }
 
-// ValidationError is user-facing.
 type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
-// Status reports the wizard state (doc 03 §13).
 type Status struct {
 	Completed       bool `json:"completed"`
 	HasCategories   bool `json:"has_categories"`
@@ -38,7 +33,6 @@ type Status struct {
 	HasUser         bool `json:"has_user"`
 }
 
-// Status computes the current state.
 func (s *Service) Status() (*Status, error) {
 	st := &Status{}
 	st.Completed = s.Settings.GetBool("setup_completed")
@@ -66,7 +60,6 @@ func (s *Service) Status() (*Status, error) {
 	return st, nil
 }
 
-// AccountInput claims the instance (wizard step 1, doc 12 §3.1).
 type AccountInput struct {
 	Username        string `json:"username"`
 	Password        string `json:"password"`
@@ -74,7 +67,6 @@ type AccountInput struct {
 	DisplayName     string `json:"display_name"`
 }
 
-// Validate enforces the password policy (doc 14 §2).
 func (in *AccountInput) Validate() error {
 	in.Username = strings.TrimSpace(in.Username)
 	if utf8.RuneCountInString(in.Username) < 3 || utf8.RuneCountInString(in.Username) > 40 {
@@ -89,7 +81,6 @@ func (in *AccountInput) Validate() error {
 	return nil
 }
 
-// CreateAccount claims the instance — only while no user exists (doc 14 §2).
 func (s *Service) CreateAccount(in AccountInput) (*core.User, error) {
 	if users, _ := s.Users.Count(); users > 0 {
 		return nil, &ValidationError{Message: "An owner account already exists for this instance"}
@@ -122,7 +113,6 @@ func (s *Service) CreateAccount(in AccountInput) (*core.User, error) {
 	return u, nil
 }
 
-// Complete marks the walkthrough done (audit setup.completed).
 func (s *Service) Complete() error {
 	return s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Settings.Set(tx, "setup_completed", true); err != nil {

@@ -1,6 +1,3 @@
-// Package money implements integer minor-unit monetary values (doc 02 §2).
-// Money is never a float: amounts are int64 minor units (pence/cents) plus an
-// ISO-4217 currency code with an exponent lookup for display.
 package money
 
 import (
@@ -15,7 +12,6 @@ var exponents = map[string]int{
 	"TRY": 2, "RUB": 2, "CNY": 2, "ISK": 0, "BGN": 2, "RON": 2,
 }
 
-// Exponent returns the minor-unit exponent for a currency (default 2).
 func Exponent(currency string) int {
 	if e, ok := exponents[strings.ToUpper(currency)]; ok {
 		return e
@@ -23,10 +19,8 @@ func Exponent(currency string) int {
 	return 2
 }
 
-// Symbols maps the display currencies the UI supports (prototype settings).
 var Symbols = map[string]string{"GBP": "£", "USD": "$", "EUR": "€"}
 
-// Symbol returns the display symbol for a currency, defaulting to the code.
 func Symbol(currency string) string {
 	if s, ok := Symbols[strings.ToUpper(currency)]; ok {
 		return s
@@ -34,11 +28,6 @@ func Symbol(currency string) string {
 	return strings.ToUpper(currency) + " "
 }
 
-// Format renders minor units as "£1,234.56" (prototype fmtMoney parity).
-// Negative amounts keep the sign after the symbol is omitted: "-£12.00" is
-// rendered as "-£12.00" by callers that need it; Format itself renders
-// the absolute value plus sign prefix when signed is requested via
-// FormatSigned.
 func Format(minor int64, currency string) string {
 	neg := minor < 0
 	var abs uint64
@@ -65,8 +54,6 @@ func Format(minor int64, currency string) string {
 	return out
 }
 
-// FormatSigned renders with an explicit +/− prefix (prototype tx-amount
-// parity: "+£42.35", "−£8.75").
 func FormatSigned(minor int64, currency string) string {
 	switch {
 	case minor > 0:
@@ -78,8 +65,6 @@ func FormatSigned(minor int64, currency string) string {
 	}
 }
 
-// Parse converts a decimal string ("42.35", "-1,234.50", "£12.99", "(3.20)")
-// into minor units for the given currency exponent.
 func Parse(s string, currency string) (int64, error) {
 	t := strings.TrimSpace(s)
 	neg := false
@@ -119,7 +104,7 @@ func Parse(s string, currency string) (int64, error) {
 	var frac int64
 	if len(parts) == 2 {
 		fracStr := parts[1]
-		for len(fracStr) > e { // drop extra digits
+		for len(fracStr) > e {
 			fracStr = fracStr[:len(fracStr)-1]
 		}
 		for len(fracStr) < e {
@@ -162,7 +147,6 @@ func parseUint(s string) (uint64, error) {
 	return v, nil
 }
 
-// groupDigits renders 1234567 as "1,234,567".
 func groupDigits(v uint64) string {
 	s := fmt.Sprintf("%d", v)
 	if len(s) <= 3 {

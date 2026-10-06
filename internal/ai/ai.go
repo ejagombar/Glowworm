@@ -1,6 +1,3 @@
-// Package ai implements the provider abstraction (doc 09): one internal
-// interface, capability-based calls, structured JSON output with retry,
-// adapters for OpenAI-compatible APIs, Anthropic, Gemini and Ollama.
 package ai
 
 import (
@@ -14,52 +11,40 @@ import (
 	"time"
 )
 
-// StructuredRequest is one capability call.
 type StructuredRequest struct {
-	Capability string         // schema_detection|categorisation|query_planning|query_agent|merchant_extraction|schema_naming
-	PromptJSON map[string]any // the capability payload (embedded in the prompt)
+	Capability string
+	PromptJSON map[string]any
 	MaxTokens  int
 	Timeout    time.Duration
 
-	// Multi-turn transcript (agent loop, doc 09 §2). When set, providers
-	// send System as the system message followed by Messages in order;
-	// capabilityPrompt is not used. Single-shot capabilities leave these
-	// empty and keep using PromptJSON.
 	System   string
 	Messages []ChatMessage
 }
 
-// ChatMessage is one transcript turn (doc 09 §2).
 type ChatMessage struct {
-	Role    string `json:"role"` // user|assistant
+	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// HasTranscript reports whether the request carries a multi-turn transcript.
 func (r *StructuredRequest) HasTranscript() bool {
 	return len(r.Messages) > 0 && r.System != ""
 }
 
-// Usage records token counts (doc 09 §8).
 type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
 	Model            string
 }
 
-// Provider is the single internal LLM interface (doc 09 §2).
 type Provider interface {
 	Name() string
-	// CompleteStructured returns the raw JSON string and usage.
 	CompleteStructured(req *StructuredRequest) (string, *Usage, error)
 }
 
-// ErrUnavailable reports AI being configured-out or unreachable.
 type ErrUnavailable struct{ Reason string }
 
 func (e *ErrUnavailable) Error() string { return "ai: " + e.Reason }
 
-// System preamble (doc 09 §5) shared by all capabilities.
 const systemPreamble = `You are part of Glowworm, a personal finance tracker. You will be given
 financial data belonging to a single user. Respond ONLY with JSON conforming
 exactly to the schema provided. Never invent categories, accounts, or columns
@@ -72,9 +57,6 @@ func capabilityPrompt(capability string, payload map[string]any) string {
 		systemPreamble, capabilityPromptInstructions(capability), string(b))
 }
 
-// turnsFor resolves the message list for a request: the built agent
-// transcript when present, otherwise the single-shot capability prompt.
-// The returned system string is only non-empty for transcripts.
 func turnsFor(req *StructuredRequest, feedback string) (string, []ChatMessage) {
 	if req.HasTranscript() {
 		out := make([]ChatMessage, 0, len(req.Messages)+1)
@@ -92,13 +74,10 @@ func capabilityPromptInstructions(capability string) string {
 	case "schema_detection":
 		return "Detect the statement's column mapping. Pick roles only from: date, description, amount, amount_in, amount_out, currency, balance, type_hint, memo, source, destination, ignore. Provide date_format as a Go reference layout (e.g. 02/01/2006) that parses the sample dates, decimal_separator, negatives convention (signed|paren|dr_cr), has_header, delimiter for CSV, bank_hint, a short proposed_name, and a confidence between 0 and 1. Schema: {kind: csv|xlsx|ofx|qif|pdf, has_header: bool, delimiter: string, columns: [{source, role, date_format, decimal_separator, negatives}], bank_hint, proposed_name, confidence}."
 	case "categorisation":
-		return "Categorise every transaction by index using ONLY the allowed_categories names. Schema: {items: [{index, category, confidence}]}. Every index must be answered."
+		return "Categorise every transaction by index using ONLY the allowed_categories names. An item may stand for several identical transactions (count) and may name the payee as destination. confidence is your honest probability (0-1) that the category is right: 0.9 or more only when the payee clearly belongs to that category, below 0.6 when the description is ambiguous or you are guessing. Schema: {items: [{index, category, confidence}]}. Every index must be answered."
 	case "query_planning":
 		return "Translate the user's question into a query plan. Schema: {v: 1, metric: spend|income|net|balance|count|list, entity: {kind: category|account|merchant|recurring|none, id: string, resolved_name: string, match: exact|fuzzy}, breakdown: none|category|account|merchant|month|week|day, time: {preset: string|null, from: string, to: string}, account_scope: all|savings|spending|single, sort: value_desc|date_asc, limit: number, chart_hint: bar|line|pie|table|number|transactions, title: string}."
 	case "query_agent":
-		// The agent protocol is fully described in the System prompt built by
-		// the query service (doc 10 agent loop); here we only pin the reply
-		// shape so the JSON-mode retry can validate it.
 		return `You are in an agent loop with tools. Reply with ONE JSON object: either {"action":"run_query","sql":"SELECT ..."} to run a read-only query, or {"action":"final","text":"...","widgets":[...]} to finish. Never respond with prose outside JSON.`
 	case "merchant_extraction":
 		return "Extract a clean merchant name for each description. Schema: {items: [{index, merchant, confidence}]}."
@@ -110,8 +89,6 @@ func capabilityPromptInstructions(capability string) string {
 		return "Respond with JSON only."
 	}
 }
-
-// --- HTTP plumbing shared by adapters ---
 
 func postJSON(ctx context.Context, url string, headers map[string]string, body any, out any) error {
 	b, err := json.Marshal(body)
@@ -138,7 +115,6 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body a
 	return json.Unmarshal(data, out)
 }
 
-// extractJSON tolerates code fences (doc 09 §2).
 func extractJSON(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "```") {
@@ -149,7 +125,6 @@ func extractJSON(s string) (string, error) {
 		}
 		s = strings.TrimSpace(s)
 	}
-	// Trim to the outermost JSON object/array.
 	start := strings.IndexAny(s, "{[")
 	end := strings.LastIndexAny(s, "}]")
 	if start < 0 || end <= start {
@@ -165,7 +140,6 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// retry wraps a completion with validation feedback retries (≤2, doc 09 §2).
 func retry(fn func(feedback string) (string, *Usage, error), validate func(string) error) (string, *Usage, error) {
 	var feedback string
 	var usage *Usage

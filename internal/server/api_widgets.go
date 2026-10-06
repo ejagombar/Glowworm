@@ -15,15 +15,11 @@ import (
 	"glowworm/internal/util"
 )
 
-// query_Answer aliases the engine answer for handlers.
 type query_Answer = query.Answer
 
-// viewWindow resolves the user's current period-selector state to the agent's
-// TimeWindow. Unknown/"all" periods produce an unbounded window (nil) — the
-// prompt then imposes no range and the question's own dates rule.
 func (a *App) viewWindow(period, from, to string) *query.TimeWindow {
 	if period == "" {
-		period = a.Settings.Get().DefaultPeriod // same default as every view
+		period = a.Settings.Get().DefaultPeriod
 		if period == "" {
 			period = "all"
 		}
@@ -34,8 +30,6 @@ func (a *App) viewWindow(period, from, to string) *query.TimeWindow {
 	}
 	return &query.TimeWindow{From: f, To: t, Label: label}
 }
-
-// --- NL query + conversations (doc 10 §8) ---
 
 func (a *App) apiQuery(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
@@ -56,9 +50,6 @@ func (a *App) apiQuery(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// askQueryWindow runs the agent pipeline and persists both messages.
-// onStep, when non-nil, receives reasoning steps as they happen (progressive
-// streaming). in.Period/From/To carry the user's current view period.
 func (a *App) askQueryWindow(in struct {
 	Text           string  `json:"text"`
 	ConversationID *string `json:"conversation_id"`
@@ -92,7 +83,6 @@ func (a *App) askQueryWindow(in struct {
 	if err != nil {
 		return nil, conv.ID, err
 	}
-	// Persist the widget array (doc 10 §8: multiple widgets per answer).
 	widgetJSON := marshalWidgets(ans.Widgets)
 	datasetJSON := marshalAny(ans.Dataset)
 	planJSON := marshalAny(ans.Plan)
@@ -116,8 +106,6 @@ func marshalAny(v any) string {
 	return string(b)
 }
 
-// apiQueryStream emits NDJSON events (doc 10 §8): steps (progressively) →
-// text → widget(s) → done.
 func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Text           string  `json:"text"`
@@ -145,8 +133,6 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	// Reasoning steps stream as the agent works (query → query → final),
-	// giving the progressive feel of the loader choreography.
 	ans, convID, err := a.askQueryWindow(in, func(step string) {
 		send("steps", map[string]any{"items": []string{step}})
 	})
@@ -178,8 +164,6 @@ func (a *App) apiConversationsList(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-// apiQueryDays feeds the sidebar's day entries (used by the client's
-// summary-catch-up poll).
 func (a *App) apiQueryDays(w http.ResponseWriter, r *http.Request) error {
 	days, err := a.Query.DayEntries()
 	if err != nil {
@@ -198,10 +182,6 @@ func (a *App) apiConversationGet(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// apiConversationMessages pages a conversation's history backwards for the
-// queries client (scroll-up loading, doc 10 §8). Cursor: created_at|id of the
-// oldest currently-loaded message; empty = newest page. Items carry parsed
-// widget objects so the client renders them without re-parsing stored JSON.
 func (a *App) apiConversationMessages(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	before := r.URL.Query().Get("before")
@@ -246,8 +226,6 @@ func (a *App) apiConversationDelete(w http.ResponseWriter, r *http.Request) erro
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
-
-// --- pinned widgets (doc 03 §8, doc 05 §7) ---
 
 func (a *App) apiWidgetsGet(w http.ResponseWriter, r *http.Request) error {
 	list, err := a.WidgetsList()
@@ -294,8 +272,8 @@ func (a *App) apiWidgetPin(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Title   string          `json:"title"`
 		Type    string          `json:"type"`
-		Data    json.RawMessage `json:"data"`    // presentation payload (labels/series/...)
-		Dataset json.RawMessage `json:"dataset"` // legacy field (older clients sent the canonical dataset)
+		Data    json.RawMessage `json:"data"`
+		Dataset json.RawMessage `json:"dataset"`
 		Plan    json.RawMessage `json:"plan"`
 		Col     int             `json:"col"`
 		Rows    int             `json:"rows"`

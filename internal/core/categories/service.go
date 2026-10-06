@@ -1,5 +1,3 @@
-// Package categories implements the category service (doc 02 §4, doc 03 §6):
-// CRUD with system-category rules and audit.
 package categories
 
 import (
@@ -13,7 +11,6 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Service owns category rules.
 type Service struct {
 	DB    *store.DB
 	Repos *repos.Categories
@@ -21,19 +18,16 @@ type Service struct {
 	Audit *audit.Writer
 }
 
-// ValidationError is user-facing.
 type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
-// Input is create/update payload.
 type Input struct {
 	Name  string `json:"name"`
 	Color string `json:"color"`
 	Type  string `json:"type"`
 }
 
-// List returns live categories with per-period spend aggregates (doc 03 §6).
 func (s *Service) List(from, to string) ([]*core.Category, error) {
 	cats, err := s.Repos.List()
 	if err != nil {
@@ -77,7 +71,6 @@ func (s *Service) List(from, to string) ([]*core.Category, error) {
 	return cats, nil
 }
 
-// Create adds a user category (audit category.created).
 func (s *Service) Create(in Input) (*core.Category, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -120,8 +113,6 @@ func (s *Service) Create(in Input) (*core.Category, error) {
 	return c, nil
 }
 
-// Update renames/recolors (audit category.updated). System categories may
-// only change colour [D11].
 func (s *Service) Update(id string, in Input) (*core.Category, error) {
 	c, err := s.Repos.Get(id)
 	if err != nil {
@@ -129,7 +120,6 @@ func (s *Service) Update(id string, in Input) (*core.Category, error) {
 	}
 	before := map[string]any{"name": c.Name, "color": c.Color, "type": c.Type}
 	if c.IsSystem {
-		// Name and type fixed; colour only.
 		if strings.TrimSpace(in.Name) != "" && !strings.EqualFold(in.Name, c.Name) {
 			return nil, &ValidationError{Message: "System category — its name is fixed."}
 		}
@@ -181,9 +171,6 @@ func (s *Service) Update(id string, in Input) (*core.Category, error) {
 	return s.Repos.Get(id)
 }
 
-// Delete soft-deletes a user category (audit category.deleted). Transactions
-// keep pointing at the soft-deleted row; they render as Uncategorised
-// (doc 02 §4).
 func (s *Service) Delete(id string) error {
 	c, err := s.Repos.Get(id)
 	if err != nil {

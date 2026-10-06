@@ -9,10 +9,6 @@ import (
 	"glowworm/internal/store"
 )
 
-// referenceBalanceAt is the original per-(account, day) checkpoint replay,
-// kept as the behavioural reference for the swept balancePointSeries
-// (doc 02 §6): opening balance (or the latest valuation at/before `date`)
-// plus transactions strictly after that checkpoint.
 func referenceBalanceAt(t *testing.T, db *store.DB, accountID, date string) int64 {
 	t.Helper()
 	var opening int64
@@ -87,7 +83,6 @@ func insertValuation(t *testing.T, db *store.DB, id, accountID, date string, val
 	}
 }
 
-// compareSeries checks the swept series against the per-day reference.
 func compareSeries(t *testing.T, a *App, from, to string) {
 	t.Helper()
 	labels, values, err := balancePointSeries(a, from, to)
@@ -123,7 +118,7 @@ func compareSeries(t *testing.T, a *App, from, to string) {
 
 func TestBalancePointSeriesParity(t *testing.T) {
 	db := newSeriesTestDB(t)
-	a := &App{DB: db, Clock: clock.New("UTC")} // Today() falls outside the 2024 ranges below
+	a := &App{DB: db, Clock: clock.New("UTC")}
 
 	t.Run("opening plus transactions", func(t *testing.T) {
 		insertAccount(t, db, "a1", 10000, "2024-01-01")
@@ -150,9 +145,6 @@ func TestBalancePointSeriesParity(t *testing.T) {
 	t.Run("valuations replace checkpoints", func(t *testing.T) {
 		insertAccount(t, db, "a4", 1000, "2024-01-01")
 		insertTx(t, db, "t8", "a4", "2024-01-10", 500)
-		// Valuation before the opening date (opening loses), one at a point
-		// date, two on the same day (latest creation wins), one on a day with
-		// no other change.
 		insertValuation(t, db, "v1", "a4", "2024-01-02", 7000, "2024-01-02T00:00:00Z")
 		insertValuation(t, db, "v2", "a4", "2024-01-10", 8000, "2024-01-10T00:00:00Z")
 		insertValuation(t, db, "v3", "a4", "2024-02-01", 9000, "2024-02-01T00:00:00Z")
@@ -163,8 +155,6 @@ func TestBalancePointSeriesParity(t *testing.T) {
 	})
 
 	t.Run("range starts after earliest data", func(t *testing.T) {
-		// from is later than the earliest tx: the reference has no lower
-		// bound on transaction/valuation dates — the sweep must match.
 		compareSeries(t, a, "2024-02-01", "2024-03-15")
 	})
 
@@ -184,19 +174,11 @@ func TestBalancePointSeriesParity(t *testing.T) {
 	})
 }
 
-// --- agent-era message rendering ---
-
 func TestParseStoredWidgets(t *testing.T) {
-	// Current shape: an array of widgets.
 	arr := `[{"id":"w-1","type":"number","title":"T","data":{"value":"£1"}},
 	         {"id":"w-2","type":"bar","title":"B","data":{"labels":[],"series":[]}}]`
 	if ws := parseStoredWidgets(arr); len(ws) != 2 {
 		t.Errorf("array: got %d widgets, want 2", len(ws))
-	}
-	// Legacy rows stored a single object.
-	one := `{"id":"w-1","type":"number","title":"T","data":{"value":"£1"}}`
-	if ws := parseStoredWidgets(one); len(ws) != 1 || ws[0].Type != "number" {
-		t.Errorf("legacy single: got %+v", ws)
 	}
 	if ws := parseStoredWidgets(""); len(ws) != 0 {
 		t.Errorf("empty: got %d", len(ws))

@@ -1,9 +1,3 @@
-// The query agent (doc 10 agent loop): a provider-agnostic ReAct-style loop.
-// The model answers the user's question with a sequence of JSON actions —
-// {"action":"run_query","sql":...} to fetch data through the read-only
-// sandbox, or {"action":"final","text":...,"widgets":[...]} to answer with
-// rich text and embedded widgets. Works with every provider (including
-// Ollama) because the protocol rides the plain chat transcript.
 package query
 
 import (
@@ -20,22 +14,19 @@ import (
 	"glowworm/internal/util"
 )
 
-// Agent limits (guardrails, doc 10 §9).
 const (
-	agentMaxRounds     = 6    // tool calls + corrections before forcing a final
-	agentMaxWidgets    = 3    // widgets per answer
-	agentMaxTranscript = 8000 // chars of tool result fed back per round
+	agentMaxRounds     = 6
+	agentMaxWidgets    = 3
+	agentMaxTranscript = 8000
 	agentCallTimeout   = 90 * time.Second
 )
 
-// agentWidgetSpec is the model's widget proposal; sanitised before use.
 type agentWidgetSpec struct {
 	Type  string          `json:"type"`
 	Title string          `json:"title"`
 	Data  json.RawMessage `json:"data"`
 }
 
-// agentAction is one model turn in the protocol.
 type agentAction struct {
 	Action  string            `json:"action"`
 	SQL     string            `json:"sql"`
@@ -43,14 +34,8 @@ type agentAction struct {
 	Widgets []agentWidgetSpec `json:"widgets"`
 }
 
-// errNoContent marks a final action with neither text nor surviving widgets.
 var errNoContent = errors.New("agent: empty final answer")
 
-// parseAction turns one model reply into an action, normalising widget
-// payloads: payload keys the model placed at the widget's top level
-// (transactions/labels/series/…) are merged into data, and array-shaped
-// data for transactions is wrapped — sanitisation can then recover widgets
-// that would otherwise be dropped as malformed.
 func parseAction(resp string) (agentAction, error) {
 	var act struct {
 		Action  string            `json:"action"`
@@ -82,7 +67,6 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	if d, ok := m["data"]; ok {
 		sp.Data = d
 	}
-	// Array data on a transactions widget: wrap it.
 	if sp.Data != nil && strings.EqualFold(sp.Type, "transactions") {
 		var arr []json.RawMessage
 		if json.Unmarshal(sp.Data, &arr) == nil {
@@ -91,7 +75,6 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 			return sp
 		}
 	}
-	// Array of {label, value} objects on a pie: convert to {labels, values}.
 	if sp.Data != nil && strings.EqualFold(sp.Type, "pie") {
 		var arr []map[string]any
 		if json.Unmarshal(sp.Data, &arr) == nil && len(arr) > 0 {
@@ -117,7 +100,7 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	}
 	var dm map[string]json.RawMessage
 	if sp.Data != nil {
-		_ = json.Unmarshal(sp.Data, &dm) // non-object data falls through
+		_ = json.Unmarshal(sp.Data, &dm)
 	}
 	if dm == nil {
 		dm = map[string]json.RawMessage{}
@@ -149,8 +132,6 @@ func rawStr(v json.RawMessage) string {
 	return ""
 }
 
-// agentSystemPrompt builds the tool contract: schema, catalog, protocol.
-// win, when non-nil, is the view period the user is currently browsing.
 func (s *Service) agentSystemPrompt(win *TimeWindow) string {
 	cats, _ := s.nameList(`SELECT name FROM categories WHERE deleted_at IS NULL AND is_system = 0`)
 	accounts, _ := s.nameList(`SELECT name FROM accounts WHERE deleted_at IS NULL`)
@@ -286,13 +267,10 @@ func joinOrNone(list []string) string {
 	return strings.Join(list, ", ")
 }
 
-// AskAgent runs the agent loop and returns the composed answer. onStep, when
-// non-nil, receives reasoning steps as they happen (for progressive streaming).
 func (s *Service) AskAgent(question string, onStep func(string)) (*Answer, error) {
 	return s.AskAgentWindow(question, nil, onStep)
 }
 
-// AskAgentWindow is AskAgent with the user's current view period (win).
 func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(string)) (*Answer, error) {
 	system := s.agentSystemPrompt(win)
 	msgs := []ai.ChatMessage{{Role: "user", Content: question}}
@@ -332,7 +310,6 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 				ai.ChatMessage{Role: "user", Content: invalidFeedback})
 			continue
 		}
-		// steps are emitted as they happen (progressive streaming).
 		switch act.Action {
 		case "run_query":
 			msgs = append(msgs, ai.ChatMessage{Role: "assistant", Content: resp})
@@ -356,9 +333,6 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 			if ferr == nil {
 				return ans, nil
 			}
-			// One corrective round for an empty final (empty text + no
-			// surviving widgets), then the caller falls back to the legacy
-			// pipeline rather than dead-ending.
 			if errors.Is(ferr, errNoContent) && !emptyFinalRetried {
 				emptyFinalRetried = true
 				msgs = append(msgs,
@@ -373,7 +347,6 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 				ai.ChatMessage{Role: "user", Content: "TOOL RESULT: " + invalidFeedback})
 		}
 	}
-	// Budget exhausted: force a final answer without further tools.
 	msgs = append(msgs, ai.ChatMessage{Role: "user",
 		Content: "You have used your query budget. Reply now with the final JSON answer {\"action\":\"final\",...}. You may not run more queries."})
 	callStart = time.Now()
@@ -395,7 +368,6 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 	return s.finishAgent(act, steps, emit)
 }
 
-// stripFences removes markdown code fences a model may wrap the SQL in.
 func stripFences(s string) string {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "```") {
@@ -409,9 +381,6 @@ func stripFences(s string) string {
 	return s
 }
 
-// finishAgent validates widgets and builds the final Answer. A final with
-// neither text nor surviving widgets returns errNoContent (the loop retries
-// once; the caller falls back to the legacy pipeline).
 func (s *Service) finishAgent(act agentAction, steps []string, emit func(string)) (*Answer, error) {
 	widgetsList := sanitizeWidgets(act.Widgets)
 	text := strings.TrimSpace(act.Text)
@@ -447,12 +416,8 @@ func truncateChars(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// --- widget sanitisation (never trust model output) ---
-
 var colorRE = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
 
-// sanitizeWidgets validates every proposed widget, drops malformed ones, and
-// normalises shapes to what the frontend widget engine expects.
 func sanitizeWidgets(specs []agentWidgetSpec) []*widgets.Widget {
 	out := make([]*widgets.Widget, 0, len(specs))
 	for _, sp := range specs {
@@ -497,7 +462,6 @@ func sanitizeWidget(sp agentWidgetSpec) *widgets.Widget {
 	return nil
 }
 
-// decodeData unmarshals the raw widget data payload.
 func decodeData(raw json.RawMessage) map[string]any {
 	if len(raw) == 0 {
 		return nil
@@ -525,8 +489,6 @@ func toStrings(v any, max int) []string {
 	return out
 }
 
-// toMinorUnits converts a JSON value to int64 minor units; tolerates
-// numbers-as-strings (models emit them), rejects anything else.
 func toMinorUnits(v any) (int64, bool) {
 	switch n := v.(type) {
 	case float64:
@@ -543,8 +505,6 @@ func toMinorUnits(v any) (int64, bool) {
 	return 0, false
 }
 
-// sanitizeSeries validates bar/line payloads: labels + 1-6 numeric series
-// (integer minor units). Colors are validated or palette-assigned.
 func sanitizeSeries(raw json.RawMessage) map[string]any {
 	d := decodeData(raw)
 	if d == nil {
@@ -595,7 +555,6 @@ func sanitizeSeries(raw json.RawMessage) map[string]any {
 	return map[string]any{"labels": labels, "series": series}
 }
 
-// sanitizePie validates pie payloads (non-negative minor units).
 func sanitizePie(raw json.RawMessage) map[string]any {
 	d := decodeData(raw)
 	if d == nil {
@@ -620,7 +579,6 @@ func sanitizePie(raw json.RawMessage) map[string]any {
 	return map[string]any{"labels": labels, "values": vals}
 }
 
-// sanitizeNumber validates number payloads (display strings).
 func sanitizeNumber(raw json.RawMessage) map[string]any {
 	d := decodeData(raw)
 	if d == nil {
@@ -634,7 +592,6 @@ func sanitizeNumber(raw json.RawMessage) map[string]any {
 	return map[string]any{"value": value, "caption": caption}
 }
 
-// sanitizeText validates text payloads.
 func sanitizeText(raw json.RawMessage) map[string]any {
 	d := decodeData(raw)
 	if d == nil {
@@ -647,7 +604,6 @@ func sanitizeText(raw json.RawMessage) map[string]any {
 	return map[string]any{"body": body}
 }
 
-// sanitizeTable validates table payloads (display strings).
 func sanitizeTable(raw json.RawMessage) map[string]any {
 	d := decodeData(raw)
 	if d == nil {
@@ -686,7 +642,6 @@ func sanitizeTable(raw json.RawMessage) map[string]any {
 	return map[string]any{"columns": columns, "rows": rows}
 }
 
-// sanitizeTransactions validates transaction-list payloads.
 func sanitizeTransactions(raw json.RawMessage) map[string]any {
 	d := decodeData(raw)
 	if d == nil {

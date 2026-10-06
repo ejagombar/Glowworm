@@ -9,7 +9,6 @@ import (
 	"glowworm/internal/util"
 )
 
-// Users is the owner-account repo (single user in v1, doc 02 §2.2).
 type Users struct{ DB *store.DB }
 
 func (r *Users) Count() (int, error) {
@@ -53,10 +52,8 @@ func (r *Users) UpdatePassword(id, passwordHash string) error {
 	return err
 }
 
-// Settings is the key-value settings repo (doc 12 §1).
 type Settings struct{ DB *store.DB }
 
-// GetString decodes a JSON string setting ("" default).
 func (r *Settings) GetString(key string) string {
 	var v string
 	err := r.DB.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
@@ -70,7 +67,6 @@ func (r *Settings) GetString(key string) string {
 	return ""
 }
 
-// GetBool decodes a JSON bool setting (false default).
 func (r *Settings) GetBool(key string) bool {
 	var v string
 	err := r.DB.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
@@ -84,7 +80,6 @@ func (r *Settings) GetBool(key string) bool {
 	return false
 }
 
-// GetFloat decodes a JSON number setting (def default).
 func (r *Settings) GetFloat(key string, def float64) float64 {
 	var v string
 	err := r.DB.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
@@ -98,7 +93,6 @@ func (r *Settings) GetFloat(key string, def float64) float64 {
 	return def
 }
 
-// All returns all settings decoded to a map[string]any.
 func (r *Settings) All() (map[string]any, error) {
 	rows, err := r.DB.Query(`SELECT key, value FROM settings`)
 	if err != nil {
@@ -121,7 +115,6 @@ func (r *Settings) All() (map[string]any, error) {
 	return out, rows.Err()
 }
 
-// Set stores a JSON-encoded value (tx may be nil).
 func (r *Settings) Set(tx *sql.Tx, key string, value any) error {
 	b, _ := json.Marshal(value)
 	if b == nil {
@@ -133,10 +126,8 @@ func (r *Settings) Set(tx *sql.Tx, key string, value any) error {
 	return err
 }
 
-// AIConfig is the single-row AI provider configuration repo (doc 09 §4).
 type AIConfig struct{ DB *store.DB }
 
-// AIConfigRow mirrors ai_provider_config.
 type AIConfigRow struct {
 	Provider  string
 	Models    map[string]string
@@ -159,8 +150,6 @@ func (r *AIConfig) Get() (*AIConfigRow, error) {
 	return &row, nil
 }
 
-// Set persists the config (tx may be nil — services pass theirs for atomicity
-// with the audit entry).
 func (r *AIConfig) Set(tx *sql.Tx, provider string, models map[string]string, baseURL, keyCipher string) error {
 	m, _ := json.Marshal(models)
 	if m == nil {
@@ -171,7 +160,6 @@ func (r *AIConfig) Set(tx *sql.Tx, provider string, models map[string]string, ba
 	return err
 }
 
-// LogCall records one AI call (doc 09 §8). Never fatal.
 func (r *AIConfig) LogCall(capability, provider, model string, prompt, completion, latency int, ok bool, errMsg string) {
 	okInt := 0
 	if ok {

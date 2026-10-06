@@ -1,13 +1,9 @@
--- Glowworm 0001_init — full schema per docs/design/02-data-model.md
-
--- 2.1 settings (key-value, JSON values)
 CREATE TABLE settings (
   key        TEXT PRIMARY KEY,
   value      TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
--- 2.2 users (single owner in v1)
 CREATE TABLE users (
   id            TEXT PRIMARY KEY,
   username      TEXT NOT NULL UNIQUE,
@@ -17,7 +13,6 @@ CREATE TABLE users (
   updated_at    TEXT NOT NULL
 );
 
--- 3.1 accounts
 CREATE TABLE accounts (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,
@@ -36,7 +31,6 @@ CREATE TABLE accounts (
   deleted_at           TEXT
 );
 
--- 3.2 valuations (point-in-time corrections)
 CREATE TABLE valuations (
   id            TEXT PRIMARY KEY,
   account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -52,7 +46,6 @@ CREATE TABLE valuations (
 );
 CREATE INDEX idx_valuations_account_date ON valuations(account_id, date);
 
--- 4 categories
 CREATE TABLE categories (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
@@ -66,7 +59,6 @@ CREATE TABLE categories (
   UNIQUE (name COLLATE NOCASE)
 );
 
--- 5.1 transactions
 CREATE TABLE transactions (
   id                  TEXT PRIMARY KEY,
   account_id          TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -97,7 +89,6 @@ CREATE INDEX idx_tx_transfer ON transactions(transfer_id) WHERE transfer_id IS N
 CREATE INDEX idx_tx_import ON transactions(import_batch_id) WHERE import_batch_id IS NOT NULL;
 CREATE INDEX idx_tx_dedupe ON transactions(account_id, dedupe_hash);
 
--- 5.2 transfers (linked legs)
 CREATE TABLE transfers (
   id                       TEXT PRIMARY KEY,
   source_transaction_id      TEXT NOT NULL UNIQUE REFERENCES transactions(id) ON DELETE CASCADE,
@@ -110,7 +101,6 @@ CREATE TABLE transfers (
 );
 CREATE INDEX idx_transfers_dest ON transfers(destination_transaction_id);
 
--- 6.1 recurring_keys
 CREATE TABLE recurring_keys (
   key            TEXT PRIMARY KEY,
   label          TEXT NOT NULL,
@@ -126,7 +116,6 @@ CREATE TABLE recurring_keys (
   updated_at     TEXT NOT NULL
 );
 
--- 6.2 classifier model + rules tier
 CREATE TABLE classifier_models (
   id             INTEGER PRIMARY KEY,
   version        INTEGER NOT NULL,
@@ -143,7 +132,6 @@ CREATE TABLE category_rules (
   updated_at  TEXT NOT NULL
 );
 
--- 7.1 import_batches
 CREATE TABLE import_batches (
   id              TEXT PRIMARY KEY,
   filename        TEXT NOT NULL,
@@ -160,7 +148,6 @@ CREATE TABLE import_batches (
   confirmed_at    TEXT
 );
 
--- 7.2 import_staging
 CREATE TABLE import_staging (
   id                  TEXT PRIMARY KEY,
   batch_id            TEXT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
@@ -177,11 +164,12 @@ CREATE TABLE import_staging (
   needs_review        INTEGER NOT NULL DEFAULT 0,
   duplicate_of        TEXT REFERENCES transactions(id),
   raw                 TEXT NOT NULL DEFAULT '{}',
-  created_at          TEXT NOT NULL
+  created_at          TEXT NOT NULL,
+  suggested_category_id TEXT REFERENCES categories(id),
+  suggested_confidence  REAL
 );
 CREATE INDEX idx_staging_batch ON import_staging(batch_id, line_no);
 
--- 7.3 import_schemas
 CREATE TABLE import_schemas (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
@@ -194,10 +182,10 @@ CREATE TABLE import_schemas (
   use_count    INTEGER NOT NULL DEFAULT 0,
   last_used_at TEXT,
   created_at   TEXT NOT NULL,
-  updated_at   TEXT NOT NULL
+  updated_at   TEXT NOT NULL,
+  account_id   TEXT REFERENCES accounts(id) ON DELETE SET NULL
 );
 
--- 8.1 pinned_widgets
 CREATE TABLE pinned_widgets (
   id          TEXT PRIMARY KEY,
   position    INTEGER NOT NULL DEFAULT 0,
@@ -211,7 +199,6 @@ CREATE TABLE pinned_widgets (
   updated_at  TEXT NOT NULL
 );
 
--- 8.2 conversations / messages
 CREATE TABLE conversations (
   id         TEXT PRIMARY KEY,
   title      TEXT NOT NULL DEFAULT 'New conversation',
@@ -231,7 +218,6 @@ CREATE TABLE messages (
 );
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, created_at);
 
--- 8.3 audit: branchable timeline (doc 11 §4)
 CREATE TABLE audit_paths (
   id             TEXT PRIMARY KEY,
   parent_path_id TEXT REFERENCES audit_paths(id),
@@ -268,7 +254,6 @@ CREATE TABLE audit_reverts (
   reverted_entry  INTEGER NOT NULL
 );
 
--- 9 AI bookkeeping
 CREATE TABLE ai_calls (
   id                INTEGER PRIMARY KEY,
   capability        TEXT NOT NULL,
@@ -290,3 +275,50 @@ CREATE TABLE ai_provider_config (
   key_cipher     TEXT NOT NULL DEFAULT '',
   updated_at     TEXT NOT NULL
 );
+
+CREATE TABLE import_files (
+  batch_id TEXT PRIMARY KEY REFERENCES import_batches(id) ON DELETE CASCADE,
+  content  BLOB NOT NULL
+);
+
+CREATE TABLE chat_day_summaries (
+  day           TEXT PRIMARY KEY,
+  summary       TEXT NOT NULL,
+  message_count INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+CREATE TABLE account_archives (
+  id          TEXT PRIMARY KEY,
+  account_id  TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  tx_count    INTEGER NOT NULL,
+  deleted_at  TEXT NOT NULL,
+  payload     TEXT NOT NULL
+);
+CREATE INDEX idx_account_archives_deleted ON account_archives(deleted_at DESC);
+
+INSERT INTO categories (id, name, color, type, is_system, sort_order, created_at, updated_at) VALUES
+  ('c-system-income',    'Income',            '#0e7a4d', 'income',   1, 0, '1970-01-01T00:00:00Z', '1970-01-01T00:00:00Z'),
+  ('c-system-internal',  'Internal transfer', '#2e9d8f', 'internal', 1, 0, '1970-01-01T00:00:00Z', '1970-01-01T00:00:00Z');
+
+INSERT INTO settings (key, value, updated_at) VALUES
+  ('theme',                    '"system"',    '1970-01-01T00:00:00Z'),
+  ('currency',                 '"GBP"',       '1970-01-01T00:00:00Z'),
+  ('user_name',                '""',          '1970-01-01T00:00:00Z'),
+  ('default_period',           '"last-12m"',  '1970-01-01T00:00:00Z'),
+  ('privacy_default',          'false',       '1970-01-01T00:00:00Z'),
+  ('setup_completed',          'false',       '1970-01-01T00:00:00Z'),
+  ('cat_local_threshold',      '0.75',        '1970-01-01T00:00:00Z'),
+  ('cat_ai_threshold',         '0.8',         '1970-01-01T00:00:00Z'),
+  ('cat_min_examples',         '3',           '1970-01-01T00:00:00Z'),
+  ('transfer_threshold',       '0.7',         '1970-01-01T00:00:00Z'),
+  ('transfer_date_window_days','4',           '1970-01-01T00:00:00Z'),
+  ('ai_daily_token_cap',       '0',           '1970-01-01T00:00:00Z');
+
+INSERT INTO audit_paths (id, parent_path_id, fork_entry_id, label, is_active, created_at) VALUES
+  ('main', NULL, NULL, 'Main', 1, '1970-01-01T00:00:00Z');
+
+INSERT INTO ai_provider_config (id, provider, models, base_url, key_cipher, updated_at) VALUES
+  (1, '', '{}', '', '', '1970-01-01T00:00:00Z');

@@ -14,7 +14,7 @@ type auditEntryView struct {
 	ID          int64
 	Timestamp   string
 	Actor       string
-	Kind        string // you | ai | import
+	Kind        string
 	Title       string
 	Sub         string
 	DiffLines   []core.DiffLine
@@ -61,13 +61,11 @@ func actorLabel(actor, detail string) string {
 	}
 }
 
-// seriesJSON builds a line-chart payload for the timeline (minor units).
 func seriesJSON(labels []string, values []int64) string {
 	return fmt.Sprintf(`{"labels":%s,"series":[{"name":"Balance","color":"#0e6f51","values":%s}]}`,
 		jsonSlice(labels), jsonInts(values))
 }
 
-// handleLoginPage renders the login view (doc 04 §5.9).
 func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	if a.Cfg.AuthMode != "password" {
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -86,8 +84,6 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("e") == "1" {
 		errMsg = "Incorrect username or password."
 	}
-	// The layout needs the shared viewBase fields; Standalone drops the
-	// masthead/content wrapper so the login card fills the viewport.
 	base, err := a.base(w, r, "login", "Sign in")
 	if err != nil {
 		a.Log.Error("login page", "err", err)
@@ -104,7 +100,6 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLoginSubmit verifies credentials (doc 14 §2).
 func (a *App) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if a.Cfg.AuthMode != "password" {
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -123,7 +118,6 @@ func (a *App) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	password := r.PostFormValue("password")
 	user, err := a.Repos.Users.ByUsername(username)
 	if err != nil {
-		// Constant-time-ish: still run a bcrypt compare against a dummy hash.
 		_ = verifyPassword(password, "$2a$12$C6UzMDM.H6dfI/f/IKcEe.6uGRJpDg196n4z1S3z3WBGWl7LuOYeK")
 		http.Redirect(w, r, "/login?e=1", http.StatusFound)
 		return
@@ -136,7 +130,6 @@ func (a *App) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-// handleLogout clears the session (doc 03 §2).
 func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if a.Cfg.AuthMode == "password" && !checkCSRF(r) {
 		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
@@ -146,7 +139,6 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
-// handleSetupPage hosts the first-run wizard (doc 12 §3).
 func (a *App) handleSetupPage(w http.ResponseWriter, r *http.Request) {
 	if a.Audit.HasUser() {
 		http.Redirect(w, r, "/", http.StatusFound)

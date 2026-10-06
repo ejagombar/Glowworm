@@ -1,4 +1,3 @@
-// Package transfers implements auto-detection and manual linking (doc 08).
 package transfers
 
 import (
@@ -16,7 +15,6 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-// Service owns transfer detection and linking.
 type Service struct {
 	DB          *store.DB
 	Txs         *repos.Transactions
@@ -24,15 +22,13 @@ type Service struct {
 	Audit       *audit.Writer
 	Settings    *repos.Settings
 	Clock       *clock.Clock
-	InternalCat func() (string, error) // system "Internal transfer" id
+	InternalCat func() (string, error)
 }
 
-// ValidationError is user-facing.
 type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
-// Detection rules (doc 08 §2).
 const (
 	dateWindowDays  = 4
 	scoreIdentifier = 0.5
@@ -41,15 +37,12 @@ const (
 	scoreDateClose  = 0.2
 )
 
-// Detect scans unlinked transactions for transfer pairs and auto-links
-// those scoring ≥ threshold (doc 08 §2). Returns the number of links made.
 func (s *Service) Detect() (int, error) {
 	threshold := s.Settings.GetFloat("transfer_threshold", 0.7)
 	txs, err := s.Txs.UnlinkedTxs()
 	if err != nil {
 		return 0, err
 	}
-	// Identifier index: account → searchable identifier fragments.
 	idents := map[string][]string{}
 	accounts, err := s.Accounts.List()
 	if err != nil {
@@ -62,7 +55,7 @@ func (s *Service) Detect() (int, error) {
 			if len(f) >= 4 {
 				fragments = append(fragments, f)
 				if len(f) > 4 {
-					fragments = append(fragments, f[len(f)-4:]) // last4
+					fragments = append(fragments, f[len(f)-4:])
 				}
 			}
 		}
@@ -89,10 +82,10 @@ func (s *Service) Detect() (int, error) {
 				continue
 			}
 			if b.AccountID == a.AccountID {
-				continue // same account: never auto-link (doc 08 §2)
+				continue
 			}
 			if b.AmountMinor != -a.AmountMinor {
-				continue // minor-exact amount equality
+				continue
 			}
 			gapDays := dateGap(a.Date, b.Date)
 			if gapDays > dateWindowDays {
@@ -119,7 +112,6 @@ func (s *Service) Detect() (int, error) {
 				best, bestScore, bestMethod = b, score, method
 			}
 		}
-		// Ambiguity guard: no auto-link when another candidate ties (doc 08 §2).
 		if best == nil || bestScore < threshold {
 			continue
 		}
@@ -138,7 +130,6 @@ func (s *Service) Detect() (int, error) {
 		if ties > 1 {
 			continue
 		}
-		// Create the link.
 		src, dst := a, best
 		if src.AmountMinor > 0 {
 			src, dst = dst, src
@@ -229,7 +220,6 @@ func dateGap(a, b string) int {
 	return d
 }
 
-// Link manually links two transactions (doc 08 §4.1, audit transfer.linked).
 func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error) {
 	if txID == counterpartID {
 		return nil, &ValidationError{Message: "A transaction can't link to itself"}
@@ -297,7 +287,6 @@ func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error
 	return tr, nil
 }
 
-// Unlink breaks a link (audit transfer.unlink).
 func (s *Service) Unlink(txID string, actor string) error {
 	t, err := s.Txs.Get(txID)
 	if err != nil {
@@ -326,7 +315,6 @@ func (s *Service) Unlink(txID string, actor string) error {
 		if err := s.Txs.DeleteTransfer(tx, tr.ID); err != nil {
 			return err
 		}
-		// Legs revert to their pre-link type (doc 08 §4.2).
 		for _, leg := range []*core.Transaction{src, dst} {
 			newType := core.TypeExpense
 			if leg.AmountMinor > 0 {
@@ -356,15 +344,12 @@ func (s *Service) Unlink(txID string, actor string) error {
 	})
 }
 
-// Suggestion is one candidate counterpart (doc 08 §4.3).
 type Suggestion struct {
 	Tx    *core.Transaction `json:"tx"`
 	Score float64           `json:"score"`
 	Days  int               `json:"days"`
 }
 
-// Suggestions returns candidate counterparts ordered by (amount match,
-// date proximity) — doc 08 §4.3 normative ordering.
 func (s *Service) Suggestions(txID string) ([]*Suggestion, error) {
 	t, err := s.Txs.Get(txID)
 	if err != nil {
@@ -389,7 +374,6 @@ func (s *Service) Suggestions(txID string) ([]*Suggestion, error) {
 		}
 		score += 1 - math.Min(float64(gap), 30)/30
 		if c.Type == core.TypeTransfer || t.Type == core.TypeTransfer {
-			// already-transfer rows are excluded upstream; keep typing sane
 			continue
 		}
 		out = append(out, &Suggestion{Tx: c, Score: score, Days: gap})
@@ -426,8 +410,6 @@ func shiftDate(date string, days int) string {
 
 var _ = normalize.Text
 
-// CounterpartOf returns the linked transaction on the other side of a
-// transfer (the UI editor shows it when editing an existing transfer).
 func (s *Service) CounterpartOf(txID string) (*core.Transaction, error) {
 	t, err := s.Txs.Get(txID)
 	if err != nil {

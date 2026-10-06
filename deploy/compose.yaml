@@ -1,4 +1,3 @@
-# Glowworm — docker compose deployment (doc 13 §5)
 services:
   glowworm:
     build: ..

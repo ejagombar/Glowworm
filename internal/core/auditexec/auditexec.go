@@ -1,7 +1,3 @@
-// Package auditexec implements the engine's apply hook: it maps an audit
-// entry (action + before/after/revert payloads) to its inverse (revert) or
-// re-application (path restore) — doc 11 §4.2/§4.5. One function per action;
-// unknown actions report a clear error so the engine blocks gracefully.
 package auditexec
 
 import (
@@ -16,17 +12,14 @@ import (
 	"glowworm/internal/util"
 )
 
-// Executor owns the action handlers.
 type Executor struct {
 	DB          *store.DB
 	Accounts    *repos.Accounts
 	Categories  *repos.Categories
 	Txs         *repos.Transactions
-	InternalCat func(tx *sql.Tx) (string, error) // resolves system "Internal transfer" id
+	InternalCat func(tx *sql.Tx) (string, error)
 }
 
-// Apply dispatches an entry: revert semantics are driven by entry.Action and
-// the payloads. reapply=false → undo the effect; true → re-apply it.
 func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	var before, after, revert map[string]any
 	_ = json.Unmarshal([]byte(ent.Before), &before)
@@ -43,13 +36,11 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 			return fmt.Errorf("auditexec: no transaction id in payload")
 		}
 		if ent.Action == "transaction.created" {
-			// Revert = soft delete; re-apply = restore.
 			if reapply {
 				return x.Txs.Restore(tx, id)
 			}
 			return x.Txs.SoftDelete(tx, id)
 		}
-		// transaction.deleted: revert = restore the row.
 		if reapply {
 			return x.Txs.SoftDelete(tx, id)
 		}
@@ -62,8 +53,6 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		}
 		var target map[string]any
 		if reapply {
-			// For edited: after snapshot holds the new fields; for applied:
-			// after holds the assigned categories.
 			target = after
 		} else {
 			target = revertFields(revert)
@@ -95,12 +84,14 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		return x.applyAccountFields(tx, id, fields)
 
 	case "account.deleted":
-		return fmt.Errorf("auditexec: account deletion is destructive and cannot be reverted")
+		return fmt.Errorf("auditexec: account deletion can't be undone from history — restore it from Settings → Deleted accounts")
+
+	case "account.restored", "account.purged":
+		return fmt.Errorf("auditexec: %s can't be replayed from history — manage it from Settings → Accounts", ent.Action)
 
 	case "valuation.created":
 		vid := str(revert["valuation_id"])
 		if vid == "" || vid == "@valuation_id" {
-			// Legacy/placeholder: match by account+date+value from after.
 			var vID string
 			err := tx.QueryRow(`SELECT id FROM valuations WHERE account_id = ? AND date = ? AND value_minor = ?
 				ORDER BY created_at DESC LIMIT 1`,
@@ -160,7 +151,7 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 			ent.Action == "setup.completed" {
 			return fmt.Errorf("auditexec: revert for %s not wired in this build", ent.Action)
 		}
-		return nil // record-only entries: nothing to apply
+		return nil
 
 	default:
 		return fmt.Errorf("auditexec: no handler for action %q", ent.Action)
@@ -192,7 +183,6 @@ func int64F(v any) int64 {
 	return 0
 }
 
-// applyTxFields restores/re-applies editable fields from a snapshot map.
 func (x *Executor) applyTxFields(tx *sql.Tx, id string, f map[string]any) error {
 	if f == nil {
 		return nil
@@ -247,8 +237,6 @@ func (x *Executor) applyTxFields(tx *sql.Tx, id string, f map[string]any) error 
 	return err
 }
 
-// applyCategories reverts/re-applies an AI categorisation batch (doc 09 §7):
-// payload {index, transaction_id, before:{source,category_id}, after:{...}}.
 func (x *Executor) applyCategories(tx *sql.Tx, id string, cat any, reapply bool) error {
 	items, ok := cat.([]any)
 	if !ok {
@@ -380,8 +368,6 @@ func (x *Executor) applyTransfer(tx *sql.Tx, ent *audit.AuditRow, before, after,
 		return str(l0["id"]), str(l1["id"])
 	}
 	if ent.Action == "transfer.linked" {
-		// Revert: remove link, restore legs to pre-link types.
-		// Re-apply: re-create the link between the recorded legs.
 		if reapply {
 			a, b := legsOf(after)
 			if a == "" || b == "" {
@@ -412,7 +398,6 @@ func (x *Executor) applyTransfer(tx *sql.Tx, ent *audit.AuditRow, before, after,
 		}
 		return x.Txs.DeleteTransfer(tx, transferID)
 	}
-	// transfer.unlink: revert = re-create the link; re-apply = remove it again.
 	if reapply {
 		if transferID == "" {
 			return fmt.Errorf("auditexec: transfer id missing in payload")
@@ -444,7 +429,6 @@ func (x *Executor) applyTransfer(tx *sql.Tx, ent *audit.AuditRow, before, after,
 	return x.Txs.CreateTransfer(tx, tr, src, dst, internalCat)
 }
 
-// unstampLegs restores the legs' pre-link type/category from the snapshot.
 func (x *Executor) unstampLegs(tx *sql.Tx, ent *audit.AuditRow, snapshot map[string]any) error {
 	legs, _ := snapshot["legs"].([]any)
 	for _, l := range legs {
@@ -484,7 +468,6 @@ func (x *Executor) applyImportConfirmed(tx *sql.Tx, ent *audit.AuditRow, revert 
 	if reapply {
 		return fmt.Errorf("auditexec: re-applying a confirmed import is not supported")
 	}
-	// Revert = soft-delete the batch's transactions.
 	rows, err := tx.Query(`SELECT id FROM transactions WHERE import_batch_id = ? AND deleted_at IS NULL`, batchID)
 	if err != nil {
 		return err
@@ -512,7 +495,6 @@ func (x *Executor) applyImportConfirmed(tx *sql.Tx, ent *audit.AuditRow, revert 
 
 func nowStr() string { return util.NowStr() }
 
-// tx-aware entity loaders (doc 11 §4.2 — the engine always passes a tx).
 func getTxIn(r *repos.Transactions, tx *sql.Tx, id string) (*core.Transaction, error) {
 	var t core.Transaction
 	var merchant, catID, recKey, transferID, batchID, deletedAt sql.NullString

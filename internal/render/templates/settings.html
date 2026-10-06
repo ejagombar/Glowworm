@@ -14,9 +14,16 @@
           <h2>Accounts</h2>
           <p class="muted">Name, type, opening balance and current valuation. Valuation updates are stored as corrections, not payments.</p>
         </div>
-        <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
-          <svg class="icon"><use href="#i-plus"/></svg> Add account
-        </button>
+        <div class="settings-accounts-actions">
+          {{if .Accounts}}<a class="btn btn-ghost btn-xs" href="/api/v1/accounts/backup" download
+            title="Download every account with its transactions as one backup file">Back up all</a>{{end}}
+          <button class="btn btn-ghost btn-xs" id="restoreBackupBtn" type="button"
+            title="Restore accounts from a backup file">Restore from backup…</button>
+          <input type="file" id="restoreBackupFile" accept=".json,application/json" hidden />
+          <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
+            <svg class="icon"><use href="#i-plus"/></svg> Add account
+          </button>
+        </div>
       </div>
       <div class="settings-accounts-grid" id="settingsAccounts">
         {{range .Accounts}}
@@ -37,6 +44,25 @@
           <div class="settings-account-sub">Add your first account to start importing statements.</div></div>
         {{end}}
       </div>
+      {{if .Archives}}
+      <div class="deleted-accounts" id="deletedAccounts">
+        <h3>Deleted accounts</h3>
+        <p class="muted">Kept with all their transactions until you delete them for good.</p>
+        <ul class="deleted-accounts-list">
+          {{range .Archives}}
+          <li data-archive-id="{{.ID}}" data-archive-name="{{.Name}}">
+            <div class="deleted-account-main">
+              <div class="settings-account-name">{{.Name}}</div>
+              <div class="settings-account-sub">Deleted {{dayMonthYear (slice .DeletedAt 0 10)}} · {{.TxCount}} transaction{{if ne .TxCount 1}}s{{end}}</div>
+            </div>
+            <button class="btn btn-ghost btn-xs" type="button" data-archive-restore>Restore</button>
+            <a class="btn btn-ghost btn-xs" href="/api/v1/accounts/archives/{{.ID}}/backup" download>Download</a>
+            <button class="btn btn-ghost btn-xs danger-text" type="button" data-archive-purge>Delete forever</button>
+          </li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}
     </div>
 
     <div class="panel setting-block">

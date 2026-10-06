@@ -17,7 +17,6 @@
   </script>
 </head>
 <body{{if .Privacy}} class="privacy"{{end}}>
-  <!-- Icon sprite -->
   <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
   <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
     <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
@@ -120,8 +119,8 @@
         </div>
 
         <div class="masthead-actions">
-          <button class="icon-btn{{if .Privacy}} active{{end}}" id="privacyToggle" title="Hide balances" aria-label="Toggle balance visibility">
-            <svg class="icon"><use href="#i-eye"/></svg>
+          <button class="icon-btn{{if .Privacy}} active{{end}}" id="privacyToggle" title="{{if .Privacy}}Show balances{{else}}Hide balances{{end}}" aria-label="Toggle balance visibility" aria-pressed="{{if .Privacy}}true{{else}}false{{end}}">
+            <svg class="icon"><use href="{{if .Privacy}}#i-eye-off{{else}}#i-eye{{end}}"/></svg>
           </button>
           <a class="tabnav-item tabnav-icon{{if eq .View "settings"}} active{{end}}" href="/settings" title="Settings" aria-label="Settings">
             <svg class="icon"><use href="#i-cog"/></svg>
@@ -138,7 +137,6 @@
 {{end}}
   </div>
 
-  <!-- Confirm modal -->
   <div class="modal-backdrop" id="confirmModal" hidden>
     <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
       <button class="icon-btn modal-close" data-action="close-confirm" aria-label="Close">
@@ -158,7 +156,6 @@
     </div>
   </div>
 
-  <!-- Widget settings drawer (chat + dashboard widgets) -->
   <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
   <aside class="drawer" id="widgetDrawer" hidden aria-label="Widget settings">
     <div class="drawer-head">
