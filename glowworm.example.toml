@@ -11,6 +11,10 @@ auth_mode = "password"   # password | none (none: trusted networks only)
 log_format = "text"      # text | json
 log_level = "info"
 upload_max_mb = 25
+# Foreign-currency rows in imports are converted with the ECB's daily rates
+# (fetched from api.frankfurter.dev; only currency codes and dates are sent).
+# "off" means you type rates in yourself.
+# exchange_rates = "ecb"
 # trusted_proxies = "127.0.0.1"  # behind NGINX
 # setup_token = "..."           # optional gate for the first-run setup page
 # Create the account at startup instead of in the browser (only when none

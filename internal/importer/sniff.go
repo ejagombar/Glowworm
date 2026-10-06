@@ -57,6 +57,10 @@ type Row struct {
 	DestinationText string
 	TypeHint        string
 	FitID           string
+	// OrigAmountMinor/OrigCurrency: what was actually paid when it wasn't in
+	// the account's currency (signed like AmountMinor).
+	OrigAmountMinor int64
+	OrigCurrency    string
 	Raw             map[string]string
 }
 

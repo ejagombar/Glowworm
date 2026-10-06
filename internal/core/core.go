@@ -107,10 +107,14 @@ type Transaction struct {
 	RecurringKey       *string  `json:"recurring_key"`
 	TransferID         *string  `json:"transfer_id"`
 	ImportBatchID      *string  `json:"import_batch_id"`
-	DedupeHash         string   `json:"-"`
-	CreatedAt          string   `json:"created_at"`
-	UpdatedAt          string   `json:"updated_at"`
-	DeletedAt          *string  `json:"-"`
+	// OriginalAmountMinor/OriginalCurrency: the amount actually paid when it
+	// wasn't in the account's currency (signed like AmountMinor).
+	OriginalAmountMinor *int64  `json:"original_amount_minor,omitempty"`
+	OriginalCurrency    string  `json:"original_currency,omitempty"`
+	DedupeHash          string  `json:"-"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
+	DeletedAt           *string `json:"-"`
 
 	Category        *Category `json:"category,omitempty"`
 	Account         *Account  `json:"account,omitempty"`

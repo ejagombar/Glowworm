@@ -23,6 +23,7 @@ type Config struct {
 	SetupToken     string
 	OwnerUsername  string
 	OwnerPassword  string
+	ExchangeRates  string // "ecb" (default) fetches daily rates; "off" = typed-in rates only
 	ConfigFile     string
 }
 
@@ -85,6 +86,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("GLOWWORM_TRUSTED_PROXIES"); v != "" {
 		c.TrustedProxies = v
+	}
+	if v := os.Getenv("GLOWWORM_EXCHANGE_RATES"); v != "" {
+		c.ExchangeRates = v
 	}
 	if v := os.Getenv("GLOWWORM_OWNER_USERNAME"); v != "" {
 		c.OwnerUsername = v
@@ -160,6 +164,8 @@ func (c *Config) loadFile(path string) error {
 			fmt.Sscanf(val, "%d", &c.UploadMaxMB)
 		case "trusted_proxies":
 			c.TrustedProxies = val
+		case "exchange_rates":
+			c.ExchangeRates = val
 		case "owner_username":
 			c.OwnerUsername = val
 		case "owner_password":

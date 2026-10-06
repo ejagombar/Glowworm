@@ -1302,6 +1302,16 @@ function fmtMoneyMinor(minor, cc) {
   const n = Math.abs(Number(minor)) / 100;
   return sym + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+// Any currency in its own minor units (yen has none), e.g. "−€10.00".
+function fmtForeign(minor, cc) {
+  try {
+    const f = new Intl.NumberFormat("en-GB", { style: "currency", currency: cc });
+    const digits = f.resolvedOptions().maximumFractionDigits;
+    return (minor < 0 ? "\u2212" : "") + f.format(Math.abs(minor) / 10 ** digits);
+  } catch (e) {
+    return `${cc} ${(minor / 100).toFixed(2)}`;
+  }
+}
 function fmtMoneySigned(minor, cc) {
   const sign = minor < 0 ? "\u2212" : minor > 0 ? "+" : "";
   return sign + fmtMoneyMinor(minor, cc);
@@ -2314,15 +2324,199 @@ document.addEventListener("DOMContentLoaded", () => {
   const goLayoutToHuman = (layout) => convertLayout(layout || "", GO_TO_HUMAN);
   const humanToGoLayout = (fmt) => (!fmt || fmt.includes("2006") ? fmt : convertLayout(fmt, HUMAN_TO_GO));
 
-  function mappingRowHTML(col, prevRole) {
-    const roles = ["date","description","amount","amount_in","amount_out","currency","balance","type_hint","memo","source","destination","ignore"];
-    const role = col.role || "ignore";
-    const opts = roles.map((r) =>
-      `<option value="${r}"${role === r ? " selected" : ""}>${r.replace(/_/g, " ")}</option>`).join("");
-    const changed = prevRole !== undefined && prevRole !== role;
-    return `<tr data-source="${esc(col.source)}"${changed ? ' class="mapping-changed"' : ""}><td>${esc(col.source)}</td>
-      <td><select class="field select" style="min-width:150px">${opts}</select>
-      ${changed ? `<span class="badge badge-transfer" title="Was “${esc((prevRole || "ignore").replace(/_/g, " "))}”">AI changed</span>` : ""}</td></tr>`;
+  // ---- Column mapping: Glowworm's fields are the rows; each picks a column
+  // from the file. ----
+  const DEFAULT_OUT = ["DR", "D", "DEBIT", "OUT", "PAYMENT", "WITHDRAWAL", "PURCHASE"];
+  const AMOUNT_MODES = [
+    ["signed", "One column — money out is negative", "Most current accounts: −12.50 is a payment."],
+    ["inverted", "One column — money out is positive", "Common on credit cards: 12.50 is a purchase, −12.50 a refund or payment."],
+    ["split", "Separate money in and money out columns", "Signs inside these columns are ignored."],
+    ["direction", "One amount column plus a debit/credit column", "The amount is always positive; another column says which way it went."],
+  ];
+
+  function selectionsFrom(det) {
+    const by = (role) => (det.columns || []).find((c) => c.role === role)?.source || "";
+    const amount = det.amount || {};
+    const sel = {
+      date: by("date"), description: by("description"), memo: by("memo"), payee: by("destination"),
+      amount: by("amount"), amountIn: by("amount_in"), amountOut: by("amount_out"),
+      direction: amount.direction_column || "", outValues: amount.out_values || [],
+      currency: by("currency"), origAmount: by("original_amount"), origCurrency: by("original_currency"),
+      fxRates: Object.assign({}, det.fx_rates || {}),
+    };
+    sel.amountMode = sel.direction ? "direction"
+      : (sel.amountIn || sel.amountOut) && !sel.amount ? "split"
+      : amount.sign === "inverted" ? "inverted" : "signed";
+    return sel;
+  }
+
+  function columnSelectHTML(id, headers, value, { optional = true, none = "— none —" } = {}) {
+    return `<select class="field select" id="${id}">
+      ${optional ? `<option value="">${esc(none)}</option>` : `<option value="" disabled${value ? "" : " selected"}>Choose a column…</option>`}
+      ${headers.map((h) => `<option value="${esc(h)}"${h === value ? " selected" : ""}>${esc(h)}</option>`).join("")}
+    </select>`;
+  }
+
+  // Values seen in a column of the sample, for the debit/credit picker.
+  function distinctValues(sampleHeader, sampleBody, column) {
+    const i = sampleHeader.indexOf(column);
+    if (i < 0) return [];
+    return [...new Set(sampleBody.map((r) => String(r[i] || "").trim()).filter(Boolean))];
+  }
+
+  function mappingFormHTML(sel, headers, changed, target) {
+    const row = (key, label, hint, body) => `<div class="map-field${changed.has(key) ? " mapping-changed" : ""}" data-field="${key}">
+        <div class="map-field-label"><strong>${label}</strong>${hint ? `<span class="muted">${hint}</span>` : ""}
+          ${changed.has(key) ? '<span class="badge badge-transfer">AI changed</span>' : ""}</div>
+        <div class="map-field-body">${body}</div>
+      </div>`;
+    const modes = AMOUNT_MODES.map(([v, label, hint]) => `<label class="map-radio">
+        <input type="radio" name="mapAmountMode" value="${v}"${sel.amountMode === v ? " checked" : ""} />
+        <span><span>${label}</span><span class="muted">${hint}</span></span></label>`).join("");
+    return `<div class="map-fields" id="mapFields">
+      ${row("date", "Date", "Required", `${columnSelectHTML("mapDate", headers, sel.date, { optional: false })}
+        <div class="map-sub">
+          <label class="map-sub-label" for="mapDateFormat">Format
+            <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button></label>
+          <input class="field" id="mapDateFormat" placeholder="blank = auto-detect, or e.g. DD/MM/YYYY" />
+        </div>
+        <div class="date-preview muted" id="datePreview"></div>`)}
+      ${row("description", "Description", "Required", `${columnSelectHTML("mapDescription", headers, sel.description, { optional: false })}
+        <div class="map-sub"><label class="map-sub-label" for="mapMemo">Add details from</label>${columnSelectHTML("mapMemo", headers, sel.memo)}</div>`)}
+      ${row("amount", "Amount", "How the file shows money in and out", `<div class="map-radios">${modes}</div>
+        <div class="map-sub" data-mode-show="signed inverted direction"><label class="map-sub-label" for="mapAmount">Amount column</label>${columnSelectHTML("mapAmount", headers, sel.amount, { optional: false })}</div>
+        <div class="map-sub" data-mode-show="split"><label class="map-sub-label" for="mapAmountIn">Money in</label>${columnSelectHTML("mapAmountIn", headers, sel.amountIn)}</div>
+        <div class="map-sub" data-mode-show="split"><label class="map-sub-label" for="mapAmountOut">Money out</label>${columnSelectHTML("mapAmountOut", headers, sel.amountOut)}</div>
+        <div class="map-sub" data-mode-show="direction"><label class="map-sub-label" for="mapDirection">Debit/credit column</label>${columnSelectHTML("mapDirection", headers, sel.direction, { optional: false })}</div>
+        <div class="map-sub" data-mode-show="direction" id="mapOutValuesRow"><span class="map-sub-label">Values meaning money out</span><div class="map-checks" id="mapOutValues"></div></div>
+        <div class="map-amount-preview" id="mapAmountPreview"></div>`)}
+      ${row("currency", "Currency", `Rows in another currency are converted to ${esc(target)}`, `
+        <div class="map-sub"><label class="map-sub-label" for="mapCurrency">Currency column</label>${columnSelectHTML("mapCurrency", headers, sel.currency, { none: `— everything is in ${target} —` })}</div>
+        <div class="map-fx" id="mapFx"></div>
+        <details class="map-orig"${sel.origAmount ? " open" : ""}><summary>The file also shows the amount paid abroad (optional)</summary>
+          <p class="muted">Some banks give the amount in ${esc(target)} plus what was paid locally (e.g. “Local amount”). Pick those columns to keep the local amount alongside.</p>
+          <div class="map-sub"><label class="map-sub-label" for="mapOrigAmount">Amount paid</label>${columnSelectHTML("mapOrigAmount", headers, sel.origAmount)}</div>
+          <div class="map-sub"><label class="map-sub-label" for="mapOrigCurrency">Its currency</label>${columnSelectHTML("mapOrigCurrency", headers, sel.origCurrency)}</div>
+        </details>`)}
+      ${row("payee", "Payee", "Optional — who the money went to or came from", columnSelectHTML("mapPayee", headers, sel.payee))}
+    </div>`;
+  }
+
+  function readSelections(sel) {
+    const v = (id) => document.getElementById(id)?.value || "";
+    const out = Object.assign({}, sel, {
+      date: v("mapDate"), description: v("mapDescription"), memo: v("mapMemo"), payee: v("mapPayee"),
+      amountMode: document.querySelector('input[name="mapAmountMode"]:checked')?.value || "signed",
+      amount: v("mapAmount"), amountIn: v("mapAmountIn"), amountOut: v("mapAmountOut"), direction: v("mapDirection"),
+      currency: v("mapCurrency"), origAmount: v("mapOrigAmount"), origCurrency: v("mapOrigCurrency"),
+    });
+    const checks = document.querySelectorAll("#mapOutValues input[type=checkbox]");
+    if (checks.length) out.outValues = [...checks].filter((c) => c.checked).map((c) => c.value);
+    document.querySelectorAll("#mapFx input[data-fx]").forEach((inp) => {
+      const n = parseFloat(inp.value);
+      if (n > 0) out.fxRates[inp.dataset.fx] = n; else delete out.fxRates[inp.dataset.fx];
+    });
+    return out;
+  }
+
+  function selectionErrors(sel) {
+    if (!sel.date) return "Choose the date column";
+    if (!sel.description) return "Choose the description column";
+    if (sel.amountMode === "split" && !sel.amountIn && !sel.amountOut) return "Choose the money in and/or money out columns";
+    if (sel.amountMode !== "split" && !sel.amount) return "Choose the amount column";
+    if (sel.amountMode === "direction" && !sel.direction) return "Choose the debit/credit column";
+    return "";
+  }
+
+  function mappingFrom(sel, d, dateFormat) {
+    const cols = [];
+    const add = (source, role) => { if (source) cols.push({ source, role, date_format: role === "date" ? dateFormat : undefined }); };
+    add(sel.date, "date");
+    add(sel.description, "description");
+    add(sel.memo, "memo");
+    add(sel.payee, "destination");
+    if (sel.amountMode === "split") { add(sel.amountIn, "amount_in"); add(sel.amountOut, "amount_out"); }
+    else add(sel.amount, "amount");
+    add(sel.currency, "currency");
+    add(sel.origAmount, "original_amount");
+    add(sel.origCurrency, "original_currency");
+    const amount = {};
+    if (sel.amountMode === "inverted") amount.sign = "inverted";
+    if (sel.amountMode === "direction") { amount.direction_column = sel.direction; amount.out_values = sel.outValues; }
+    return {
+      kind: d.kind || "csv", has_header: d.has_header !== false, delimiter: d.delimiter || ",",
+      columns: cols, date_format: dateFormat, amount,
+      fx_rates: Object.keys(sel.fxRates).length ? sel.fxRates : undefined,
+      sheet: document.getElementById("mapSheet") ? document.getElementById("mapSheet").value : undefined,
+      confidence: d.confidence || 0.5,
+    };
+  }
+
+  // Mirrors the server's reading of an amount, for the live preview only.
+  function previewAmount(raw) {
+    let v = String(raw || "").trim().replace(/[£$€¥,\s]/g, "");
+    if (!v) return null;
+    let neg = false;
+    if (/^\(.*\)$/.test(v)) { neg = true; v = v.slice(1, -1); }
+    if (/dr$/i.test(v)) { neg = !neg; v = v.slice(0, -2); } else if (/cr$/i.test(v)) v = v.slice(0, -2);
+    if (v.endsWith("-")) { neg = !neg; v = v.slice(0, -1); }
+    if (v.startsWith("-")) { neg = !neg; v = v.slice(1); }
+    const n = parseFloat(v.replace(/^\+/, ""));
+    if (isNaN(n)) return null;
+    return Math.round(n * 100) * (neg ? -1 : 1);
+  }
+
+  function wireMappingForm(sel, d, sampleHeader, sampleBody, target) {
+    const col = (row, name) => { const i = sampleHeader.indexOf(name); return i < 0 ? "" : row[i]; };
+    const sync = () => {
+      const cur = readSelections(sel);
+      document.querySelectorAll("#mapFields [data-mode-show]").forEach((el) => {
+        el.hidden = !el.dataset.modeShow.split(" ").includes(cur.amountMode);
+      });
+      // Debit/credit values: tick the ones that mean money out.
+      const outBox = document.getElementById("mapOutValues");
+      if (cur.amountMode === "direction" && outBox && outBox.dataset.col !== cur.direction) {
+        outBox.dataset.col = cur.direction;
+        const vals = distinctValues(sampleHeader, sampleBody, cur.direction);
+        const ticked = new Set((sel.outValues.length ? sel.outValues : DEFAULT_OUT).map((x) => x.toUpperCase()));
+        outBox.innerHTML = vals.length
+          ? vals.map((x) => `<label class="map-check"><input type="checkbox" value="${esc(x)}"${ticked.has(x.toUpperCase()) ? " checked" : ""} /> ${esc(x)}</label>`).join("")
+          : '<span class="muted">No values in the sample rows.</span>';
+      }
+      // Exchange rates for foreign currencies seen in the file.
+      const fx = document.getElementById("mapFx");
+      const fromFile = cur.currency ? distinctValues(sampleHeader, sampleBody, cur.currency).map((x) => x.toUpperCase()) : [];
+      const foreign = [...new Set([...(cur.currency ? d.foreign_currencies || [] : []), ...fromFile])].filter((c) => c && c !== target).sort();
+      const key = foreign.join(",");
+      if (fx.dataset.key !== key) {
+        fx.dataset.key = key;
+        fx.innerHTML = foreign.length ? `<p class="muted">Converted at each day's ECB rate. To use your own rate instead (e.g. what your bank charged), type it here.</p>
+          ${foreign.map((c) => `<label class="map-fx-row">1 ${esc(c)} = <input class="field" type="number" step="any" min="0" data-fx="${esc(c)}" value="${sel.fxRates[c] || ""}" placeholder="daily rate" /> ${esc(target)}</label>`).join("")}` : "";
+      }
+      // Preview: how the first rows will be read.
+      const prevEl = document.getElementById("mapAmountPreview");
+      const lines = sampleBody.slice(0, 3).map((r) => {
+        let minor = null;
+        if (cur.amountMode === "split") {
+          const inn = previewAmount(col(r, cur.amountIn)), out = previewAmount(col(r, cur.amountOut));
+          if (inn !== null || out !== null) minor = Math.abs(inn || 0) - Math.abs(out || 0);
+        } else {
+          minor = previewAmount(col(r, cur.amount));
+          if (minor !== null && cur.amountMode === "inverted") minor = -minor;
+          if (minor !== null && cur.amountMode === "direction") {
+            const marker = String(col(r, cur.direction) || "").trim().toUpperCase();
+            minor = Math.abs(minor) * (cur.outValues.map((x) => x.toUpperCase()).includes(marker) ? -1 : 1);
+          }
+        }
+        if (minor === null) return "";
+        const rowCur = (cur.currency && String(col(r, cur.currency) || "").trim().toUpperCase()) || target;
+        return `<li><span>${esc(col(r, cur.description) || "—")}</span><span class="tx-amount ${minor < 0 ? "neg" : "pos"}">${minor < 0 ? "Money out" : "Money in"} · ${esc(fmtMoneyMinor(minor, rowCur))}</span></li>`;
+      }).filter(Boolean);
+      prevEl.innerHTML = lines.length ? `<span class="muted">Reads the first rows as:</span><ul>${lines.join("")}</ul>` : "";
+    };
+    document.getElementById("mapFields").addEventListener("change", sync);
+    document.getElementById("mapFields").addEventListener("input", (e) => { if (e.target.matches("[data-fx]")) sync(); });
+    sync();
   }
 
   const renderBatch = (b, prev) => {
@@ -2348,11 +2542,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const d = b.detection || {};
     const aiProposal = !!d.ai_proposed;
-    const prevRoles = {};
-    if (aiProposal && prev) (prev.columns || []).forEach((c) => { prevRoles[c.source] = c.role || "ignore"; });
     const sheets = (d.sheets || []).map((s) => `<option value="${esc(s)}"${s === d.sheet ? " selected" : ""}>${esc(s)}</option>`).join("");
-    const cols = (d.columns || []).map((c) => mappingRowHTML(c, aiProposal && prev ? (prevRoles[c.source] || "ignore") : undefined)).join("");
-    const nChanged = aiProposal && prev ? (d.columns || []).filter((c) => (prevRoles[c.source] || "ignore") !== (c.role || "ignore")).length : 0;
+    const sel = selectionsFrom(d);
+    // An AI proposal highlights the fields it picked differently.
+    const changed = new Set();
+    if (aiProposal && prev) {
+      const before = selectionsFrom(prev);
+      const same = (keys) => keys.every((k) => String(before[k] || "") === String(sel[k] || ""));
+      if (!same(["date"])) changed.add("date");
+      if (!same(["description", "memo"])) changed.add("description");
+      if (!same(["amountMode", "amount", "amountIn", "amountOut", "direction"])) changed.add("amount");
+      if (!same(["currency", "origAmount", "origCurrency"])) changed.add("currency");
+      if (!same(["payee"])) changed.add("payee");
+    }
+    const nChanged = changed.size;
+    const target = d.target_currency || (window.__IMPORT_CURRENCY__ || "GBP");
     const sampleHeader = (d.sample && d.sample[0]) || [];
     const sampleBody = (d.sample || []).slice(1, 5);
     const headerHTML = sampleHeader.map((c) => `<th>${esc(c)}</th>`).join("");
@@ -2360,38 +2564,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const title = d.matched_schema ? `Matched saved schema “${esc(d.matched_schema)}”`
       : aiProposal ? `AI proposal${d.proposed_name ? `: ${esc(d.proposed_name)}` : ""}`
       : "Detected schema (local)";
-    const dateColIdx = sampleHeader.findIndex((h) => {
-      const col = (d.columns || []).find((c) => c.source === h);
-      return col && col.role === "date";
-    });
-    let dateSample = "";
-    if (dateColIdx >= 0) {
-      for (const row of sampleBody) {
-        if (row[dateColIdx]) { dateSample = row[dateColIdx]; break; }
-      }
-    }
+    const dateSampleFor = (column) => {
+      const i = sampleHeader.indexOf(column);
+      return i < 0 ? "" : (sampleBody.find((r) => r[i]) || [])[i] || "";
+    };
     const intro = aiProposal
       ? `<div class="ai-review-banner">
           <strong>Review the AI's mapping before continuing.</strong>
-          ${prev ? (nChanged ? `It changed ${nChanged} column role${nChanged === 1 ? "" : "s"} (highlighted).` : "It agreed with the existing roles.") : ""}
-          Nothing is parsed or imported until you accept — fix any role first if it looks wrong.
+          ${prev ? (nChanged ? `It changed ${nChanged} field${nChanged === 1 ? "" : "s"} (highlighted).` : "It agreed with the existing mapping.") : ""}
+          Nothing is parsed or imported until you accept — fix anything that looks wrong first.
         </div>`
-      : `<p class="muted">Check the column roles below. If they look wrong, fix them inline or ask the AI to suggest a mapping (uses tokens).</p>`;
+      : `<p class="muted">Pick which column of your file holds each piece of information. If it looks wrong, fix it here or ask the AI to suggest a mapping (uses tokens).</p>`;
     openFlow(`
       <div class="panel category-form">
         <h3 class="category-form-title">${title}</h3>
         ${b.parse_error ? `<p class="login-error">${esc(b.parse_error)}</p>` : ""}
         ${intro}
-        <div class="tx-table-wrap" style="overflow-x:auto">
-        <table class="tx-table"><thead><tr><th>Column</th><th>Role</th></tr></thead>
-        <tbody id="mappingRows">${cols}</tbody></table></div>
-        <div class="field-row" style="margin-top:10px">
-          <label>Date format
-            <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button>
-          </label>
-          <input class="field" id="mapDateFormat" value="${esc(goLayoutToHuman(d.date_format))}" placeholder="leave blank to auto-detect, or e.g. DD/MM/YYYY" />
-        </div>
-        <div class="date-preview muted" id="datePreview" data-sample="${esc(dateSample)}">${dateSample ? "Checking date format…" : "No date column detected yet — set a column's role to “date”."}</div>
+        ${mappingFormHTML(sel, sampleHeader, changed, target)}
         <div id="dateInfoPopover" class="info-popover" hidden>
           <strong>How date formats work</strong>
           <p class="muted">Leave the field blank to let Glowworm auto-detect from ~15 common layouts.</p>
@@ -2421,6 +2610,15 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>`);
     document.getElementById("mapCancel").addEventListener("click", closeFlow);
+    document.getElementById("mapDateFormat").value = goLayoutToHuman(d.date_format);
+    const setDateSample = () => {
+      const pv = document.getElementById("datePreview");
+      pv.dataset.sample = dateSampleFor(document.getElementById("mapDate").value);
+      if (!pv.dataset.sample) pv.textContent = "Choose the date column to check the format.";
+    };
+    setDateSample();
+    wireMappingForm(sel, d, sampleHeader, sampleBody, target);
+    document.getElementById("mapDate").addEventListener("change", () => { setDateSample(); refreshDatePreview(); });
     document.getElementById("mapDiscardAI")?.addEventListener("click", () => {
       renderBatch(Object.assign({}, b, { detection: prev, parse_error: null }));
       toast("AI proposal discarded");
@@ -2522,17 +2720,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     document.getElementById("mapApply").addEventListener("click", (e) => {
       const btn = e.currentTarget;
-      const rows = Array.from(document.querySelectorAll("#mappingRows tr")).map((tr) => ({
-        source: tr.dataset.source,
-        role: tr.querySelector("select").value,
-        date_format: humanToGoLayout(document.getElementById("mapDateFormat").value.trim()),
-      }));
-      const m = {
-        kind: d.kind || "csv", has_header: d.has_header !== false, delimiter: d.delimiter || ",",
-        columns: rows, date_format: humanToGoLayout(document.getElementById("mapDateFormat").value.trim()),
-        sheet: document.getElementById("mapSheet") ? document.getElementById("mapSheet").value : undefined,
-        confidence: d.confidence || 0.5,
-      };
+      const chosen = readSelections(sel);
+      const problem = selectionErrors(chosen);
+      if (problem) { toast(problem); return; }
+      const m = mappingFrom(chosen, d, humanToGoLayout(document.getElementById("mapDateFormat").value.trim()));
       btn.disabled = true;
       fetch(`/api/v1/imports/${b.id}/schema`, {
         method: "POST",
@@ -2594,6 +2785,14 @@ document.addEventListener("DOMContentLoaded", () => {
     return R;
   }
 
+  // What was paid abroad, when every row in the group was in one foreign currency.
+  function originalOf(g) {
+    const cur = g.rows[0].original_currency;
+    if (!cur || !g.rows.every((r) => r.original_currency === cur)) return "";
+    const total = g.rows.reduce((s, r) => s + (r.original_amount_minor || 0), 0);
+    return `<span class="tx-orig" title="Amount paid">${esc(fmtForeign(total, cur))}</span>`;
+  }
+
   function groupHTML(g, R) {
     const n = g.rows.length;
     const dates = g.rows.map((r) => r.date).sort();
@@ -2627,7 +2826,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="review-group-desc" title="${esc(g.description)}">${esc(g.description)}${n > 1 ? ` <span class="badge badge-soft">×${n}</span>` : ""}</div>
           <div class="review-group-sub">${g.destination ? `→ ${esc(g.destination)} · ` : ""}${esc(when)}</div>
         </div>
-        <div class="tx-amount ${g.total >= 0 ? "pos" : "neg"}" title="${n > 1 ? "Total of the group" : ""}">${fmtMoneySigned(g.total, g.currency)}</div>
+        <div class="tx-amount ${g.total >= 0 ? "pos" : "neg"}" title="${n > 1 ? "Total of the group" : ""}">${fmtMoneySigned(g.total, g.currency)}${originalOf(g)}</div>
         <div class="review-group-cat">${select}${status}</div>
         ${rowsTable}
       </div>`;
