@@ -1078,35 +1078,63 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   const periodSelect = document.getElementById("periodSelect");
-  if (periodSelect) {
-    periodSelect.addEventListener("change", (e) => {
-      if (e.target.value === "custom") {
-        document.getElementById("customRange").hidden = false;
-        const from = document.getElementById("customFrom");
-        const to = document.getElementById("customTo");
-        if (!from.value) {
+  const periodTrigger = document.getElementById("periodTrigger");
+  const periodMenu = document.getElementById("periodMenu");
+  if (periodSelect && periodTrigger && periodMenu) {
+    const fromIn = document.getElementById("customFrom");
+    const toIn = document.getElementById("customTo");
+    const customForm = document.getElementById("customRange");
+    const shortDate = (iso) => {
+      const d = new Date(iso + "T00:00:00");
+      return isNaN(d) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    };
+    const current = periodSelect.value || "last-12m";
+    const opt = periodMenu.querySelector(`[data-period="${current}"]`);
+    document.getElementById("periodLabel").textContent = current === "custom" && fromIn.value && toIn.value
+      ? `${shortDate(fromIn.value)} – ${shortDate(toIn.value)}`
+      : (opt && opt.dataset.period !== "custom" ? opt.textContent : "Last 12 months");
+    periodMenu.querySelectorAll("[role=option]").forEach((b) => b.setAttribute("aria-selected", b.dataset.period === current ? "true" : "false"));
+    customForm.classList.toggle("selected", current === "custom");
+
+    const setOpen = (open) => {
+      periodMenu.hidden = !open;
+      periodTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        if (!fromIn.value) {
           const d = new Date(); d.setMonth(d.getMonth() - 3);
-          from.value = d.toISOString().slice(0, 10);
+          fromIn.value = d.toISOString().slice(0, 10);
         }
-        if (!to.value) to.value = new Date().toISOString().slice(0, 10);
-        from.focus();
-        return;
+        if (!toIn.value) toIn.value = new Date().toISOString().slice(0, 10);
+        (periodMenu.querySelector('[aria-selected="true"]') || periodMenu.querySelector("[role=option]")).focus();
       }
-      document.getElementById("customRange").hidden = true;
+    };
+    const go = (params) => {
       const url = new URL(window.location);
-      url.searchParams.set("period", e.target.value);
+      url.searchParams.delete("from");
+      url.searchParams.delete("to");
+      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
       window.location = url.toString();
+    };
+    periodTrigger.addEventListener("click", (e) => { e.stopPropagation(); setOpen(periodMenu.hidden); });
+    periodMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const b = e.target.closest("[role=option]");
+      if (b) go({ period: b.dataset.period });
     });
-    document.getElementById("customApply")?.addEventListener("click", () => {
-      const from = document.getElementById("customFrom").value;
-      const to = document.getElementById("customTo").value;
-      if (!from || !to) { toast("Choose a start and end date"); return; }
-      const url = new URL(window.location);
-      url.searchParams.set("period", "custom");
-      url.searchParams.set("from", from);
-      url.searchParams.set("to", to);
-      window.location = url.toString();
+    periodMenu.addEventListener("keydown", (e) => {
+      const opts = [...periodMenu.querySelectorAll("[role=option]")];
+      const i = opts.indexOf(document.activeElement);
+      if (e.key === "ArrowDown" && i >= 0) { e.preventDefault(); (opts[i + 1] || fromIn).focus(); }
+      else if (e.key === "ArrowUp" && i > 0) { e.preventDefault(); opts[i - 1].focus(); }
+      else if (e.key === "Escape") { setOpen(false); periodTrigger.focus(); }
     });
+    customForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!fromIn.value || !toIn.value) { toast("Choose a start and end date"); return; }
+      if (fromIn.value > toIn.value) { toast("The start date is after the end date"); return; }
+      go({ period: "custom", from: fromIn.value, to: toIn.value });
+    });
+    document.addEventListener("click", () => { if (!periodMenu.hidden) setOpen(false); });
   }
 
   document.addEventListener("keydown", (e) => {
