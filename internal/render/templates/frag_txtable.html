@@ -14,12 +14,13 @@
   {{if not $stmt}}
   <td>{{if eq $row.Kind "linked"}}{{$row.Source}} → {{$row.Destination}}{{else}}{{$t.AccountName}}{{end}}</td>
   {{end}}
+  {{$orig := ""}}{{if $t.OriginalCurrency}}{{$orig = moneyPtr $t.OriginalAmountMinor $t.OriginalCurrency}}{{end}}
   {{if or (eq $row.Kind "linked") (eq $t.Type "transfer")}}
   <td class="num tx-amount transfer">⇄ {{money $t.AmountMinor $cur}}</td>
   {{else if ge $t.AmountMinor 0}}
-  <td class="num tx-amount pos">+{{money $t.AmountMinor $cur}}</td>
+  <td class="num tx-amount pos">+{{money $t.AmountMinor $cur}}{{if $orig}}<span class="tx-orig" title="Amount paid">{{$orig}}</span>{{end}}</td>
   {{else}}
-  <td class="num tx-amount neg">−{{money (mul -1 $t.AmountMinor) $cur}}</td>
+  <td class="num tx-amount neg">−{{money (mul -1 $t.AmountMinor) $cur}}{{if $orig}}<span class="tx-orig" title="Amount paid">{{$orig}}</span>{{end}}</td>
   {{end}}
   <td class="row-actions"><button class="widget-btn" data-edit-tx="{{$t.ID}}" title="Edit transaction" aria-label="Edit {{$t.Description}}"><svg class="icon"><use href="#i-edit"/></svg></button></td>
 </tr>

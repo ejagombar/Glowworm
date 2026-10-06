@@ -30,6 +30,7 @@ import (
 	"glowworm/internal/core/transactions"
 	"glowworm/internal/core/transfers"
 	"glowworm/internal/crypto"
+	"glowworm/internal/fx"
 	"glowworm/internal/render"
 	"glowworm/internal/store"
 	"glowworm/internal/store/repos"
@@ -116,6 +117,9 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.Imports = &imports.Service{
 		DB: db, Accounts: rp.Accounts, Txs: rp.Transactions, Audit: writer,
 		Cat: app.Cat, Provider: provider, DisplayCC: displayCC, Log: log,
+	}
+	if cfg.ExchangeRates != "off" {
+		app.Imports.FX = &fx.Frankfurter{DB: db}
 	}
 	app.Imports.AfterCommit = app.afterImport
 	app.Accounts.AfterChange = app.refreshDerived

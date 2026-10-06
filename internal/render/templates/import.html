@@ -23,6 +23,7 @@
     </div>
   </div>
   <script>
+    window.__IMPORT_CURRENCY__ = "{{.Currency}}";
     window.__IMPORT_ACCOUNTS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];
     window.__IMPORT_CATS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", type: "{{.Type}}", color: "{{.Color}}"},{{end}}];
   </script>

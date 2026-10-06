@@ -33,6 +33,12 @@ func New() (*Renderer, error) {
 		},
 		"money":        func(minor int64, cc string) string { return money.Format(minor, cc) },
 		"moneySigned":  func(minor int64, cc string) string { return money.FormatSigned(minor, cc) },
+		"moneyPtr": func(minor *int64, cc string) string {
+			if minor == nil {
+				return ""
+			}
+			return money.FormatSigned(*minor, cc)
+		},
 		"symbol":       money.Symbol,
 		"dayMonth":     func(iso string) string { return fmtDate(iso, "2 Jan") },
 		"dayMonthYear": func(iso string) string { return fmtDate(iso, "2 Jan 2006") },

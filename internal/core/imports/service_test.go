@@ -349,3 +349,69 @@ func TestGroupKey(t *testing.T) {
 		t.Error("income and expense rows must not share a group (categories are type-masked)")
 	}
 }
+
+type fakeFX map[string]float64 // currency → rate for every date
+
+func (f fakeFX) Rates(from, to string, dates []string) (map[string]float64, error) {
+	out := map[string]float64{}
+	if r, ok := f[from]; ok {
+		for _, d := range dates {
+			out[d] = r
+		}
+	}
+	return out, nil
+}
+
+func TestForeignCurrencyRowsAreConverted(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	csv := "Date,Description,Amount,Currency\n2026-06-01,Cafe Paris,-10.00,EUR\n2026-06-02,Tesco,-5.00,GBP\n2026-06-03,Kiosk,-1000,JPY\n"
+	m := &importer.Mapping{Kind: "csv", HasHeader: true, Columns: []importer.ColumnMap{
+		{Source: "Date", Role: importer.RoleDate}, {Source: "Description", Role: importer.RoleDesc},
+		{Source: "Amount", Role: importer.RoleAmount}, {Source: "Currency", Role: importer.RoleCurrency},
+	}}
+	acc := "acc-main"
+	upload := func() *Batch {
+		b, err := s.Upload(fmt.Sprintf("trip-%d.csv", len(t.Name())), []byte(csv), &acc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+
+	s.FX = fakeFX{"EUR": 0.85}
+	b := upload()
+	got, err := s.ApplySchemaPublic(b.ID, m, []byte(csv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status == "awaiting_review" || got.ParseError == nil || !strings.Contains(*got.ParseError, "JPY") {
+		t.Fatalf("a currency with no rate must stop at the mapping step: status=%s err=%v", got.Status, got.ParseError)
+	}
+	if d := got.Detection; d == nil || strings.Join(d.ForeignCurrencies, ",") != "EUR,JPY" || d.TargetCurrency != "GBP" {
+		t.Fatalf("detection should list the foreign currencies: %+v", got.Detection)
+	}
+
+	m.FXRates = map[string]float64{"JPY": 0.0052} // typed by the user
+	got, err = s.ApplySchemaPublic(b.ID, m, []byte(csv))
+	if err != nil || got.Status != "awaiting_review" {
+		t.Fatalf("status=%s err=%v parse=%v", got.Status, err, got.ParseError)
+	}
+	rows, _, _, _, err := s.Review(b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byDesc := map[string]*StagedRow{}
+	for _, r := range rows {
+		byDesc[r.Description] = r
+	}
+	if r := byDesc["Cafe Paris"]; r.AmountMinor != -850 || r.Currency != "GBP" || r.OriginalCurrency != "EUR" || *r.OriginalAmountMinor != -1000 {
+		t.Fatalf("EUR row = %+v", r)
+	}
+	if r := byDesc["Kiosk"]; r.AmountMinor != -520 || r.OriginalCurrency != "JPY" || *r.OriginalAmountMinor != -1000 {
+		t.Fatalf("JPY row with a typed rate = %+v", r)
+	}
+	if r := byDesc["Tesco"]; r.OriginalCurrency != "" || r.AmountMinor != -500 {
+		t.Fatalf("home-currency row = %+v", r)
+	}
+}

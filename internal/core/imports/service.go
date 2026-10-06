@@ -8,12 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"sort"
 	"strings"
 
 	"glowworm/internal/ai"
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/categoriser"
+	"glowworm/internal/fx"
 	"glowworm/internal/importer"
 	"glowworm/internal/store"
 	"glowworm/internal/store/repos"
@@ -28,6 +31,7 @@ type Service struct {
 	Cat         *categoriser.Service
 	Provider    ai.Provider
 	DisplayCC   string
+	FX          fx.Source // daily rates for foreign-currency rows; nil = manual rates only
 	AfterCommit func(batchID string)
 	Log         *slog.Logger
 }
@@ -61,6 +65,12 @@ type Detection struct {
 	MatchedSchema string               `json:"matched_schema,omitempty"`
 	Sample        [][]string           `json:"sample,omitempty"`
 	AIProposed    bool                 `json:"ai_proposed,omitempty"`
+	Amount        importer.AmountSpec  `json:"amount,omitempty"`
+	FXRates       map[string]float64   `json:"fx_rates,omitempty"`
+	// TargetCurrency is the account's currency; ForeignCurrencies are the
+	// other currencies found in the file (they need a rate).
+	TargetCurrency    string   `json:"target_currency,omitempty"`
+	ForeignCurrencies []string `json:"foreign_currencies,omitempty"`
 }
 
 func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batch, error) {
@@ -210,6 +220,7 @@ func (s *Service) applySavedSchema(batchID string, m *importer.Mapping, schema *
 	det.MatchedSchema = schema.Name
 	det.BankHint = schema.BankHint
 	det.DateFormat = m.DateFormat
+	det.Amount, det.FXRates = m.Amount, m.FXRates
 	if schema.AccountID != nil {
 		if _, err := s.DB.Exec(`UPDATE import_batches SET account_id = ? WHERE id = ?`, *schema.AccountID, batchID); err != nil {
 			return nil, err
@@ -274,6 +285,7 @@ func (s *Service) AIDetect(batchID string, data []byte, filename string) (*Batch
 	det.BankHint = m.BankHint
 	det.ProposedName = m.ProposedName
 	det.Confidence = m.Confidence
+	det.Amount = m.Amount
 	det.MatchedSchema = ""
 	det.Sample = sampleTable(table, detectionSampleLines+1)
 	det.AIProposed = true
@@ -382,12 +394,23 @@ func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte,
 			return nil, err
 		}
 	}
-	rows, err := importer.ParseRows(m, table, s.DisplayCC)
+	target := s.targetCurrency(batch)
+	rows, err := importer.ParseRows(m, table, target)
 	if err != nil {
 		return s.markParseError(batchID, err)
 	}
 	if len(rows) == 0 {
 		return s.markParseError(batchID, &importer.ParseError{Message: "no rows parsed — check the column mapping"})
+	}
+	if det != nil {
+		det.TargetCurrency, det.ForeignCurrencies = target, foreignCurrencies(rows, target)
+		if err := s.storeDetection(batchID, det); err != nil {
+			return nil, err
+		}
+	}
+	if missing := s.convertCurrencies(rows, target, m.FXRates); len(missing) > 0 {
+		return s.markParseError(batchID, &importer.ParseError{Message: fmt.Sprintf(
+			"no exchange rate for %s → %s — enter a rate under Currency", strings.Join(missing, ", "), target)})
 	}
 	if _, err := s.DB.Exec(`UPDATE import_batches SET schema_id = ? WHERE id = ?`, nullStr(schemaID), batchID); err != nil {
 		return nil, err
@@ -402,6 +425,85 @@ func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte,
 		return nil, err
 	}
 	return s.Get(batchID)
+}
+
+// targetCurrency is the batch account's currency, else the display currency.
+func (s *Service) targetCurrency(batch *core.ImportBatch) string {
+	if batch.AccountID != nil {
+		var cc string
+		if err := s.DB.QueryRow(`SELECT currency FROM accounts WHERE id = ?`, *batch.AccountID).Scan(&cc); err == nil && cc != "" {
+			return strings.ToUpper(cc)
+		}
+	}
+	if s.DisplayCC != "" {
+		return s.DisplayCC
+	}
+	return "GBP"
+}
+
+func foreignCurrencies(rows []importer.Row, target string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range rows {
+		if r.Currency != "" && r.Currency != target && !seen[r.Currency] {
+			seen[r.Currency] = true
+			out = append(out, r.Currency)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// convertCurrencies turns rows priced in another currency into the target
+// currency, keeping what was paid as the original amount. A rate the user
+// typed wins; otherwise the day's ECB rate is used. It returns the
+// currencies it had no rate for (those rows are left unconverted).
+func (s *Service) convertCurrencies(rows []importer.Row, target string, manual map[string]float64) []string {
+	byCur := map[string][]string{}
+	for _, r := range rows {
+		if r.Currency != target {
+			byCur[r.Currency] = append(byCur[r.Currency], r.Date)
+		}
+	}
+	if len(byCur) == 0 {
+		return nil
+	}
+	daily := map[string]map[string]float64{}
+	for cur, dates := range byCur {
+		if manual[cur] > 0 || s.FX == nil {
+			continue
+		}
+		rates, err := s.FX.Rates(cur, target, dates)
+		if err != nil {
+			s.log().Warn("exchange rates unavailable", "currency", cur, "err", err)
+			continue
+		}
+		daily[cur] = rates
+	}
+	missingSet := map[string]bool{}
+	for i := range rows {
+		r := &rows[i]
+		if r.Currency == target {
+			continue
+		}
+		rate := manual[r.Currency]
+		if rate <= 0 {
+			rate = daily[r.Currency][r.Date]
+		}
+		if rate <= 0 {
+			missingSet[r.Currency] = true
+			continue
+		}
+		r.OrigAmountMinor, r.OrigCurrency = importer.ToCurrencyMinor(r.AmountMinor, r.Currency), r.Currency
+		r.AmountMinor = int64(math.Round(float64(r.AmountMinor) * rate))
+		r.Currency = target
+	}
+	missing := make([]string, 0, len(missingSet))
+	for c := range missingSet {
+		missing = append(missing, c)
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
@@ -432,11 +534,17 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 				}
 			}
 			raw, _ := json.Marshal(r.Raw)
+			var origAmount, origCur any
+			if r.OrigCurrency != "" {
+				origAmount, origCur = r.OrigAmountMinor, r.OrigCurrency
+			}
 			if _, err := tx.Exec(`INSERT INTO import_staging
-				(id, batch_id, line_no, date, description, amount_minor, currency, source_text, destination_text, duplicate_of, raw, category_source, needs_review, created_at)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				(id, batch_id, line_no, date, description, amount_minor, currency, source_text, destination_text, duplicate_of, raw, category_source, needs_review, created_at,
+				 original_amount_minor, original_currency)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				stagingID, batchID, r.Line, r.Date, r.Description, r.AmountMinor, r.Currency,
-				r.SourceText, r.DestinationText, dup, string(raw), core.CategorySourceNone, 1, util.NowStr()); err != nil {
+				r.SourceText, r.DestinationText, dup, string(raw), core.CategorySourceNone, 1, util.NowStr(),
+				origAmount, origCur); err != nil {
 				return err
 			}
 			count++
@@ -570,6 +678,7 @@ func (s *Service) ApplySchemaPublic(batchID string, m *importer.Mapping, data []
 	det.Delimiter = m.Delimiter
 	det.Columns = m.Columns
 	det.DateFormat = mappingDateFormat(m)
+	det.Amount, det.FXRates = m.Amount, m.FXRates
 	det.MatchedSchema = ""
 	det.AIProposed = false
 	return s.applyMapping(batchID, m, data, nil, det)
@@ -666,12 +775,15 @@ type StagedRow struct {
 	SuggestedCategoryID   *string  `json:"suggested_category_id,omitempty"`
 	SuggestedCategoryName string   `json:"suggested_category_name,omitempty"`
 	SuggestedConfidence   *float64 `json:"suggested_confidence,omitempty"`
+	OriginalAmountMinor   *int64   `json:"original_amount_minor,omitempty"`
+	OriginalCurrency      string   `json:"original_currency,omitempty"`
 }
 
 func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsReview, duplicates int, err error) {
 	brows, e := s.DB.Query(`SELECT st.id, st.line_no, st.date, st.description, st.destination_text, st.amount_minor, st.currency,
 		st.proposed_category_id, COALESCE(c.name,''), st.category_source, st.category_confidence, st.needs_review, st.duplicate_of,
-		st.suggested_category_id, COALESCE(sc.name,''), st.suggested_confidence
+		st.suggested_category_id, COALESCE(sc.name,''), st.suggested_confidence,
+		st.original_amount_minor, COALESCE(st.original_currency, '')
 		FROM import_staging st
 		LEFT JOIN categories c ON c.id = st.proposed_category_id
 		LEFT JOIN categories sc ON sc.id = st.suggested_category_id
@@ -687,7 +799,7 @@ func (s *Service) Review(batchID string) (rows []*StagedRow, confident, needsRev
 		var needs int
 		if e := brows.Scan(&r.ID, &r.Line, &r.Date, &r.Description, &r.Destination, &r.AmountMinor, &r.Currency,
 			&catID, &r.CategoryName, &r.CategorySource, &conf, &needs, &dup,
-			&sugID, &r.SuggestedCategoryName, &sugConf); e != nil {
+			&sugID, &r.SuggestedCategoryName, &sugConf, &r.OriginalAmountMinor, &r.OriginalCurrency); e != nil {
 			return nil, 0, 0, 0, e
 		}
 		r.Type = typeFor(r.AmountMinor)
@@ -868,7 +980,8 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 		return nil, &ValidationError{Message: "Import is not ready for review"}
 	}
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
-		rows, err := tx.Query(`SELECT id, line_no, date, description, amount_minor, currency, source_text, destination_text, proposed_category_id, duplicate_of, raw
+		rows, err := tx.Query(`SELECT id, line_no, date, description, amount_minor, currency, source_text, destination_text, proposed_category_id, duplicate_of, raw,
+			original_amount_minor, COALESCE(original_currency, '')
 			FROM import_staging WHERE batch_id = ? ORDER BY line_no ASC`, batchID)
 		if err != nil {
 			return err
@@ -882,12 +995,16 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 			categoryID                     *string
 			duplicateOf                    *string
 			raw                            string
+			origAmount                     *int64
+			origCurrency                   string
 		}
 		var rowsData []stagedRow
 		for rows.Next() {
 			var r stagedRow
 			var catID, dup sql.NullString
-			if err := rows.Scan(&r.id, &r.line, &r.date, &r.desc, &r.amount, &r.currency, &r.sourceText, &r.destText, &catID, &dup, &r.raw); err != nil {
+			var orig sql.NullInt64
+			if err := rows.Scan(&r.id, &r.line, &r.date, &r.desc, &r.amount, &r.currency, &r.sourceText, &r.destText, &catID, &dup, &r.raw,
+				&orig, &r.origCurrency); err != nil {
 				rows.Close()
 				return err
 			}
@@ -898,6 +1015,10 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 			if dup.Valid {
 				s := dup.String
 				r.duplicateOf = &s
+			}
+			if orig.Valid {
+				n := orig.Int64
+				r.origAmount = &n
 			}
 			rowsData = append(rowsData, r)
 		}
@@ -917,6 +1038,7 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 				CategorySource: core.CategorySourceUser,
 				SourceText:     r.sourceText, DestinationText: r.destText,
 				ImportBatchID: &batchID, DedupeHash: repos.DedupeHash(accountID, r.date, r.amount, r.desc),
+				OriginalAmountMinor: r.origAmount, OriginalCurrency: r.origCurrency,
 			}
 			if r.categoryID == nil {
 				t.CategorySource = core.CategorySourceNone
@@ -999,6 +1121,7 @@ func (s *Service) rememberSchema(batchID string, batch *core.ImportBatch, accoun
 		HasHeader: det.HasHeader, Delimiter: det.Delimiter,
 		Columns: det.Columns, BankHint: det.BankHint,
 		DateFormat: det.DateFormat, Confidence: det.Confidence,
+		Amount: det.Amount, FXRates: det.FXRates,
 	}
 	schema, err := s.saveSchema(name, det.BankHint, &m, det.Sample[0], det.Confidence, &accountID)
 	if err != nil {

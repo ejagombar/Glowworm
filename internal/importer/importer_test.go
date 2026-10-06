@@ -221,3 +221,72 @@ func TestParseRowsLineNumbers(t *testing.T) {
 		t.Errorf("reported line = %d, want 3 (real file line)", pe.Line)
 	}
 }
+
+func TestParseRowsAmountConventions(t *testing.T) {
+	parse := func(m *Mapping, table [][]string) []int64 {
+		t.Helper()
+		m.Kind, m.HasHeader = "csv", true
+		rows, err := ParseRows(m, table, "GBP")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []int64{}
+		for _, r := range rows {
+			out = append(out, r.AmountMinor)
+		}
+		return out
+	}
+	eq := func(name string, got, want []int64) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s: got %v, want %v", name, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s: got %v, want %v", name, got, want)
+			}
+		}
+	}
+	dated := []ColumnMap{{Source: "Date", Role: RoleDate}, {Source: "Amount", Role: RoleAmount}}
+	single := [][]string{{"Date", "Amount"}, {"2026-06-01", "12.50"}, {"2026-06-02", "-30.00"}}
+
+	eq("signed", parse(&Mapping{Columns: dated}, single), []int64{1250, -3000})
+	eq("inverted (credit card)", parse(&Mapping{Columns: dated, Amount: AmountSpec{Sign: SignInverted}}, single), []int64{-1250, 3000})
+
+	split := [][]string{{"Date", "In", "Out"}, {"2026-06-01", "", "-9.99"}, {"2026-06-02", "100", ""}}
+	eq("split columns ignore the bank's signs", parse(&Mapping{Columns: []ColumnMap{
+		{Source: "Date", Role: RoleDate}, {Source: "In", Role: RoleAmountIn}, {Source: "Out", Role: RoleAmountOut},
+	}}, split), []int64{-999, 10000})
+
+	marked := [][]string{{"Date", "Amount", "Dr/Cr"}, {"2026-06-01", "5.00", "Debit"}, {"2026-06-02", "7.00", "Credit"}}
+	eq("direction column", parse(&Mapping{Columns: dated, Amount: AmountSpec{DirectionColumn: "Dr/Cr"}}, marked), []int64{-500, 700})
+	eq("direction column, custom values", parse(&Mapping{Columns: dated, Amount: AmountSpec{DirectionColumn: "Dr/Cr", OutValues: []string{"credit"}}}, marked), []int64{500, -700})
+
+	bracketed := [][]string{{"Date", "Amount"}, {"2026-06-01", "(4.20)"}, {"2026-06-02", "4.20DR"}, {"2026-06-03", "4.20CR"}, {"2026-06-04", "4.20-"}}
+	eq("brackets / DR / CR / trailing minus", parse(&Mapping{Columns: dated}, bracketed), []int64{-420, -420, 420, -420})
+}
+
+func TestParseRowsOriginalCurrency(t *testing.T) {
+	m := &Mapping{Kind: "csv", HasHeader: true, Columns: []ColumnMap{
+		{Source: "Date", Role: RoleDate}, {Source: "Amount", Role: RoleAmount},
+		{Source: "Local amount", Role: RoleOrigAmount}, {Source: "Local currency", Role: RoleOrigCurrency},
+	}}
+	rows, err := ParseRows(m, [][]string{
+		{"Date", "Amount", "Local amount", "Local currency"},
+		{"2026-06-01", "-8.60", "-10.00", "EUR"},
+		{"2026-06-02", "-3.00", "-3.00", "GBP"},
+	}, "GBP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := rows[0]; r.AmountMinor != -860 || r.OrigAmountMinor != -1000 || r.OrigCurrency != "EUR" {
+		t.Fatalf("foreign row = %+v", r)
+	}
+	if r := rows[1]; r.OrigCurrency != "" || r.OrigAmountMinor != 0 {
+		t.Fatalf("home-currency row should carry no original amount: %+v", r)
+	}
+	auto := AutoMapping("csv", []string{"Date", "Amount", "Local amount", "Local currency"}, nil)
+	if auto.Columns[2].Role != RoleOrigAmount || auto.Columns[3].Role != RoleOrigCurrency {
+		t.Fatalf("auto mapping = %+v", auto.Columns)
+	}
+}

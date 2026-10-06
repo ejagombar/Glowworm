@@ -23,17 +23,24 @@ func DedupeHash(accountID, date string, amountMinor int64, description string) s
 
 const txCols = `t.id, t.account_id, t.date, t.description, t.merchant, t.amount_minor, t.currency, t.type,
 	t.category_id, t.category_source, t.category_confidence, t.source_text, t.destination_text,
-	t.recurring_key, t.transfer_id, t.import_batch_id, t.created_at, t.updated_at, t.deleted_at`
+	t.recurring_key, t.transfer_id, t.import_batch_id, t.created_at, t.updated_at, t.deleted_at,
+	t.original_amount_minor, COALESCE(t.original_currency, '')`
 
 func scanTx(sc Scanner) (*core.Transaction, error) {
 	var t core.Transaction
 	var merchant, catID, recKey, transferID, batchID, deletedAt sql.NullString
 	var conf sql.NullFloat64
+	var origAmount sql.NullInt64
 	err := sc.Scan(&t.ID, &t.AccountID, &t.Date, &t.Description, &merchant, &t.AmountMinor, &t.Currency, &t.Type,
 		&catID, &t.CategorySource, &conf, &t.SourceText, &t.DestinationText,
-		&recKey, &transferID, &batchID, &t.CreatedAt, &t.UpdatedAt, &deletedAt)
+		&recKey, &transferID, &batchID, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
+		&origAmount, &t.OriginalCurrency)
 	if err != nil {
 		return nil, err
+	}
+	if origAmount.Valid {
+		n := origAmount.Int64
+		t.OriginalAmountMinor = &n
 	}
 	if merchant.Valid {
 		s := merchant.String
@@ -301,11 +308,12 @@ func (r *Transactions) Create(tx *sql.Tx, t *core.Transaction) error {
 	_, err := exec(r.DB, tx, `INSERT INTO transactions
 		(id, account_id, date, description, merchant, amount_minor, currency, type, category_id,
 		 category_source, category_confidence, source_text, destination_text, recurring_key, transfer_id,
-		 import_batch_id, dedupe_hash, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 import_batch_id, dedupe_hash, created_at, updated_at, original_amount_minor, original_currency)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.AccountID, t.Date, t.Description, nullStr(t.Merchant), t.AmountMinor, t.Currency, t.Type,
 		nullStr(t.CategoryID), t.CategorySource, nullFloat(t.CategoryConfidence), t.SourceText, t.DestinationText,
-		nullStr(t.RecurringKey), nullStr(t.TransferID), nullStr(t.ImportBatchID), t.DedupeHash, t.CreatedAt, t.UpdatedAt)
+		nullStr(t.RecurringKey), nullStr(t.TransferID), nullStr(t.ImportBatchID), t.DedupeHash, t.CreatedAt, t.UpdatedAt,
+		t.OriginalAmountMinor, nullIfEmptyStr(t.OriginalCurrency))
 	return err
 }
 
@@ -777,4 +785,11 @@ func SortDisplayRows(rows []*DisplayRow, key, dir string) {
 		}
 		return c > 0
 	})
+}
+
+func nullIfEmptyStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
