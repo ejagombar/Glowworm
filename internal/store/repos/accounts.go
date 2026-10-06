@@ -131,7 +131,7 @@ func (r *Accounts) CreateValuation(tx *sql.Tx, v *core.Valuation) error {
 }
 
 func (r *Accounts) Valuations(accountID string) ([]*core.Valuation, error) {
-	rows, err := r.DB.Query(`SELECT id, account_id, value_minor, date, note, source, drift_minor, audit_log_id, created_at, updated_at
+	rows, err := r.DB.Query(`SELECT id, account_id, value_minor, date, note, source, drift_minor, audit_log_id, created_at, updated_at, deleted_at
 		FROM valuations WHERE account_id = ? AND deleted_at IS NULL ORDER BY date ASC, created_at ASC`, accountID)
 	if err != nil {
 		return nil, err

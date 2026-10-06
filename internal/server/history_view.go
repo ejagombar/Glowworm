@@ -8,20 +8,20 @@ import (
 )
 
 type auditEntryView struct {
-	ID          int64
-	Timestamp   string
-	When        string
-	Actor       string
-	Kind        string
-	Title       string
-	Sub         string
-	DiffLines   []core.DiffLine
-	State       string
-	PathID      string
-	Action      string
-	Undoable    bool
-	Rewindable  bool
-	CausedBy    int64
+	ID         int64
+	Timestamp  string
+	When       string
+	Actor      string
+	Kind       string
+	Title      string
+	Sub        string
+	DiffLines  []core.DiffLine
+	State      string
+	PathID     string
+	Action     string
+	Undoable   bool
+	Rewindable bool
+	CausedBy   int64
 	// Effects are the system changes this entry caused; they're shown
 	// inside it and undone/redone with it.
 	Effects []auditEntryView

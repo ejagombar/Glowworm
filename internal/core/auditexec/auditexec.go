@@ -106,6 +106,13 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		}
 		return x.Accounts.DeleteValuation(tx, vid)
 
+	case "valuation.deleted":
+		vid := str(revert["valuation_id"])
+		if reapply {
+			return x.Accounts.DeleteValuation(tx, vid)
+		}
+		return x.Accounts.RestoreValuation(tx, vid)
+
 	case "category.created":
 		id := str(revert["category_id"])
 		if reapply {

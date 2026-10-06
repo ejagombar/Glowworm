@@ -1,167 +1,192 @@
 {{define "content"}}
 <section class="view active" id="view-settings">
-  <div class="view-head">
-    <div>
-      <h1>Settings</h1>
-      <p class="sub">Accounts, AI provider and appearance.</p>
-    </div>
-  </div>
-
-  <div class="settings-grid">
-    <div class="panel setting-block settings-accounts-block">
-      <div class="settings-accounts-head">
+    <div class="view-head">
         <div>
-          <h2>Accounts</h2>
-          <p class="muted">Name, type, opening balance and current valuation. Valuation updates are stored as corrections, not payments.</p>
+            <h1>Settings</h1>
+            <p class="sub">Accounts, AI provider and appearance.</p>
         </div>
-        <div class="settings-accounts-actions">
-          <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
-            <svg class="icon"><use href="#i-plus"/></svg> Add account
-          </button>
-        </div>
-      </div>
-      <div class="settings-accounts-grid" id="settingsAccounts">
-        {{range .Accounts}}
-        <button class="settings-account-card" data-account-form="{{.ID}}">
-          <div class="settings-account-card-top">
-            <span class="account-dot" style="background:{{.Color}}"></span>
-            <div class="settings-account-name">{{.Name}}</div>
-            <span class="badge {{accountTypeBadge .Type}}">{{.TypeLabel}}</span>
-          </div>
-          <div class="settings-account-balance {{if .BalanceNeg}}neg{{end}}">{{money .BalanceMinor $.Currency}}</div>
-          <div class="settings-account-sub">
-            {{if .RefLast4}}···· {{.RefLast4}} · {{end}}{{money .OpeningMinor $.Currency}} at opening{{if .OpeningDate}} · opened {{dayMonthYear .OpeningDate}}{{end}}{{if .Corrections}} · {{.Corrections}} correction{{if ne .Corrections 1}}s{{end}}{{end}}
-          </div>
-        </button>
-        {{end}}
-        {{if not .Accounts}}
-        <div class="settings-account-card"><div class="settings-account-name">No accounts yet</div>
-          <div class="settings-account-sub">Add your first account to start importing statements.</div></div>
-        {{end}}
-      </div>
-      {{if .Archives}}
-      <div class="deleted-accounts" id="deletedAccounts">
-        <h3>Deleted accounts</h3>
-        <p class="muted">Kept with all their transactions until you delete them for good.</p>
-        <ul class="deleted-accounts-list">
-          {{range .Archives}}
-          <li data-archive-id="{{.ID}}" data-archive-name="{{.Name}}">
-            <div class="deleted-account-main">
-              <div class="settings-account-name">{{.Name}}</div>
-              <div class="settings-account-sub">Deleted {{dayMonthYear (slice .DeletedAt 0 10)}} · {{.TxCount}} transaction{{if ne .TxCount 1}}s{{end}}</div>
+    </div>
+
+    <div class="settings-grid">
+        <div class="panel setting-block settings-accounts-block">
+            <div class="settings-accounts-head">
+                <div>
+                    <h2>Accounts</h2>
+                    <p class="muted">Name, type, opening balance and current valuation. Valuation updates are stored as
+                        corrections, not payments.</p>
+                </div>
+                <div class="settings-accounts-actions">
+                    <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
+                        <svg class="icon">
+                            <use href="#i-plus" />
+                        </svg> Add account
+                    </button>
+                </div>
             </div>
-            <button class="btn btn-ghost btn-xs" type="button" data-archive-restore>Restore</button>
-            <button class="btn btn-ghost btn-xs danger-text" type="button" data-archive-purge>Delete forever</button>
-          </li>
-          {{end}}
-        </ul>
-      </div>
-      {{end}}
-    </div>
-
-    <div class="panel setting-block">
-      <h2>AI provider</h2>
-      <p class="muted">Glowworm is AI agnostic. Pick whatever you trust.</p>
-      <div class="field-row">
-        <label>Provider</label>
-        <select class="field select" id="aiProvider">
-          <option value=""{{if eq .AIProvider ""}} selected{{end}}>None</option>
-          <option value="openai"{{if eq .AIProvider "openai"}} selected{{end}}>OpenAI (GPT)</option>
-          <option value="anthropic"{{if eq .AIProvider "anthropic"}} selected{{end}}>Anthropic (Claude)</option>
-          <option value="google"{{if eq .AIProvider "google"}} selected{{end}}>Google (Gemini)</option>
-          <option value="openrouter"{{if eq .AIProvider "openrouter"}} selected{{end}}>OpenRouter</option>
-          <option value="ollama"{{if eq .AIProvider "ollama"}} selected{{end}}>Ollama (local)</option>
-          <option value="custom"{{if eq .AIProvider "custom"}} selected{{end}}>Custom endpoint</option>
-        </select>
-      </div>
-      <div class="field-row" id="aiBaseUrlRow"{{if and (ne .AIProvider "custom") (ne .AIProvider "ollama") (ne .AIProvider "openrouter")}} hidden{{end}}>
-        <label>Endpoint URL</label>
-        <input class="field" type="url" id="aiBaseUrl" value="{{.AIBaseURL}}" placeholder="https://your-endpoint.example.com/v1" />
-      </div>
-      <div class="field-row">
-        <label>API key</label>
-        <div class="key-row">
-          <input class="field" type="password" id="aiKey" data-has-key="{{if .AIHasKey}}1{{else}}0{{end}}" placeholder="{{if .AIHasKey}}API key saved — click to replace{{else}}Paste your API key{{end}}" autocomplete="off" />
-          <button class="btn btn-ghost btn-xs" id="aiKeyClear" type="button" title="Remove the saved key"{{if not .AIHasKey}} hidden{{end}}>Clear</button>
+            <div class="settings-accounts-grid" id="settingsAccounts">
+                {{range .Accounts}}
+                <button class="settings-account-card" data-account-form="{{.ID}}">
+                    <div class="settings-account-card-top">
+                        <span class="account-dot" style="background:{{.Color}}"></span>
+                        <div class="settings-account-name">{{.Name}}</div>
+                        <span class="badge {{accountTypeBadge .Type}}">{{.TypeLabel}}</span>
+                    </div>
+                    <div class="settings-account-balance {{if .BalanceNeg}}neg{{end}}">{{money .BalanceMinor
+                        $.Currency}}</div>
+                    <div class="settings-account-sub">
+                        {{if .RefLast4}}···· {{.RefLast4}} · {{end}}<span class="settings-account-opening">{{money .OpeningMinor $.Currency}}</span> at opening{{if
+                        .OpeningDate}} · opened {{dayMonthYear .OpeningDate}}{{end}}{{if .Corrections}} ·
+                        {{.Corrections}} correction{{if ne .Corrections 1}}s{{end}}{{end}}
+                    </div>
+                </button>
+                {{end}}
+                {{if not .Accounts}}
+                <div class="settings-account-card">
+                    <div class="settings-account-name">No accounts yet</div>
+                    <div class="settings-account-sub">Add your first account to start importing statements.</div>
+                </div>
+                {{end}}
+            </div>
+            {{if .Archives}}
+            <div class="deleted-accounts" id="deletedAccounts">
+                <h3>Deleted accounts</h3>
+                <p class="muted">Kept with all their transactions until you delete them for good.</p>
+                <ul class="deleted-accounts-list">
+                    {{range .Archives}}
+                    <li data-archive-id="{{.ID}}" data-archive-name="{{.Name}}">
+                        <div class="deleted-account-main">
+                            <div class="settings-account-name">{{.Name}}</div>
+                            <div class="settings-account-sub">Deleted {{dayMonthYear (slice .DeletedAt 0 10)}} ·
+                                {{.TxCount}} transaction{{if ne .TxCount 1}}s{{end}}</div>
+                        </div>
+                        <button class="btn btn-ghost btn-xs" type="button" data-archive-restore>Restore</button>
+                        <button class="btn btn-ghost btn-xs danger-text" type="button" data-archive-purge>Delete
+                            forever</button>
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
+            {{end}}
         </div>
-        {{if .AIHasKey}}<p class="muted" style="margin:4px 0 0">A key is saved for this provider. Click the field to replace it, or Clear to remove it.</p>{{end}}
-      </div>
-      <div class="field-row">
-        <label for="aiModelQueriesInput">Queries model</label>
-        <div class="model-picker" id="aiModelQueries" data-value="{{.AIQueriesModel}}">
-          <input class="field" id="aiModelQueriesInput" type="text" autocomplete="off" spellcheck="false"
-            role="combobox" aria-expanded="false" aria-controls="aiModelQueriesList" placeholder="Auto (provider default)" />
-          <ul class="model-picker-list" id="aiModelQueriesList" role="listbox" hidden></ul>
-        </div>
-        <p class="muted model-picker-hint">Answers questions on the Queries page.</p>
-      </div>
-      <div class="field-row">
-        <label for="aiModelCatInput">Categorisation model</label>
-        <div class="model-picker" id="aiModelCat" data-value="{{.AICatModel}}">
-          <input class="field" id="aiModelCatInput" type="text" autocomplete="off" spellcheck="false"
-            role="combobox" aria-expanded="false" aria-controls="aiModelCatList" placeholder="Auto (provider default)" />
-          <ul class="model-picker-list" id="aiModelCatList" role="listbox" hidden></ul>
-        </div>
-        <p class="muted model-picker-hint">Categorises imports and reads statement layouts.</p>
-      </div>
-      <div class="field-row">
-        <div class="key-row">
-          <p class="muted" id="aiModelsStatus" style="margin:0; flex:1">Load the model list for the selected provider.</p>
-          <button class="btn btn-ghost btn-xs" id="aiLoadModels" type="button" title="Fetch the model list from the provider">Reload models</button>
-        </div>
-      </div>
-      <div class="field-row">
-        <button class="btn btn-primary" id="aiSave">Save provider</button>
-        <button class="btn btn-ghost" id="aiTest">Test connection</button>
-      </div>
-    </div>
 
-    <div class="panel setting-block">
-      <h2>Appearance</h2>
-      <div class="field-row">
-        <label>Theme</label>
-        <select class="field select" id="themeSelect">
-          <option value="light"{{if eq .Theme "light"}} selected{{end}}>Light</option>
-          <option value="dark"{{if eq .Theme "dark"}} selected{{end}}>Dark</option>
-          <option value="system"{{if eq .Theme "system"}} selected{{end}}>System</option>
-        </select>
-      </div>
-      <div class="field-row">
-        <label>Currency</label>
-        <select class="field select" id="currencySelect">
-          <option value="GBP"{{if eq .Currency "GBP"}} selected{{end}}>£ GBP</option>
-          <option value="USD"{{if eq .Currency "USD"}} selected{{end}}>$ USD</option>
-          <option value="EUR"{{if eq .Currency "EUR"}} selected{{end}}>€ EUR</option>
-        </select>
-      </div>
-      <div class="field-row">
-        <button class="btn btn-primary" id="appearanceSave">Save appearance</button>
-      </div>
-    </div>
+        <div class="panel setting-block">
+            <h2>AI provider</h2>
+            <p class="muted">Glowworm is AI agnostic. Pick whatever you trust.</p>
+            <div class="field-row">
+                <label>Provider</label>
+                <select class="field select" id="aiProvider">
+                    <option value="" {{if eq .AIProvider "" }} selected{{end}}>None</option>
+                    <option value="openai" {{if eq .AIProvider "openai" }} selected{{end}}>OpenAI (GPT)</option>
+                    <option value="anthropic" {{if eq .AIProvider "anthropic" }} selected{{end}}>Anthropic (Claude)
+                    </option>
+                    <option value="google" {{if eq .AIProvider "google" }} selected{{end}}>Google (Gemini)</option>
+                    <option value="openrouter" {{if eq .AIProvider "openrouter" }} selected{{end}}>OpenRouter</option>
+                    <option value="ollama" {{if eq .AIProvider "ollama" }} selected{{end}}>Ollama (local)</option>
+                    <option value="custom" {{if eq .AIProvider "custom" }} selected{{end}}>Custom endpoint</option>
+                </select>
+            </div>
+            <div class="field-row" id="aiBaseUrlRow" {{if and (ne .AIProvider "custom" ) (ne .AIProvider "ollama" ) (ne
+                .AIProvider "openrouter" )}} hidden{{end}}>
+                <label>Endpoint URL</label>
+                <input class="field" type="url" id="aiBaseUrl" value="{{.AIBaseURL}}"
+                    placeholder="https://your-endpoint.example.com/v1" />
+            </div>
+            <div class="field-row">
+                <label>API key</label>
+                <div class="key-row">
+                    <input class="field" type="password" id="aiKey" data-has-key="{{if .AIHasKey}}1{{else}}0{{end}}"
+                        placeholder="{{if .AIHasKey}}API key saved — click to replace{{else}}Paste your API key{{end}}"
+                        autocomplete="off" />
+                    <button class="btn btn-ghost btn-xs" id="aiKeyClear" type="button" title="Remove the saved key" {{if
+                        not .AIHasKey}} hidden{{end}}>Clear</button>
+                </div>
+            </div>
+            <hr class="setting-divider" />
+            <div class="field-row">
+                <label for="aiModelQueriesInput">Queries model</label>
+                <div class="model-picker" id="aiModelQueries" data-value="{{.AIQueriesModel}}">
+                    <input class="field" id="aiModelQueriesInput" type="text" autocomplete="off" spellcheck="false"
+                        role="combobox" aria-expanded="false" aria-controls="aiModelQueriesList"
+                        placeholder="Auto (provider default)" />
+                    <ul class="model-picker-list" id="aiModelQueriesList" role="listbox" hidden></ul>
+                </div>
+                <p class="muted model-picker-hint">Answers questions on the Queries page.</p>
+            </div>
+            <div class="field-row">
+                <label for="aiModelCatInput">Categorisation model</label>
+                <div class="model-picker" id="aiModelCat" data-value="{{.AICatModel}}">
+                    <input class="field" id="aiModelCatInput" type="text" autocomplete="off" spellcheck="false"
+                        role="combobox" aria-expanded="false" aria-controls="aiModelCatList"
+                        placeholder="Auto (provider default)" />
+                    <ul class="model-picker-list" id="aiModelCatList" role="listbox" hidden></ul>
+                </div>
+                <p class="muted model-picker-hint">Categorises imports and reads statement layouts.</p>
+            </div>
+            <div class="field-row">
+                <div class="key-row">
+                    <p class="muted" id="aiModelsStatus" style="margin:0; flex:1">Load the model list for the selected
+                        provider.</p>
+                    <button class="btn btn-ghost btn-xs" id="aiLoadModels" type="button"
+                        title="Fetch the model list from the provider">Reload models</button>
+                </div>
+            </div>
+            <div class="field-row">
+                <button class="btn btn-primary" id="aiSave">Save provider</button>
+                <button class="btn btn-ghost" id="aiTest">Test connection</button>
+            </div>
+        </div>
 
-    <div class="panel setting-block">
-      <h2>Account</h2>
-      <p class="muted">Signed in as <strong id="signedInName">{{if .UserName}}{{.UserName}}{{else}}you{{end}}</strong>.</p>
-      <div class="account-actions">
-        <button class="btn btn-ghost" id="changeNameBtn" type="button">Update name…</button>
-        <button class="btn btn-ghost" id="changePasswordBtn" type="button">Change password…</button>
-        <form method="post" action="/logout">
-          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
-          <button class="btn btn-ghost" type="submit">Sign out</button>
-        </form>
-      </div>
-    </div>
+        <div class="setting-stack">
+            <div class="panel setting-block">
+                <h2>Account</h2>
+                <p class="muted">Signed in as <strong id="signedInName">{{if
+                        .UserName}}{{.UserName}}{{else}}you{{end}}</strong>.</p>
+                <div class="account-actions">
+                    <button class="btn btn-ghost" id="changeNameBtn" type="button">Update name…</button>
+                    <button class="btn btn-ghost" id="changePasswordBtn" type="button">Change password…</button>
+                    <form method="post" action="/logout">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
+                        <button class="btn btn-ghost" type="submit">Sign out</button>
+                    </form>
+                </div>
+            </div>
 
-    <div class="panel setting-block">
-      <h2>Backup &amp; deletion</h2>
-      <p class="muted">A full backup holds everything in this Glowworm: accounts, transactions, settings, history and your encrypted AI key.</p>
-      <p class="muted">To restore one, stop Glowworm on the server and run <code>glowworm restore &lt;file&gt;</code>.</p>
-      <div class="account-actions">
-        <button class="btn btn-ghost" id="instanceBackupBtn" type="button">Download full backup…</button>
-        <button class="btn btn-danger" id="instanceDeleteBtn" type="button">Delete Glowworm account…</button>
-      </div>
+            <div class="panel setting-block">
+                <h2>Backup &amp; deletion</h2>
+                <p class="muted">A full backup holds everything in this Glowworm: accounts, transactions, settings, history
+                    and your encrypted AI key.</p>
+                <p class="muted">To restore one, stop Glowworm on the server and run <code>glowworm restore
+                        &lt;file&gt;</code>.</p>
+                <div class="account-actions">
+                    <button class="btn btn-ghost" id="instanceBackupBtn" type="button">Download full backup…</button>
+                    <button class="btn btn-danger" id="instanceDeleteBtn" type="button">Delete Glowworm account…</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel setting-block">
+            <h2>Appearance</h2>
+            <div class="field-row">
+                <label>Theme</label>
+                <select class="field select" id="themeSelect">
+                    <option value="light" {{if eq .Theme "light" }} selected{{end}}>Light</option>
+                    <option value="dark" {{if eq .Theme "dark" }} selected{{end}}>Dark</option>
+                    <option value="system" {{if eq .Theme "system" }} selected{{end}}>System</option>
+                </select>
+            </div>
+            <div class="field-row">
+                <label>Currency</label>
+                <select class="field select" id="currencySelect">
+                    <option value="GBP" {{if eq .Currency "GBP" }} selected{{end}}>£ GBP</option>
+                    <option value="USD" {{if eq .Currency "USD" }} selected{{end}}>$ USD</option>
+                    <option value="EUR" {{if eq .Currency "EUR" }} selected{{end}}>€ EUR</option>
+                </select>
+            </div>
+            <div class="field-row">
+                <button class="btn btn-primary" id="appearanceSave">Save appearance</button>
+            </div>
+        </div>
     </div>
-  </div>
 </section>
 
 {{template "account-modal" dict "CSRF" .CSRFToken "Currency" .Currency "Symbol" (symbol .Currency)}}
@@ -171,116 +196,129 @@
 
 {{define "name-modal"}}
 <div class="modal-backdrop" id="nameModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nameModalTitle">
-    <button class="icon-btn modal-close" data-action="close-name" aria-label="Close">
-      <svg class="icon"><use href="#i-close"/></svg>
-    </button>
-    <div class="modal-head">
-      <div class="modal-head-text">
-        <h3 id="nameModalTitle">Update your name</h3>
-        <p class="muted">Shown on your dashboard greeting and here.</p>
-      </div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nameModalTitle">
+        <button class="icon-btn modal-close" data-action="close-name" aria-label="Close">
+            <svg class="icon">
+                <use href="#i-close" />
+            </svg>
+        </button>
+        <div class="modal-head">
+            <div class="modal-head-text">
+                <h3 id="nameModalTitle">Update your name</h3>
+                <p class="muted">Shown on your dashboard greeting and here.</p>
+            </div>
+        </div>
+        <div class="modal-body">
+            <div class="field-row">
+                <label>Your name</label>
+                <input class="field" type="text" id="nameInput" value="{{.UserName}}"
+                    placeholder="How should Glowworm greet you?" />
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-ghost" id="nameCancel" type="button">Cancel</button>
+                <span class="spacer"></span>
+                <button class="btn btn-primary" id="nameSaveModal">Save name</button>
+            </div>
+        </div>
     </div>
-    <div class="modal-body">
-      <div class="field-row">
-        <label>Your name</label>
-        <input class="field" type="text" id="nameInput" value="{{.UserName}}" placeholder="How should Glowworm greet you?" />
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-ghost" id="nameCancel" type="button">Cancel</button>
-        <span class="spacer"></span>
-        <button class="btn btn-primary" id="nameSaveModal">Save name</button>
-      </div>
-    </div>
-  </div>
 </div>
 {{end}}
 
 {{define "password-modal"}}
 <div class="modal-backdrop" id="passwordModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
-    <button class="icon-btn modal-close" data-action="close-password" aria-label="Close">
-      <svg class="icon"><use href="#i-close"/></svg>
-    </button>
-    <div class="modal-head">
-      <div class="modal-head-text">
-        <h3 id="passwordModalTitle">Change password</h3>
-        <p class="muted">Your current password is required. New passwords are at least 10 characters.</p>
-      </div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
+        <button class="icon-btn modal-close" data-action="close-password" aria-label="Close">
+            <svg class="icon">
+                <use href="#i-close" />
+            </svg>
+        </button>
+        <div class="modal-head">
+            <div class="modal-head-text">
+                <h3 id="passwordModalTitle">Change password</h3>
+                <p class="muted">Your current password is required. New passwords are at least 10 characters.</p>
+            </div>
+        </div>
+        <div class="modal-body">
+            <div class="field-row">
+                <label>Current password</label>
+                <input class="field" type="password" id="pwCurrent" autocomplete="current-password" />
+            </div>
+            <div class="field-row">
+                <label>New password</label>
+                <input class="field" type="password" id="pwNew" autocomplete="new-password"
+                    placeholder="At least 10 characters" />
+            </div>
+            <div class="field-row">
+                <label>Confirm new password</label>
+                <input class="field" type="password" id="pwConfirm" autocomplete="new-password" />
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-ghost" id="passwordCancel" type="button">Cancel</button>
+                <span class="spacer"></span>
+                <button class="btn btn-primary" id="passwordSave">Change password</button>
+            </div>
+        </div>
     </div>
-    <div class="modal-body">
-      <div class="field-row">
-        <label>Current password</label>
-        <input class="field" type="password" id="pwCurrent" autocomplete="current-password" />
-      </div>
-      <div class="field-row">
-        <label>New password</label>
-        <input class="field" type="password" id="pwNew" autocomplete="new-password" placeholder="At least 10 characters" />
-      </div>
-      <div class="field-row">
-        <label>Confirm new password</label>
-        <input class="field" type="password" id="pwConfirm" autocomplete="new-password" />
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-ghost" id="passwordCancel" type="button">Cancel</button>
-        <span class="spacer"></span>
-        <button class="btn btn-primary" id="passwordSave">Change password</button>
-      </div>
-    </div>
-  </div>
 </div>
 <div class="modal-backdrop" id="instanceBackupModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="instanceBackupTitle">
-    <button class="icon-btn modal-close" data-close-modal="instanceBackupModal" aria-label="Close">
-      <svg class="icon"><use href="#i-close"/></svg>
-    </button>
-    <div class="modal-head">
-      <div class="modal-head-text">
-        <h3 id="instanceBackupTitle">Download a full backup</h3>
-        <p class="muted">The file contains all your data and the key that decrypts your AI key. Store it somewhere private.</p>
-      </div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="instanceBackupTitle">
+        <button class="icon-btn modal-close" data-close-modal="instanceBackupModal" aria-label="Close">
+            <svg class="icon">
+                <use href="#i-close" />
+            </svg>
+        </button>
+        <div class="modal-head">
+            <div class="modal-head-text">
+                <h3 id="instanceBackupTitle">Download a full backup</h3>
+                <p class="muted">The file contains all your data and the key that decrypts your AI key. Store it
+                    somewhere private.</p>
+            </div>
+        </div>
+        <div class="modal-body">
+            {{if eq .AuthMode "password"}}<div class="field-row">
+                <label for="instanceBackupPassword">Your password</label>
+                <input class="field" type="password" id="instanceBackupPassword" autocomplete="current-password" />
+            </div>{{end}}
+            <div class="modal-foot">
+                <button class="btn btn-ghost" type="button" data-close-modal="instanceBackupModal">Cancel</button>
+                <span class="spacer"></span>
+                <button class="btn btn-primary" id="instanceBackupGo" type="button">Download backup</button>
+            </div>
+        </div>
     </div>
-    <div class="modal-body">
-      {{if eq .AuthMode "password"}}<div class="field-row">
-        <label for="instanceBackupPassword">Your password</label>
-        <input class="field" type="password" id="instanceBackupPassword" autocomplete="current-password" />
-      </div>{{end}}
-      <div class="modal-foot">
-        <button class="btn btn-ghost" type="button" data-close-modal="instanceBackupModal">Cancel</button>
-        <span class="spacer"></span>
-        <button class="btn btn-primary" id="instanceBackupGo" type="button">Download backup</button>
-      </div>
-    </div>
-  </div>
 </div>
 
 <div class="modal-backdrop" id="instanceDeleteModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="instanceDeleteTitle">
-    <button class="icon-btn modal-close" data-close-modal="instanceDeleteModal" aria-label="Close">
-      <svg class="icon"><use href="#i-close"/></svg>
-    </button>
-    <div class="modal-head">
-      <div class="modal-head-text">
-        <h3 id="instanceDeleteTitle">Delete your Glowworm account?</h3>
-        <p class="muted">This erases everything: your login, accounts, transactions, categories, settings, AI key, chat and history. Glowworm returns to first-run setup. It can't be undone from the website.</p>
-      </div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="instanceDeleteTitle">
+        <button class="icon-btn modal-close" data-close-modal="instanceDeleteModal" aria-label="Close">
+            <svg class="icon">
+                <use href="#i-close" />
+            </svg>
+        </button>
+        <div class="modal-head">
+            <div class="modal-head-text">
+                <h3 id="instanceDeleteTitle">Delete your Glowworm account?</h3>
+                <p class="muted">This erases everything: your login, accounts, transactions, categories, settings, AI
+                    key, chat and history. Glowworm returns to first-run setup. It can't be undone from the website.</p>
+            </div>
+        </div>
+        <div class="modal-body">
+            <p class="muted">Want a way back? <button class="link" type="button" id="instanceDeleteBackupFirst">Download
+                    a full backup first</button>.</p>
+            {{if eq .AuthMode "password"}}<div class="field-row">
+                <label for="instanceDeletePassword">Your password</label>
+                <input class="field" type="password" id="instanceDeletePassword" autocomplete="current-password" />
+            </div>{{end}}
+            <div class="field-row">
+                <label for="instanceDeleteConfirm">Type <strong>DELETE</strong> to confirm</label>
+                <input class="field" id="instanceDeleteConfirm" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-ghost" type="button" data-close-modal="instanceDeleteModal">Cancel</button>
+                <span class="spacer"></span>
+                <button class="btn btn-danger" id="instanceDeleteGo" type="button" disabled>Delete everything</button>
+            </div>
+        </div>
     </div>
-    <div class="modal-body">
-      <p class="muted">Want a way back? <button class="link" type="button" id="instanceDeleteBackupFirst">Download a full backup first</button>.</p>
-      {{if eq .AuthMode "password"}}<div class="field-row">
-        <label for="instanceDeletePassword">Your password</label>
-        <input class="field" type="password" id="instanceDeletePassword" autocomplete="current-password" />
-      </div>{{end}}
-      <div class="field-row">
-        <label for="instanceDeleteConfirm">Type <strong>DELETE</strong> to confirm</label>
-        <input class="field" id="instanceDeleteConfirm" autocomplete="off" spellcheck="false" />
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-ghost" type="button" data-close-modal="instanceDeleteModal">Cancel</button>
-        <span class="spacer"></span>
-        <button class="btn btn-danger" id="instanceDeleteGo" type="button" disabled>Delete everything</button>
-      </div>
-    </div>
-  </div>
 </div>
 {{end}}
