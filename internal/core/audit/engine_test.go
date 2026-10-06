@@ -101,7 +101,7 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 	if len(res2.Reactivated) != 2 {
 		t.Fatalf("reactivated = %v", res2.Reactivated)
 	}
-	if len(res2.Shelved) != 2 {
+	if len(res2.Shelved) != 1 { // just "delta": a jump-back writes no entry of its own
 		t.Fatalf("shelved = %v", res2.Shelved)
 	}
 	got = live()

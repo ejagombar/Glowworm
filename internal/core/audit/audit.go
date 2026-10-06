@@ -238,16 +238,8 @@ func (e *Engine) JumpBack(entryID int64, apply ApplyFunc) (JumpResult, error) {
 		if _, err := tx.Exec(`UPDATE audit_paths SET is_active = 0 WHERE id != ? AND is_active = 1`, pathID); err != nil {
 			return err
 		}
-		_, err = e.Writer.Write(tx, Input{
-			Actor: "user", Action: "audit.jumpback",
-			EntityType: "audit_path", EntityID: pathID,
-			Title: fmt.Sprintf("Jumped back to entry %d", entryID),
-			Sub:   fmt.Sprintf("%d later actions hidden", len(deactivated)),
-			After: map[string]any{"to_entry": entryID, "deactivated": deactivated, "failed": failed},
-		})
-		if err != nil {
-			return err
-		}
+		// No record of the jump itself: the undone entries stay in the log,
+		// greyed out and collapsed, which says the same thing.
 		res = JumpResult{Deactivated: deactivated, Failed: failed}
 		return nil
 	})
@@ -318,16 +310,6 @@ func (e *Engine) RestorePath(pathID string, apply ApplyFunc) (RestoreResult, err
 		rows.Close()
 
 		if _, err := tx.Exec(`UPDATE audit_paths SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END`, pathID); err != nil {
-			return err
-		}
-		_, err = e.Writer.Write(tx, Input{
-			Actor: "user", Action: "audit.path.activated",
-			EntityType: "audit_path", EntityID: pathID,
-			Title: "Restored original path",
-			Sub:   fmt.Sprintf("%d actions re-applied, %d shelved", len(reapplied), len(shelved)),
-			After: map[string]any{"path": pathID, "reactivated": reapplied, "shelved": shelved, "skipped": skipped},
-		})
-		if err != nil {
 			return err
 		}
 		res = RestoreResult{Reactivated: reapplied, Shelved: shelved, Skipped: skipped}
@@ -453,6 +435,7 @@ func (e *Engine) removeRecord(tx *sql.Tx, entryID int64, mode string, ent *Audit
 
 type ListOptions struct {
 	Actor      string
+	Actors     []string
 	Action     string
 	EntityType string
 	EntityID   string
@@ -470,6 +453,12 @@ func (e *Engine) List(opt ListOptions) ([]core.AuditEntry, string, error) {
 	if opt.Actor != "" {
 		q += ` AND actor = ?`
 		args = append(args, opt.Actor)
+	}
+	if len(opt.Actors) > 0 {
+		q += ` AND actor IN (?` + strings.Repeat(",?", len(opt.Actors)-1) + `)`
+		for _, a := range opt.Actors {
+			args = append(args, a)
+		}
 	}
 	if opt.Action != "" {
 		if opt.Action == "import" {

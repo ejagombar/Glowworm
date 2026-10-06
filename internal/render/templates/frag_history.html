@@ -3,40 +3,45 @@
 <div class="history-pane" id="historyAuditPane">
   <div class="filters panel">
     <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all&period={{.Period}}">All</a>
-    <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you&period={{.Period}}">By you</a>
-    <a class="chip{{if eq .AuditFilter "ai"}} active{{end}}" href="/history?mode=audit&filter=ai&period={{.Period}}">By AI</a>
+    <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you&period={{.Period}}">You</a>
+    <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?mode=audit&filter=system&period={{.Period}}">System</a>
     <a class="chip{{if eq .AuditFilter "import"}} active{{end}}" href="/history?mode=audit&filter=import&period={{.Period}}">Imports</a>
   </div>
 
   <div class="history-list" id="historyList">
-    {{range .Entries}}
-    <div class="history-item" data-entry-id="{{.ID}}">
-      <div class="history-icon {{.Kind}}">
-        {{if eq .Kind "you"}}Y{{else if eq .Kind "ai"}}<svg class="icon"><use href="#i-sparkle"/></svg>{{else}}<svg class="icon"><use href="#i-import"/></svg>{{end}}
-      </div>
-      <div class="history-main">
-        <div class="history-title"><span class="who {{.Kind}}">{{.Actor}}</span> {{.Title}}</div>
-        <div class="history-sub">{{.Sub}}</div>
-        {{if .DiffLines}}
-        <div class="history-diff">
-          {{range .DiffLines}}<span class="{{.Cls}}">{{.Line}}</span>{{end}}
-        </div>
-        {{end}}
-      </div>
-      <div class="history-time">{{.Timestamp}}</div>
-      <div class="history-actions">
-        {{if .Jumpable}}
-        <button class="btn btn-ghost btn-xs history-restore" data-jump-back="{{.ID}}" title="Restore state to this point">Restore</button>
-        {{end}}
-        {{if or .Revertible .Deletable .Forgettable}}
-        <button class="widget-btn" data-audit-menu="{{.ID}}" title="More actions"><svg class="icon"><use href="#i-more"/></svg></button>
-        {{end}}
-      </div>
-    </div>
+    {{range .Blocks}}
+    {{if eq .Kind "single"}}
+    {{template "audit-entry" .First}}
+    {{else if eq .Kind "repeat"}}
+    {{$f := .First}}
+    <details class="history-group history-repeat">
+      <summary>
+        <span class="history-main">
+          <span class="history-title"><span class="who {{$f.Kind}}">{{$f.Actor}}</span> {{$f.Title}} <span class="badge badge-soft">×{{.Count}}</span></span>
+        </span>
+        <span class="history-time">{{.When}}</span>
+      </summary>
+      {{range .Entries}}{{template "audit-entry" .}}{{end}}
+    </details>
+    {{else}}
+    <details class="history-group history-undone">
+      <summary>
+        <span class="history-main">
+          <span class="history-title">{{.Count}} undone {{if eq .Count 1}}change{{else}}changes{{end}}</span>
+          <span class="history-sub">Undone by restoring to an earlier point</span>
+        </span>
+        <span class="history-time">{{.When}}</span>
+        <span class="history-actions">
+          <button class="btn btn-ghost btn-xs" type="button" data-restore-path="{{.PathID}}" title="Re-apply these changes">Redo</button>
+        </span>
+      </summary>
+      {{range .Entries}}{{template "audit-entry" .}}{{end}}
+    </details>
     {{end}}
-    {{if not .Entries}}
+    {{end}}
+    {{if not .Blocks}}
     <div class="history-item"><div class="history-main"><div class="history-title">No audit entries yet</div>
-      <div class="history-sub">Every change — by you, AI, or Glowworm — will appear here.</div></div></div>
+      <div class="history-sub">Every change — by you or the system — will appear here.</div></div></div>
     {{end}}
   </div>
 </div>
@@ -94,4 +99,28 @@
   </div>
 </div>
 {{end}}
+{{end}}
+{{define "audit-entry"}}
+<div class="history-item{{if eq .State "inactive"}} inactive{{end}}" data-entry-id="{{.ID}}">
+  <div class="history-main">
+    <div class="history-title"><span class="who {{.Kind}}">{{.Actor}}</span> {{.Title}}</div>
+    {{if .Sub}}<div class="history-sub">{{.Sub}}</div>{{end}}
+    {{if .DiffLines}}
+    <div class="history-diff">
+      {{range .DiffLines}}<span class="{{.Cls}}">{{.Line}}</span>{{end}}
+    </div>
+    {{end}}
+  </div>
+  <time class="history-time" datetime="{{.Timestamp}}">{{.When}}</time>
+  {{if ne .State "inactive"}}
+  <div class="history-actions">
+    {{if .Jumpable}}
+    <button class="btn btn-ghost btn-xs" data-jump-back="{{.ID}}" title="Restore state to this point">Restore</button>
+    {{end}}
+    {{if or .Revertible .Deletable .Forgettable}}
+    <button class="widget-btn" data-audit-menu="{{.ID}}" title="More actions"><svg class="icon"><use href="#i-more"/></svg></button>
+    {{end}}
+  </div>
+  {{end}}
+</div>
 {{end}}

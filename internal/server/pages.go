@@ -748,9 +748,9 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		opt := audit.ListOptions{Limit: 50}
 		switch filter {
 		case "you":
-			opt.Actor = "user"
-		case "ai":
-			opt.Actor = "ai"
+			opt.Actor = core.ActorUser
+		case "system":
+			opt.Actors = []string{core.ActorAI, core.ActorSystem}
 		case "import":
 			opt.Action = "import"
 		}
@@ -758,7 +758,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		entryViews = toEntryViews(entries)
+		entryViews = a.toEntryViews(entries)
 		if len(entries) > 0 {
 			args := make([]any, len(entries))
 			for i, e := range entries {
@@ -796,7 +796,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		TxCountToDate   int64
 		Accounts        []*accountCard
 		Series          string
-		Entries         []auditEntryView
+		Blocks          []auditBlock
 		ReconcileStatus string
 		ReconcileLabel  string
 		ReconcileHint   string
@@ -805,7 +805,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		LatestDate: a.Clock.Today(), LatestBalance: latestBalance,
 		TxCountToDate: txCount, Accounts: cards,
 		Series:          series,
-		Entries:         entryViews,
+		Blocks:          groupAuditEntries(entryViews),
 		ReconcileStatus: reconStatus, ReconcileLabel: reconLabel, ReconcileHint: reconHint,
 	}
 	return data, nil
