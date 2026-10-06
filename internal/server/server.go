@@ -101,7 +101,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.Settings = &settings.Service{DB: db, Repos: rp.Settings, Audit: writer}
 	app.Setup = &setup.Service{DB: db, Users: rp.Users, Settings: rp.Settings, Audit: writer}
 
-	provider := resolveProvider(db, secret, log)
+	provider, queryProvider := resolveProviders(db, secret, log)
 	app.Cat = &categoriser.Service{
 		DB: db, Txs: rp.Transactions, Categories: rp.Categories, Settings: rp.Settings,
 		Audit: writer, Provider: provider,
@@ -132,7 +132,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	}
 	app.Recurring = &recurring.Service{DB: db, Txs: rp.Transactions, Audit: writer}
 	app.Query = &query.Service{
-		DB: db, Provider: provider, Clock: clk,
+		DB: db, Provider: queryProvider, Clock: clk,
 		Repo: &query.ConvRepo{DB: db},
 	}
 	app.startMidnightSummariser(log)
@@ -187,16 +187,32 @@ func (a *App) startMidnightSummariser(log *slog.Logger) {
 	}()
 }
 
-func resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai.Provider {
+// Models are chosen per role; either falls back to the older single
+// "default" model.
+const (
+	modelRoleCategorisation = "categorisation"
+	modelRoleQueries        = "queries"
+)
+
+func modelFor(models map[string]string, role string) string {
+	if m := models[role]; m != "" {
+		return m
+	}
+	return models["default"]
+}
+
+// resolveProviders returns the provider for import/categorisation work and
+// the one for the Queries page; they differ only in model.
+func resolveProviders(db *store.DB, secret *crypto.Secret, log *slog.Logger) (cat, queries ai.Provider) {
 	if os.Getenv("GLOWWORM_AI_MOCK") == "1" {
 		log.Info("using mock AI provider (GLOWWORM_AI_MOCK=1)")
-		return &ai.Mock{}
+		return &ai.Mock{}, &ai.Mock{}
 	}
 	var provider, models, baseURL, keyCipher string
 	err := db.QueryRow(`SELECT provider, models, base_url, key_cipher FROM ai_provider_config WHERE id = 1`).
 		Scan(&provider, &models, &baseURL, &keyCipher)
 	if err != nil || provider == "" {
-		return nil
+		return nil, nil
 	}
 	modelMap := map[string]string{}
 	_ = json.Unmarshal([]byte(models), &modelMap)
@@ -208,12 +224,13 @@ func resolveProvider(db *store.DB, secret *crypto.Secret, log *slog.Logger) ai.P
 			log.Error("ai key decryption failed", "err", err)
 		}
 	}
-	p, err := ai.New(provider, modelMap["default"], baseURL, apiKey)
+	cat, err = ai.New(provider, modelFor(modelMap, modelRoleCategorisation), baseURL, apiKey)
 	if err != nil {
 		log.Error("ai provider", "err", err)
-		return nil
+		return nil, nil
 	}
-	return p
+	queries, _ = ai.New(provider, modelFor(modelMap, modelRoleQueries), baseURL, apiKey)
+	return cat, queries
 }
 
 func (a *App) Router() http.Handler {

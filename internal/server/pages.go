@@ -868,14 +868,15 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	}
 	data := struct {
 		*viewBase
-		Accounts   []*accountCard
-		Archives   []*accounts.Archive
-		AIProvider string
-		AIKeyMask  string
-		AIHasKey   bool
-		AIBaseURL  string
-		AIModel    string
-		SetupDone  bool
+		Accounts       []*accountCard
+		Archives       []*accounts.Archive
+		AIProvider     string
+		AIKeyMask      string
+		AIHasKey       bool
+		AIBaseURL      string
+		AIQueriesModel string
+		AICatModel     string
+		SetupDone      bool
 	}{
 		viewBase: base, Accounts: cards, Archives: archives,
 		AIProvider: aiProviderLabel(aiRow), AIKeyMask: aiMasked, SetupDone: s.SetupCompleted,
@@ -883,7 +884,8 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	if aiRow != nil {
 		data.AIHasKey = aiRow.KeyCipher != ""
 		data.AIBaseURL = aiRow.BaseURL
-		data.AIModel = aiRow.Models["default"]
+		data.AIQueriesModel = modelFor(aiRow.Models, modelRoleQueries)
+		data.AICatModel = modelFor(aiRow.Models, modelRoleCategorisation)
 	}
 	return a.Render.Render(w, "settings", data)
 }

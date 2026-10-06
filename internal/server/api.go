@@ -1007,8 +1007,10 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
-	p, _ := ai.New(in.Provider, models["default"], baseURL, decodeKey(a.Secret, keyCipher))
-	a.setProvider(p)
+	key := decodeKey(a.Secret, keyCipher)
+	cat, _ := ai.New(in.Provider, modelFor(models, modelRoleCategorisation), baseURL, key)
+	queries, _ := ai.New(in.Provider, modelFor(models, modelRoleQueries), baseURL, key)
+	a.setProviders(cat, queries)
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
@@ -1087,27 +1089,39 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 		writeJSON(w, map[string]any{"ok": false, "error": "No provider configured"})
 		return nil
 	}
-	model := row.Models["default"]
-	p, err := ai.New(row.Provider, model, row.BaseURL, decodeKey(a.Secret, row.KeyCipher))
-	if err != nil {
-		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-		return nil
-	}
-	start := timeNow()
-	_, _, err = p.CompleteStructured(&ai.StructuredRequest{
-		Capability: "schema_naming",
-		PromptJSON: map[string]any{"columns": []string{"Date", "Description", "Amount"}, "bank_hint": "Test"},
-	})
-	latency := int(timeNow().Sub(start).Milliseconds())
-	if err != nil {
-		modelLabel := model
-		if modelLabel == "" {
-			modelLabel = ai.EffectiveModel(p)
+	// Test each distinct model once; both are usually the same.
+	tested := map[string]bool{}
+	latency := 0
+	for _, role := range []string{modelRoleQueries, modelRoleCategorisation} {
+		model := modelFor(row.Models, role)
+		if tested[model] {
+			continue
 		}
-		writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("%s (model: %s)", err, modelLabel)})
-		return nil
+		tested[model] = true
+		p, err := ai.New(row.Provider, model, row.BaseURL, decodeKey(a.Secret, row.KeyCipher))
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return nil
+		}
+		start := timeNow()
+		_, _, err = p.CompleteStructured(&ai.StructuredRequest{
+			Capability: "schema_naming",
+			PromptJSON: map[string]any{"columns": []string{"Date", "Description", "Amount"}, "bank_hint": "Test"},
+		})
+		ms := int(timeNow().Sub(start).Milliseconds())
+		if err != nil {
+			modelLabel := model
+			if modelLabel == "" {
+				modelLabel = ai.EffectiveModel(p)
+			}
+			writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("%s (model: %s)", err, modelLabel)})
+			return nil
+		}
+		a.Repos.AIConfig.LogCall("schema_naming", row.Provider, model, 0, 0, ms, true, "")
+		if ms > latency {
+			latency = ms
+		}
 	}
-	a.Repos.AIConfig.LogCall("schema_naming", row.Provider, row.Models["default"], 0, 0, latency, true, "")
 	writeJSON(w, map[string]any{"ok": true, "latency_ms": latency})
 	return nil
 }
