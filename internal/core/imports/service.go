@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"glowworm/internal/ai"
@@ -28,6 +29,7 @@ type Service struct {
 	Provider    ai.Provider
 	DisplayCC   string
 	AfterCommit func(batchID string)
+	Log         *slog.Logger
 }
 
 type ValidationError struct{ Message string }
@@ -911,7 +913,7 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 			t := &core.Transaction{
 				AccountID: accountID, Date: r.date, Description: r.desc,
 				AmountMinor: r.amount, Currency: r.currency,
-				Type: typeFor(r.amount), CategoryID: r.categoryID,
+				Type: s.typeForCategory(tx, r.categoryID, r.amount), CategoryID: r.categoryID,
 				CategorySource: core.CategorySourceUser,
 				SourceText:     r.sourceText, DestinationText: r.destText,
 				ImportBatchID: &batchID, DedupeHash: repos.DedupeHash(accountID, r.date, r.amount, r.desc),
@@ -1094,6 +1096,22 @@ func (s *Service) enrichMerchants(batchID string) {
 	})
 }
 
+// typeForCategory lets the chosen category decide the type, so a refund put in
+// a spend category is an expense and nets off that category's spend.
+func (s *Service) typeForCategory(tx *sql.Tx, categoryID *string, amount int64) string {
+	if categoryID != nil {
+		var catType string
+		_ = tx.QueryRow(`SELECT type FROM categories WHERE id = ?`, *categoryID).Scan(&catType)
+		switch catType {
+		case core.CategorySpend:
+			return core.TypeExpense
+		case core.CategoryIncome:
+			return core.TypeIncome
+		}
+	}
+	return typeFor(amount)
+}
+
 func typeFor(amount int64) string {
 	if amount >= 0 {
 		return core.TypeIncome
@@ -1161,7 +1179,7 @@ func (s *Service) saveSchema(name, bankHint string, m *importer.Mapping, sampleH
 			Actor: core.ActorUser, Action: "schema.saved",
 			EntityType: "import_schema", EntityID: schema.ID,
 			Title: fmt.Sprintf("Saved schema “%s”", schema.Name),
-			Sub:   fmt.Sprintf("%d columns · %.0f%% match", len(schema.Columns), schema.Confidence*100),
+			Sub:   fmt.Sprintf("%d columns", len(schema.Columns)),
 			After: map[string]any{"name": schema.Name, "kind": schema.Kind, "columns": schema.Columns},
 		})
 		return err

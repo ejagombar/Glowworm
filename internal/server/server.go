@@ -113,7 +113,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	}
 	app.Imports = &imports.Service{
 		DB: db, Accounts: rp.Accounts, Txs: rp.Transactions, Audit: writer,
-		Cat: app.Cat, Provider: provider, DisplayCC: displayCC,
+		Cat: app.Cat, Provider: provider, DisplayCC: displayCC, Log: log,
 	}
 	app.Imports.AfterCommit = func(string) { app.refreshDerived() }
 	app.Accounts.AfterChange = app.refreshDerived

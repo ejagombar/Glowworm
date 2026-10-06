@@ -4,8 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"glowworm/internal/ai"
 	"glowworm/internal/core"
@@ -159,7 +164,14 @@ func (s *Service) CategoriseLocal(ctx context.Context, batchID string, emit func
 	return nil
 }
 
-const aiChunkSize = 40
+// Small chunks answer quickly and keep replies well under the token limit.
+const (
+	aiChunkSize   = 5
+	aiConcurrency = 4
+	// Slow models (reasoning or free-tier) can take well over the provider's
+	// 30s default even for a five-item chunk.
+	aiChunkTimeout = 60 * time.Second
+)
 
 func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Progress)) error {
 	if !s.AIAvailable() {
@@ -188,42 +200,52 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 	}
 	catalogue := map[string]map[string]string{}
 	nameToID := map[string]map[string]string{}
-	for _, c := range cats {
-		var txType string
-		switch c.Type {
-		case core.CategorySpend:
-			txType = core.TypeExpense
-		case core.CategoryIncome:
-			txType = core.TypeIncome
-		default:
-			continue
-		}
+	add := func(txType string, c *core.Category) {
 		if catalogue[txType] == nil {
 			catalogue[txType] = map[string]string{}
 			nameToID[txType] = map[string]string{}
 		}
+		if _, taken := nameToID[txType][c.Name]; taken {
+			return
+		}
 		catalogue[txType][c.ID] = c.Name
 		nameToID[txType][c.Name] = c.ID
 	}
-	_, aiThresh, _ := s.catThresholds()
-
-	var chunks [][]stagedGroup
-	for _, txType := range []string{core.TypeExpense, core.TypeIncome} {
-		var cur []stagedGroup
-		for _, g := range pending {
-			if g.Type != txType {
-				continue
-			}
-			cur = append(cur, g)
-			if len(cur) == aiChunkSize {
-				chunks = append(chunks, cur)
-				cur = nil
-			}
-		}
-		if len(cur) > 0 {
-			chunks = append(chunks, cur)
+	// Income categories go in first so they win a name clash; spend categories
+	// follow because money in may be a refund.
+	for _, c := range cats {
+		if c.Type == core.CategoryIncome {
+			add(core.TypeIncome, c)
 		}
 	}
+	for _, c := range cats {
+		if c.Type == core.CategorySpend {
+			add(core.TypeExpense, c)
+			add(core.TypeIncome, c)
+		}
+	}
+	_, aiThresh, _ := s.catThresholds()
+
+	// Same order as the review list (biggest groups first), so the top of the
+	// list resolves first. Chunks are single-type: the catalogue is per type.
+	sort.SliceStable(pending, func(i, j int) bool { return len(pending[i].RowIDs) > len(pending[j].RowIDs) })
+	var chunks [][]stagedGroup
+	open := map[string]int{}
+	for _, g := range pending {
+		ci, ok := open[g.Type]
+		if !ok {
+			ci = len(chunks)
+			open[g.Type] = ci
+			chunks = append(chunks, nil)
+		}
+		chunks[ci] = append(chunks[ci], g)
+		if len(chunks[ci]) == aiChunkSize {
+			delete(open, g.Type)
+		}
+	}
+	log := s.log().With("batch", batchID, "provider", s.Cat.Provider.Name(), "model", ai.EffectiveModel(s.Cat.Provider))
+	log.Info("ai categorise start", "groups", len(pending), "chunks", len(chunks), "chunk_size", aiChunkSize, "concurrency", aiConcurrency)
+	started := time.Now()
 	emit(Progress{Phase: "ai_start", Total: len(pending), Batches: len(chunks)})
 
 	type aiItem struct {
@@ -235,25 +257,43 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 		Type        string `json:"type"`
 		Count       int    `json:"count"`
 	}
-	aiCount := 0
-	for ci, chunk := range chunks {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+	// mu serialises emit (the SSE writer isn't goroutine-safe), DB writes and
+	// the shared counters below.
+	var mu sync.Mutex
+	aiCount, answered, finished := 0, 0, 0
+	var fatal error
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	warnedTypes := map[string]bool{}
+
+	runChunk := func(ci int, chunk []stagedGroup) {
 		txType := chunk[0].Type
+		clog := log.With("chunk", ci+1, "of", len(chunks), "groups", len(chunk), "type", txType)
+		progress := func() {
+			finished++
+			emit(Progress{Phase: "ai_progress", Index: finished, Total: len(chunks)})
+		}
 		if len(catalogue[txType]) == 0 {
-			emit(Progress{Phase: "warning", Message: fmt.Sprintf("No %s categories exist yet, so %d groups are left for you", txType, len(chunk))})
-			emit(Progress{Phase: "ai_progress", Index: ci + 1, Total: len(chunks)})
-			continue
+			mu.Lock()
+			defer mu.Unlock()
+			if !warnedTypes[txType] {
+				warnedTypes[txType] = true
+				emit(Progress{Phase: "warning", Message: fmt.Sprintf("No %s categories exist yet, so those groups are left for you", txType)})
+			}
+			clog.Warn("ai categorise chunk skipped: no categories for type")
+			progress()
+			return
 		}
 		items := make([]aiItem, len(chunk))
 		for i, g := range chunk {
 			items[i] = aiItem{Index: i, Date: g.Date, Description: g.Description, Destination: g.Destination,
 				AmountMinor: g.AmountMinor, Type: g.Type, Count: len(g.RowIDs)}
 		}
-		resp, _, err := s.Cat.Provider.CompleteStructured(&ai.StructuredRequest{
+		t0 := time.Now()
+		resp, usage, err := s.Cat.Provider.CompleteStructured(&ai.StructuredRequest{
 			Capability: "categorisation",
 			PromptJSON: map[string]any{"transactions": items, "allowed_categories": catalogue[txType]},
+			Timeout:    aiChunkTimeout,
 		})
 		var parsed struct {
 			Items []struct {
@@ -263,13 +303,40 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 			} `json:"items"`
 		}
 		if err == nil {
-			err = json.Unmarshal([]byte(resp), &parsed)
+			if uerr := json.Unmarshal([]byte(resp), &parsed); uerr != nil {
+				err = &ai.ErrBadReply{Reason: "reply didn't match the categorisation schema: " + uerr.Error(), Reply: resp}
+			}
 		}
+		mu.Lock()
+		defer mu.Unlock()
 		if err != nil {
+			attrs := []any{"ms", time.Since(t0).Milliseconds(), "err", err}
+			var bad *ai.ErrBadReply
+			if errors.As(err, &bad) {
+				attrs = append(attrs, "reply", bad.Reply)
+			}
+			clog.Error("ai categorise chunk failed", attrs...)
 			// A dead provider would fail every remaining chunk too.
-			emit(Progress{Phase: "warning", Message: "The AI request failed (" + err.Error() + "), so the remaining groups are left for you"})
-			break
+			if runCtx.Err() == nil {
+				emit(Progress{Phase: "warning", Message: "The AI request failed (" + err.Error() + "), so the remaining groups are left for you"})
+				stop()
+			}
+			progress()
+			return
 		}
+		attrs := []any{"ms", time.Since(t0).Milliseconds(), "answered", len(parsed.Items)}
+		if usage != nil {
+			attrs = append(attrs, "prompt_tokens", usage.PromptTokens, "completion_tokens", usage.CompletionTokens)
+		}
+		if len(parsed.Items) < len(chunk) {
+			clog.Warn("ai categorise chunk incomplete", append(attrs, "reply", resp)...)
+		} else {
+			clog.Info("ai categorise chunk done", attrs...)
+		}
+		if fatal != nil {
+			return
+		}
+		answered++
 		var events []Progress
 		err = s.DB.WithTx(func(tx *sql.Tx) error {
 			for _, it := range parsed.Items {
@@ -300,15 +367,59 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 			return nil
 		})
 		if err != nil {
-			return err
+			clog.Error("ai categorise chunk save failed", "err", err)
+			fatal = err
+			stop()
+			return
 		}
 		for _, ev := range events {
 			emit(ev)
 		}
-		emit(Progress{Phase: "ai_progress", Index: ci + 1, Total: len(chunks)})
+		progress()
 	}
+
+	// Several small requests in flight: each finishes in seconds, so groups
+	// move across steadily instead of all at once after one long request.
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < min(aiConcurrency, len(chunks)); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ci := range next {
+				runChunk(ci, chunks[ci])
+			}
+		}()
+	}
+feed:
+	for ci := range chunks {
+		select {
+		case next <- ci:
+		case <-runCtx.Done():
+			break feed
+		}
+	}
+	close(next)
+	wg.Wait()
+
+	if fatal != nil {
+		return fatal
+	}
+	if ctx.Err() != nil {
+		log.Info("ai categorise cancelled", "ms", time.Since(started).Milliseconds())
+		return ctx.Err()
+	}
+	log.Info("ai categorise done", "ms", time.Since(started).Milliseconds(), "chunks_answered", answered,
+		"placed", aiCount, "left", len(pending)-aiCount)
 	emit(Progress{Phase: "ai_done", Total: len(pending), Categorised: aiCount, Pending: len(pending) - aiCount})
 	return nil
+}
+
+func (s *Service) log() *slog.Logger {
+	if s.Log != nil {
+		return s.Log
+	}
+	return slog.Default()
 }
 
 func (s *Service) requireReview(batchID string) error {
@@ -360,7 +471,7 @@ func (s *Service) decideLocal(
 				allowed[id] = true
 			}
 		case core.TypeIncome:
-			if cat.Type == core.CategoryIncome {
+			if cat.Type == core.CategoryIncome || cat.Type == core.CategorySpend {
 				allowed[id] = true
 			}
 		}

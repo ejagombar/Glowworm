@@ -2,6 +2,7 @@ package imports
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -132,6 +133,49 @@ func TestAIDetectIsOnlyAProposal(t *testing.T) {
 	}
 	if b.Detection.AIProposed || len(b.Detection.Columns) != 4 {
 		t.Fatalf("detection should now describe the applied mapping: %+v", b.Detection)
+	}
+}
+
+func TestCategoriseAIManyChunks(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	words := strings.Fields("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey")
+	var csv strings.Builder
+	csv.WriteString("Date,Description,Payee,Amount\n")
+	for i, w := range words {
+		fmt.Fprintf(&csv, "2026-06-%02d,TESCO %s,,-1.00\n", i%28+1, w)
+	}
+	acc := "acc-main"
+	b, err := s.Upload("many.csv", []byte(csv.String()), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.ApplySchemaPublic(b.ID, userMapping(), []byte(csv.String())); err != nil {
+		t.Fatal(err)
+	}
+	var events []Progress
+	if err := s.CategoriseAI(context.Background(), b.ID, func(p Progress) { events = append(events, p) }); err != nil {
+		t.Fatal(err)
+	}
+	groups, progress := 0, 0
+	for _, ev := range events {
+		switch ev.Phase {
+		case "group":
+			groups++
+		case "ai_progress":
+			progress++
+		case "warning":
+			t.Fatalf("unexpected warning: %s", ev.Message)
+		}
+	}
+	wantChunks := (len(words) + aiChunkSize - 1) / aiChunkSize
+	if groups != len(words) || progress != wantChunks {
+		t.Fatalf("got %d group events and %d progress events, want %d and %d", groups, progress, len(words), wantChunks)
+	}
+	for desc, rs := range stagedByDesc(t, s, b.ID) {
+		if rs[0].category != "c-food" || rs[0].source != core.CategorySourceAI {
+			t.Fatalf("%s not placed by the AI: %+v", desc, rs[0])
+		}
 	}
 }
 

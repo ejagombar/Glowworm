@@ -39,7 +39,7 @@
       <div class="schema-card">
         <div class="schema-logo" style="background:var(--primary)">{{initial .Name}}</div>
         <div class="schema-main">
-          <div class="schema-name">{{.Name}} <span class="schema-conf">· {{pct .Confidence}} match</span></div>
+          <div class="schema-name">{{.Name}} <span class="schema-conf">· {{if eq .UseCount 0}}not used yet{{else if eq .UseCount 1}}used once{{else}}used {{.UseCount}} times{{end}}</span></div>
           <div class="schema-cols">{{range .Columns}}{{.}} · {{end}}</div>
         </div>
         {{if .AccountName}}<span class="schema-account" title="Imports of this format go to {{.AccountName}} by default">{{.AccountName}}</span>{{end}}

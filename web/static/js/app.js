@@ -2144,11 +2144,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const openFlow = (html) => {
     view?.classList.add("import-active");
+    view?.classList.remove("import-reviewing");
     flowBox.hidden = false;
     flowBox.innerHTML = html;
   };
   const closeFlow = () => {
-    view?.classList.remove("import-active");
+    view?.classList.remove("import-active", "import-reviewing");
     flowBox.hidden = true;
     flowBox.innerHTML = "";
   };
@@ -2190,7 +2191,8 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault(); dropzone.classList.remove("drag");
     if (e.dataTransfer.files.length) upload(e.dataTransfer.files[0]);
   });
-  document.getElementById("dropzoneBrowse")?.addEventListener("click", () => fileInput.click());
+  // The whole box opens the picker; the inner "browse files" button just bubbles here.
+  dropzone.addEventListener("click", (e) => { if (e.target !== fileInput) fileInput.click(); });
   fileInput.addEventListener("change", () => {
     if (fileInput.files.length) upload(fileInput.files[0]);
     fileInput.value = "";
@@ -2282,7 +2284,7 @@ document.addEventListener("DOMContentLoaded", () => {
       : `<p class="muted">Check the column roles below. If they look wrong, fix them inline or ask the AI to suggest a mapping (uses tokens).</p>`;
     openFlow(`
       <div class="panel category-form">
-        <h3 class="category-form-title">${title}${d.confidence ? ` <span class="schema-conf">· ${Math.round(d.confidence * 100)}% ${aiProposal ? "confidence" : "match"}</span>` : ""}</h3>
+        <h3 class="category-form-title">${title}</h3>
         ${b.parse_error ? `<p class="login-error">${esc(b.parse_error)}</p>` : ""}
         ${intro}
         <div class="tx-table-wrap" style="overflow-x:auto">
@@ -2451,19 +2453,15 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
 
+  // Money in can be a refund, which belongs in the original spend category.
   const catsFor = (type) => (window.__IMPORT_CATS__ || []).filter((c) =>
-    c.type === "internal" || (type === "income" ? c.type === "income" : c.type === "spend"));
-  const pct = (f) => `${Math.round((f || 0) * 100)}%`;
+    type === "income" || c.type === "internal" || c.type === "spend");
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   function sourceBadge(g) {
     if (g.source === "user") return '<span class="badge badge-income">You</span>';
-    if (g.source === "ai") return `<span class="badge badge-transfer" title="AI confidence">AI · ${pct(g.confidence)}</span>`;
-    if (g.source === "local") {
-      return g.confidence >= 0.999
-        ? '<span class="badge badge-soft" title="Matched one of your rules">Rule</span>'
-        : `<span class="badge badge-soft" title="Local classifier confidence">Classifier · ${pct(g.confidence)}</span>`;
-    }
+    if (g.source === "ai") return `<span class="badge badge-transfer">AI</span>`;
+    if (g.source === "local") return '<span class="badge badge-soft">Classifier</span>';
     return "";
   }
 
@@ -2519,7 +2517,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (g.state === "review") {
       if (g.suggestion) {
         status = `<button type="button" class="review-suggest" data-accept title="Accept the AI's suggestion">
-          AI suggests <strong>${esc(g.suggestion.name)}</strong> · ${pct(g.suggestion.conf)} <svg class="icon"><use href="#i-check"/></svg></button>`;
+          AI suggests <strong>${esc(g.suggestion.name)}</strong> <svg class="icon"><use href="#i-check"/></svg></button>`;
       } else if (g.note) {
         status = `<span class="review-note">${esc(g.note)}</span>`;
       }
@@ -2575,15 +2573,22 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="import-review-head">
           <div>
             <h3 class="category-form-title">Review categories</h3>
-            <p class="muted">${esc(b.filename || "")} · ${plural(nRows, "transaction")} in ${plural(R.groups.length, "group")}${R.dups.length ? ` · ${plural(R.dups.length, "duplicate")} skipped` : ""}${b.schema_name ? ` · recognised format “${esc(b.schema_name)}”` : ""}</p>
+            <p class="muted">${esc(b.filename || "")} · ${plural(nRows, "transaction")} in ${plural(R.groups.length, "group")}${R.dups.length ? ` · ${plural(R.dups.length, "duplicate")} skipped` : ""}</p>
           </div>
+          ${b.schema_name ? `<span class="badge badge-income review-schema-badge" title="The column layout came from this saved schema">Saved schema · ${esc(b.schema_name)}</span>` : ""}
         </div>
         <ol class="cat-pipeline">
           <li data-step="local"><span class="step-num">1</span><div><strong>Quick match</strong><span class="step-note">Your rules and trained classifier</span></div></li>
-          <li data-step="ai"><span class="step-num">2</span><div><strong>AI</strong><span class="step-note">${R.aiAvailable ? "Categorises what's left, with a confidence score" : "Not configured — add a provider in Settings → AI"}</span></div></li>
+          <li data-step="ai"><span class="step-num">2</span><div><strong>AI</strong><span class="step-note">${R.aiAvailable ? "Categorises what's left" : "Not configured — add a provider in Settings → AI"}</span></div></li>
           <li data-step="you"><span class="step-num">3</span><div><strong>Your review</strong><span class="step-note">Anything the AI wasn't sure about</span></div></li>
         </ol>
         <div class="progress-bar" id="catProgress"><div class="progress-fill" id="catBar" style="width:0%"></div></div>
+        ${R.dups.length ? `<details class="review-dups" role="note">
+          <summary><svg class="icon"><use href="#i-alert"/></svg>
+            <span><strong>${plural(R.dups.length, "duplicate transaction")} skipped</strong>
+            <span class="review-dups-sub">Already in your account, so they won't be imported again. Check them and choose “Import anyway” for any that are real.</span></span>
+            <svg class="icon review-dups-chev"><use href="#i-chevron-down"/></svg></summary>
+          <div style="overflow-x:auto"><table class="tx-table"><tbody>${dupRows}</tbody></table></div></details>` : ""}
         <div class="review-cols">
           <section class="review-col review-col-todo" aria-label="Needs your review">
             <header class="review-col-head"><h4>Needs your review</h4><span class="count" id="todoCount"></span>
@@ -2597,8 +2602,6 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="review-empty" id="doneEmpty" hidden>Categorised transactions will appear here.</div>
           </section>
         </div>
-        ${R.dups.length ? `<details class="review-dups"><summary>${plural(R.dups.length, "duplicate")} already imported — skipped</summary>
-          <div style="overflow-x:auto"><table class="tx-table"><tbody>${dupRows}</tbody></table></div></details>` : ""}
         <div class="review-footer">
           <div class="field-row">
             <label for="reviewAccount">Import into</label>
@@ -2616,6 +2619,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>`);
 
+    view?.classList.add("import-reviewing");
     const todoList = document.getElementById("todoList");
     const doneList = document.getElementById("doneList");
     R.el = { todoList, doneList, root: document.getElementById("importReview") };
@@ -2736,8 +2740,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (wasOpen) el.querySelector("details")?.setAttribute("open", "");
     const list = g.state === "done" ? R.el.doneList : R.el.todoList;
     let before = null;
-    for (const child of list.children) {
-      if (child !== g.el && Number(child.dataset.order) > g.order) { before = child; break; }
+    if (g.state === "done") {
+      // Categorised reads in the order groups landed there, newest at the bottom.
+      if (g.el && g.el.parentNode === list) before = g.el.nextSibling;
+    } else {
+      for (const child of list.children) {
+        if (child !== g.el && Number(child.dataset.order) > g.order) { before = child; break; }
+      }
     }
     if (g.el) g.el.remove();
     list.insertBefore(el, before);
