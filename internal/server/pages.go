@@ -145,6 +145,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	spendPct, spendDir := a.spendTrend()
 
 	seriesData := a.balanceSeriesFor(base, "all")
+	seriesAvailable := a.balanceSeriesFor(base, "available")
+	seriesSavings := a.balanceSeriesFor(base, "savings")
 
 	widgetViews, err := a.WidgetsList()
 	if err != nil {
@@ -164,6 +166,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		SpendPct        string
 		SpendDir        string
 		HeroChart       string
+		HeroAvailable   string
+		HeroSavings     string
 		HeroRangeLabel  string
 		Widgets         []*WidgetView
 	}{
@@ -175,6 +179,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		IncomeTrend: incomeTrendLabel, IncomeTrendDate: incomeTrendDate,
 		SpendMinor: spendMinor, SpendPct: spendPct, SpendDir: spendDir,
 		HeroChart:      seriesData,
+		HeroAvailable:  seriesAvailable,
+		HeroSavings:    seriesSavings,
 		HeroRangeLabel: "All accounts · all time",
 		Widgets:        widgetViews,
 	}
@@ -249,11 +255,17 @@ func (a *App) spendTrend() (string, string) {
 func (a *App) balanceSeriesFor(base *viewBase, scope string) string {
 	from := seriesStart(a)
 	to := a.Clock.Today()
-	labels, values, err := balancesSeries(a, from, to)
-	if err != nil || len(labels) == 0 {
-		return `{"labels":[],"series":[{"name":"Balance","color":"#0e6f51","values":[]}]}`
-	}
+	labels, values, err := balanceScopeSeries(a, from, to, scope)
 	name, color := "Balance", "#0e6f51"
+	switch scope {
+	case "available":
+		name = "Available"
+	case "savings":
+		name, color = "Savings", "#2f7fb0"
+	}
+	if err != nil || len(labels) == 0 {
+		return fmt.Sprintf(`{"labels":[],"series":[{"name":%q,"color":%q,"values":[]}]}`, name, color)
+	}
 	return fmt.Sprintf(`{"labels":%s,"series":[{"name":%q,"color":%q,"values":%s}]}`,
 		jsonSlice(labels), name, color, jsonInts(values))
 }
@@ -281,6 +293,22 @@ func balancesSeries(a *App, from, to string) ([]string, []int64, error) {
 }
 
 func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
+	return balanceScopeSeries(a, from, to, "all")
+}
+
+// accountScopeSQL narrows to the dashboard's split: savings accounts, or
+// everything else ("available").
+func accountScopeSQL(scope, col string) string {
+	switch scope {
+	case "savings":
+		return " AND " + col + " = '" + core.AccountSavings + "'"
+	case "available":
+		return " AND " + col + " <> '" + core.AccountSavings + "'"
+	}
+	return ""
+}
+
+func balanceScopeSeries(a *App, from, to, scope string) ([]string, []int64, error) {
 	if from > to {
 		from, to = to, from
 	}
@@ -300,9 +328,11 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 			}
 		}
 	}
-	addDates(`SELECT DISTINCT date FROM transactions WHERE deleted_at IS NULL AND date BETWEEN ? AND ?`, from, to)
-	addDates(`SELECT DISTINCT opening_balance_date FROM accounts WHERE deleted_at IS NULL AND opening_balance_date BETWEEN ? AND ?`, from, to)
-	addDates(`SELECT DISTINCT date FROM valuations WHERE deleted_at IS NULL AND date BETWEEN ? AND ?`, from, to)
+	addDates(`SELECT DISTINCT t.date FROM transactions t JOIN accounts acc ON acc.id = t.account_id
+		WHERE t.deleted_at IS NULL AND t.date BETWEEN ? AND ?`+accountScopeSQL(scope, "acc.type"), from, to)
+	addDates(`SELECT DISTINCT opening_balance_date FROM accounts WHERE deleted_at IS NULL AND opening_balance_date BETWEEN ? AND ?`+accountScopeSQL(scope, "type"), from, to)
+	addDates(`SELECT DISTINCT v.date FROM valuations v JOIN accounts acc ON acc.id = v.account_id
+		WHERE v.deleted_at IS NULL AND v.date BETWEEN ? AND ?`+accountScopeSQL(scope, "acc.type"), from, to)
 	if a.Clock.Today() >= from && a.Clock.Today() <= to {
 		dates[a.Clock.Today()] = true
 	}
@@ -326,7 +356,7 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 		sorted = kept
 	}
 	values := make([]int64, len(sorted))
-	arows, err := a.DB.Query(`SELECT id, opening_balance_minor, COALESCE(opening_balance_date,'') FROM accounts WHERE deleted_at IS NULL`)
+	arows, err := a.DB.Query(`SELECT id, opening_balance_minor, COALESCE(opening_balance_date,'') FROM accounts WHERE deleted_at IS NULL` + accountScopeSQL(scope, "type"))
 	if err != nil {
 		return nil, nil, err
 	}

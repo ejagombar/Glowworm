@@ -194,3 +194,31 @@ func TestFormatAssistantText(t *testing.T) {
 		t.Errorf("HTML not escaped: %q", out)
 	}
 }
+
+func TestBalanceScopeSeriesSplitsSavings(t *testing.T) {
+	db := newSeriesTestDB(t)
+	a := &App{DB: db, Clock: clock.New("UTC")}
+	insertAccount(t, db, "cur", 1000, "2024-01-01")
+	insertAccount(t, db, "sav", 5000, "2024-01-01")
+	if _, err := db.Exec(`UPDATE accounts SET type = 'savings' WHERE id = 'sav'`); err != nil {
+		t.Fatal(err)
+	}
+	insertTx(t, db, "t1", "cur", "2024-02-01", -200)
+	insertTx(t, db, "t2", "sav", "2024-03-01", 700)
+	last := func(scope string) (int64, int) {
+		labels, values, err := balanceScopeSeries(a, "2024-01-01", "2024-12-31", scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return values[len(values)-1], len(labels)
+	}
+	if v, n := last("available"); v != 800 || n != 2 {
+		t.Fatalf("available = %d over %d points, want 800 over 2 (opening + its own tx day)", v, n)
+	}
+	if v, _ := last("savings"); v != 5700 {
+		t.Fatalf("savings = %d, want 5700", v)
+	}
+	if v, _ := last("all"); v != 6500 {
+		t.Fatalf("all = %d, want 6500", v)
+	}
+}
