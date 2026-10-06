@@ -348,7 +348,7 @@ func (s *Service) validate(p *Plan) error {
 		p.Limit = 50
 	}
 	if p.AccountScope == "" {
-		p.AccountScope = "all"
+		p.AccountScope = "spending" // savings only when the question asks
 	}
 	if p.Title == "" {
 		p.Title = strings.ToUpper(p.Metric[:1]) + p.Metric[1:] + " summary"
@@ -578,22 +578,41 @@ func (s *Service) currency() string {
 	return cc
 }
 
+// scopedAccountIDs lists the accounts a balance covers: the named account,
+// or those in the plan's scope (savings are left out unless asked for).
+func (s *Service) scopedAccountIDs(p *Plan) ([]string, error) {
+	if p.EntityKind == "account" && p.EntityID != "" {
+		return []string{p.EntityID}, nil
+	}
+	q := `SELECT id FROM accounts WHERE deleted_at IS NULL`
+	switch p.AccountScope {
+	case "savings":
+		q += ` AND type = 'savings'`
+	case "all":
+	default:
+		q += ` AND type != 'savings'`
+	}
+	rows, err := s.DB.Query(q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (s *Service) compileBalance(p *Plan) (*widgets.Dataset, string, error) {
 	if p.Breakdown == "none" {
-		accounts := []string{}
-		if p.EntityKind == "account" && p.EntityID != "" {
-			accounts = append(accounts, p.EntityID)
-		} else {
-			rows, err := s.DB.Query(`SELECT id FROM accounts WHERE deleted_at IS NULL`)
-			if err != nil {
-				return nil, "", err
-			}
-			for rows.Next() {
-				var id string
-				_ = rows.Scan(&id)
-				accounts = append(accounts, id)
-			}
-			rows.Close()
+		accounts, err := s.scopedAccountIDs(p)
+		if err != nil {
+			return nil, "", err
 		}
 		var total int64
 		for _, id := range accounts {
@@ -645,20 +664,9 @@ func (s *Service) compileBalance(p *Plan) (*widgets.Dataset, string, error) {
 	for _, m := range months {
 		end := monthEnd(m)
 		var total int64
-		var accIDs []string
-		if p.EntityKind == "account" && p.EntityID != "" {
-			accIDs = []string{p.EntityID}
-		} else {
-			rows, err := s.DB.Query(`SELECT id FROM accounts WHERE deleted_at IS NULL`)
-			if err != nil {
-				return nil, sqlDisplay, err
-			}
-			for rows.Next() {
-				var id string
-				_ = rows.Scan(&id)
-				accIDs = append(accIDs, id)
-			}
-			rows.Close()
+		accIDs, err := s.scopedAccountIDs(p)
+		if err != nil {
+			return nil, sqlDisplay, err
 		}
 		for _, id := range accIDs {
 			var opening int64
@@ -812,9 +820,9 @@ func (s *Service) steps(p *Plan, sqlDisplay string, ds *widgets.Dataset) []strin
 	case "spending":
 		out = append(out, "Scoping to spending accounts (excluding savings)")
 	default:
-		out = append(out, "Assuming all bank accounts")
+		out = append(out, "Including all accounts, savings too")
 	}
-	out = append(out, "Generated query: "+sqlDisplay)
+	out = append(out, "Generated query\n"+sqlDisplay)
 	if ds != nil && ds.Meta.Truncated {
 		out = append(out, fmt.Sprintf("Rows truncated to %d", len(ds.Rows)))
 	}

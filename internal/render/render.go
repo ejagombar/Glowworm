@@ -58,6 +58,12 @@ func New() (*Renderer, error) {
 			return m
 		},
 		"mul": func(a, b int64) int64 { return a * b },
+		// stepParts splits a "How I worked this out" step into its heading
+		// and the code (SQL) on the lines after it.
+		"stepParts": func(s string) map[string]string {
+			head, code, _ := strings.Cut(s, "\n")
+			return map[string]string{"Text": head, "Code": strings.TrimSpace(code)}
+		},
 		"pct": func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
 		"sub": func(a, b int) int { return a - b },
 		"add": func(a, b int64) int64 { return a + b },

@@ -576,12 +576,21 @@ function adoptConversation(id, firstQuestion) {
   }
 }
 
+// A step is a heading line, optionally followed by the full SQL it ran.
+function reasonStepHTML(step) {
+  const nl = String(step).indexOf("\n");
+  const text = nl < 0 ? step : step.slice(0, nl);
+  const code = nl < 0 ? "" : step.slice(nl + 1).trim();
+  return `<div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><div class="reason-body"><span>${esc(text)}</span>${
+    code ? `<pre class="reason-sql"><code>${esc(code)}</code></pre>` : ""}</div></div>`;
+}
+
 function renderSteps(pending, steps) {
   const reason = pending.querySelector(".msg-reason");
   if (!reason) return;
   reason.hidden = false;
   reason.querySelector(".reason-steps").innerHTML = steps
-    .map((s) => `<div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span>${esc(s)}</span></div>`)
+    .map(reasonStepHTML)
     .join("");
 }
 
@@ -654,7 +663,7 @@ function wormLoaderHTML() {
 
 function msgReasonHTML(steps) {
   return `<details class="msg-reason"><summary>How I worked this out</summary><div class="reason-steps">${
-    steps.map((s) => `<div class="reason-step"><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span>${esc(s)}</span></div>`).join("")
+    steps.map(reasonStepHTML).join("")
   }</div></details>`;
 }
 function widgetCardHTML(widget) {
