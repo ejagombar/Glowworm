@@ -487,6 +487,7 @@ body.privacy .pie-total { filter: blur(4px); }
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 8px 2px 0;
 }
+.queries-suggestions[hidden] { display: none; }
 .queries-suggestions .chip { font-size: 11.5px; }
 .queries-messages .widget {
   border: 1px solid var(--line);
@@ -1019,6 +1020,8 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   display: grid; grid-template-columns: 1fr 1fr;
   width: 100%; margin-bottom: 14px;
 }
+.tx-direction { display: grid; grid-template-columns: 1fr 1fr; width: 100%; margin-bottom: 12px; }
+.tx-direction .segmented-item { padding: 6px 12px; font-size: 13px; }
 
 .timeline-controls { margin-bottom: 12px; }
 .timeline-head {
@@ -1267,7 +1270,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 @media (max-width: 760px) {
   .masthead { padding: 0 10px; }
-  .masthead .brand-name { display: none; }
   .period-trigger { max-width: 130px; }
   .tabnav-item { padding: 0 9px; }
   .content { padding: 16px 14px 36px; }
@@ -1769,31 +1771,42 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   border: 1px solid var(--line); border-radius: var(--r-xs); padding: 1px 5px;
 }
 
-/* ---- Phones: the page tabs move to a bottom bar of icons with short
-   labels, tables drop columns they can't fit, and rows stack. ---- */
-:root { --tabbar-h: 58px; }
+/* ---- Phones: the page tabs move to a bar of icons with short labels
+   under the masthead (iOS Safari's toolbar makes a bottom bar hard to tap),
+   page titles go, tables drop columns they can't fit, and rows stack.
+   --masthead-h covers both rows so sticky and full-height layouts clear them. ---- */
+:root { --tabbar-h: 58px; --masthead-row: 56px; }
 @media (max-width: 760px) {
+  :root { --masthead-h: calc(var(--masthead-row) + var(--tabbar-h)); }
+  /* The tabs wrap onto a second row of the sticky masthead rather than being
+     fixed, so both move together when iOS rubber-bands the page. */
+  .masthead { height: var(--masthead-h); flex-wrap: wrap; align-content: flex-start; }
+  .masthead > :not(.tabnav) { height: var(--masthead-row); display: flex; align-items: center; }
   .tabnav {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
-    height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
-    background: var(--surface); border-top: 1px solid var(--line);
+    order: 1; flex: 0 0 calc(100% + 20px); margin: 0 -10px;
+    height: var(--tabbar-h);
+    border-top: 1px solid var(--line);
     gap: 0; overflow: visible;
   }
   .masthead .tabnav-item {
     flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: center; gap: 3px;
-    padding: 0 2px; border-bottom: 0; border-top: 2px solid transparent;
+    padding: 0 2px; border-top: 0; border-bottom: 2px solid transparent;
     font-size: 9.5px; font-weight: 500; letter-spacing: -0.01em;
   }
-  .masthead .tabnav-item.active { border-top-color: var(--primary); color: var(--primary); }
+  .masthead .tabnav-item.active { border-bottom-color: var(--primary); color: var(--primary); }
   .masthead .tabnav-item .tab-index { display: none; }
   .masthead .tabnav-item .tab-icon { display: block; width: 19px; height: 19px; }
   .masthead .tabnav-item .tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .masthead .period-wrap { margin-left: auto; }
-  .content { padding-bottom: calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom)); }
-  .content:has(#view-queries.active) { padding-bottom: calc(var(--tabbar-h) + 8px + env(safe-area-inset-bottom)); }
-  #view-queries.active { height: calc(100dvh - var(--masthead-h) - var(--tabbar-h) - 8px - env(safe-area-inset-bottom)); min-height: 0; }
-  .toast { bottom: calc(var(--tabbar-h) + 16px); }
+  .content { padding-top: 12px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .content:has(#view-queries.active) { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  #view-queries.active { height: calc(100dvh - var(--masthead-h) - 20px - env(safe-area-inset-bottom)); min-height: 0; }
+  .toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
+
+  /* Page titles take space a phone can't spare; only their buttons stay. */
+  .view-head > div:first-child { display: none; }
+  .view-head:not(:has(> .btn)) { display: none; }
+  .view-head { padding-bottom: 0; border-bottom: 0; margin-bottom: 12px; }
 
   /* Transactions: category moves under the description. */
   .tx-table th, .tx-table td { padding: 8px 9px; }
@@ -1814,7 +1827,10 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 
   .tx-editor { flex-direction: column; align-items: stretch; }
   .tx-field, .tx-field.grow { min-width: 0; }
-  .tx-field .field { min-width: 0; width: 100%; }
+  .tx-field .field, .tx-editor .tx-field select.field { min-width: 0; width: 100%; }
+  /* Phone date pickers keep an intrinsic width that ignores width: 100%. */
+  input[type="date"].field { -webkit-appearance: none; appearance: none; display: block; max-width: 100%; box-sizing: border-box; }
+  input[type="date"].field::-webkit-date-and-time-value { text-align: left; }
   .tx-editor-actions { margin-left: 0; justify-content: flex-end; }
   .tx-editor-row td { padding: 0 8px 10px !important; }
   .modal-foot { flex-wrap: wrap; }

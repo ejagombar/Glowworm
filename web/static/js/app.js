@@ -274,10 +274,12 @@ function jumpToDay(date) {
     const hit = Array.from(box.querySelectorAll(".msg[data-created]")).find(
       (m) => localDayKey(m.dataset.created) === date);
     if (hit) {
+      // Land on the day's date badge, a little below the top.
+      const target = hit.previousElementSibling?.classList.contains("msg-day") ? hit.previousElementSibling : hit;
       // getBoundingClientRect is viewport-relative; add scrollTop to get the
       // offset within the box.
-      const offset = (hit.getBoundingClientRect().top - box.getBoundingClientRect().top) + box.scrollTop;
-      box.scrollTop = Math.max(0, offset - 40);
+      const offset = (target.getBoundingClientRect().top - box.getBoundingClientRect().top) + box.scrollTop;
+      box.scrollTop = Math.max(0, offset - 10);
       return;
     }
     if (tries++ >= 15 || box.dataset.hasMore !== "1") return;
@@ -452,6 +454,9 @@ function dayLabelOf(ts) {
 function sendChat(text) {
   text = (text || "").trim();
   if (!text) return;
+  // The starter suggestions are only for an empty conversation.
+  const starters = document.getElementById("querySuggestions");
+  if (starters) starters.hidden = true;
   pushSentHistory(text);
   const box = document.getElementById("queryMessages");
   const convEl = document.querySelector("[data-conversation-id]");
@@ -483,7 +488,7 @@ function sendChat(text) {
     body: JSON.stringify({ text, conversation_id: conversationID, ...currentViewPeriod() }),
   }).then(async (resp) => {
     if (!resp.ok || !resp.body) {
-      finishAssistant(pending, { text: "Sorry — the query engine is unavailable right now.", isError: true });
+      finishAssistant(pending, { text: "Sorry - the query engine is unavailable right now.", isError: true });
       return;
     }
     const reader = resp.body.getReader();
@@ -519,7 +524,7 @@ function sendChat(text) {
     }
     finishAssistant(pending, out);
   }).catch(() => {
-    finishAssistant(pending, { text: "Sorry — the query engine is unavailable right now.", isError: true });
+    finishAssistant(pending, { text: "Sorry - the query engine is unavailable right now.", isError: true });
   });
 }
 
@@ -1165,17 +1170,26 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("txModal")?.addEventListener("click", (e) => {
       if (e.target.id === "txModal") closeModal("txModal");
     });
+    const txDirections = document.querySelectorAll("[data-tx-direction]");
+    txDirections.forEach((b) => b.addEventListener("click", () => {
+      txDirections.forEach((o) => {
+        o.classList.toggle("active", o === b);
+        o.setAttribute("aria-checked", o === b ? "true" : "false");
+      });
+    }));
     document.getElementById("txAddForm").addEventListener("submit", (e) => {
       e.preventDefault();
       const date = document.getElementById("txDate").value;
       const description = document.getElementById("txDesc").value.trim();
-      const amount = parseFloat(document.getElementById("txAmount").value);
+      // The amount is typed unsigned; the Outgoing/Income switch sets the sign.
+      const income = document.querySelector("[data-tx-direction].active")?.dataset.txDirection === "in";
+      const amount = Math.abs(parseFloat(document.getElementById("txAmount").value)) * (income ? 1 : -1);
       const accountID = document.getElementById("txAccount").value;
       const categoryID = document.getElementById("txCategory").value || null;
       if (!accountID) { toast("Add an account first (Settings → Accounts)"); return; }
       if (!date) { toast("Date is required"); return; }
       if (!description) { toast("Description is required"); return; }
-      if (isNaN(amount) || amount === 0) { toast("Amount is required (negative for spending)"); return; }
+      if (isNaN(amount) || amount === 0) { toast("Amount is required"); return; }
       fetch("/api/v1/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -2140,10 +2154,10 @@ document.addEventListener("DOMContentLoaded", () => {
           const body = await resp.json();
           const items = body.items || [];
           if (!items.length) {
-            sel.innerHTML = `<option value="">No candidates — import the other statement first</option>`;
+            sel.innerHTML = `<option value="">No candidates - import the other statement first</option>`;
             return;
           }
-          sel.innerHTML = `<option value="">Not a transfer — choose a counterpart…</option>` + items.map((s) => {
+          sel.innerHTML = `<option value="">Not a transfer - choose a counterpart…</option>` + items.map((s) => {
             const tx = s.tx;
             return `<option value="${esc(tx.id)}">${esc(tx.date)} · ${esc(tx.description)} · ${fmtMoneyMinor(tx.amount_minor, tx.currency || "GBP")} (${esc(tx.account ? tx.account.name : "")})</option>`;
           }).join("");
@@ -2222,7 +2236,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (unlink) {
         unlink.addEventListener("click", () => {
           if (!t.transfer_id) return;
-          showConfirm("Break the link?", "Both transactions will stay; the transfer link will be removed.", "Break link", () => {
+          showConfirm("Break the link?", "Both transactions will stay but the transfer link will be removed.", "Break link", () => {
             fetch(`/api/v1/transactions/${id}/unlink`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -2328,8 +2342,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // from the file. ----
   const DEFAULT_OUT = ["DR", "D", "DEBIT", "OUT", "PAYMENT", "WITHDRAWAL", "PURCHASE"];
   const AMOUNT_MODES = [
-    ["signed", "One column — money out is negative", "Most current accounts: −12.50 is a payment."],
-    ["inverted", "One column — money out is positive", "Common on credit cards: 12.50 is a purchase, −12.50 a refund or payment."],
+    ["signed", "One column - money out is negative", "Most current accounts: −12.50 is a payment."],
+    ["inverted", "One column - money out is positive", "Common on credit cards: 12.50 is a purchase, −12.50 a refund or payment."],
     ["split", "Separate money in and money out columns", "Signs inside these columns are ignored."],
     ["direction", "One amount column plus a debit/credit column", "The amount is always positive; another column says which way it went."],
   ];
@@ -2398,7 +2412,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="map-sub"><label class="map-sub-label" for="mapOrigAmount">Amount paid</label>${columnSelectHTML("mapOrigAmount", headers, sel.origAmount)}</div>
           <div class="map-sub"><label class="map-sub-label" for="mapOrigCurrency">Its currency</label>${columnSelectHTML("mapOrigCurrency", headers, sel.origCurrency)}</div>
         </details>`)}
-      ${row("payee", "Payee", "Optional — who the money went to or came from", columnSelectHTML("mapPayee", headers, sel.payee))}
+      ${row("payee", "Payee", "Optional - who the money went to or came from", columnSelectHTML("mapPayee", headers, sel.payee))}
     </div>`;
   }
 
@@ -2524,7 +2538,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const why = b.parse_error || "The file could not be read.";
       const kind = (b.mime || "").toLowerCase();
       const pdfHint = kind.includes("pdf")
-        ? '<p class="login-error" style="margin-top:8px">Scanned PDFs have no text layer — the optional AI vision path (Settings → AI) can read them, or export a CSV from your bank.</p>'
+        ? '<p class="login-error" style="margin-top:8px">Scanned PDFs have no text layer - the optional AI vision path (Settings → AI) can read them, or export a CSV from your bank.</p>'
         : "";
       openFlow(`
         <div class="panel category-form">
@@ -2651,7 +2665,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }).then((r) => r.json()).then((body) => {
         if (myToken !== previewToken) return;
         if (!body.iso) {
-          previewEl.innerHTML = `<span class="date-preview-fail">Couldn't read “${esc(sample)}”${fmt ? ` as ${esc(fmt)}` : ""} — pick a format from the “i” menu${fmt ? " or clear the field to auto-detect" : ""}.</span>`;
+          previewEl.innerHTML = `<span class="date-preview-fail">Couldn't read “${esc(sample)}”${fmt ? ` as ${esc(fmt)}` : ""}. Pick a format from the “i” menu${fmt ? " or clear the field to auto-detect" : ""}.</span>`;
           return;
         }
         const detected = esc(goLayoutToHuman(body.layout));
@@ -2845,7 +2859,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       setStep("local", "done", "Done");
-      setStep("ai", R.aiAvailable ? "done" : "skipped", R.aiAvailable ? "Done" : "Not configured — add a provider in Settings → AI");
+      setStep("ai", R.aiAvailable ? "done" : "skipped", R.aiAvailable ? "Done" : "Not configured. Add a provider in Settings → AI");
       finishPipeline(R);
     }).catch(() => flowMessage("Couldn't load the review — is the server running?", true));
   };
@@ -2873,7 +2887,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <ol class="cat-pipeline">
           <li data-step="local"><span class="step-num">1</span><div><strong>Quick match</strong><span class="step-note">Your rules and trained classifier</span></div></li>
-          <li data-step="ai"><span class="step-num">2</span><div><strong>AI</strong><span class="step-note">${R.aiAvailable ? "Categorises what's left" : "Not configured — add a provider in Settings → AI"}</span></div></li>
+          <li data-step="ai"><span class="step-num">2</span><div><strong>AI</strong><span class="step-note">${R.aiAvailable ? "Categorises what's left" : "Not configured. Add a provider in Settings → AI"}</span></div></li>
           <li data-step="you"><span class="step-num">3</span><div><strong>Your review</strong><span class="step-note">Anything the AI wasn't sure about</span></div></li>
         </ol>
         <div class="progress-bar" id="catProgress"><div class="progress-fill" id="catBar" style="width:0%"></div></div>
@@ -3110,7 +3124,7 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
         }
         case "local_done":
-          setStep("local", "done", p.categorised ? `Placed ${plural(p.categorised, "group")}` : "No matches yet — rules grow as you import");
+          setStep("local", "done", p.categorised ? `Placed ${plural(p.categorised, "group")}` : "No matches yet - rules grow as you import");
           setBar(localShare);
           break;
         case "ai_start":
@@ -3130,7 +3144,7 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
         case "ai_skipped":
           setStep("ai", "skipped", p.message === "AI is not configured"
-            ? "Not configured — add a provider in Settings → AI" : esc(p.message || "Skipped"));
+            ? "Not configured. Add a provider in Settings → AI" : esc(p.message || "Skipped"));
           if (mode === "ai") finishPipeline(R);
           break;
         case "warning":
@@ -3166,7 +3180,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const todo = R.groups.filter((g) => g.state !== "done");
     setStep("you", todo.length ? "active" : "done", todo.length
       ? `${plural(todo.length, "group")} for you to check`
-      : "Nothing to check — ready to import");
+      : "Nothing to check - ready to import");
     setBar(1);
     const prog = document.getElementById("catProgress");
     if (prog) setTimeout(() => { if (!R.running) prog.hidden = true; }, 600);

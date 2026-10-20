@@ -29,7 +29,7 @@
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
     <symbol id="i-menu" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
-    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L21 11l-6.8 2.7L12 20l-2.2-6.3L3 11l6.8-2.7L12 2z"/><path d="M19 3l.8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3z"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></symbol>
     <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="12" r="1.6"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
@@ -94,7 +94,7 @@
 
         <nav class="tabnav" aria-label="Primary">
           <a href="/" class="tabnav-item{{if eq .View "dashboard"}} active{{end}}"><span class="tab-index">01</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-dashboard"/></svg><span class="tab-label">Dashboard</span></a>
-          <a href="/queries" class="tabnav-item{{if eq .View "queries"}} active{{end}}"><span class="tab-index">02</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-sparkle"/></svg><span class="tab-label">Queries</span></a>
+          <a href="/queries" class="tabnav-item{{if eq .View "queries"}} active{{end}}"><span class="tab-index">02</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-terminal"/></svg><span class="tab-label">Queries</span></a>
           <a href="/transactions" class="tabnav-item{{if eq .View "transactions"}} active{{end}}"><span class="tab-index">03</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-transactions"/></svg><span class="tab-label">Transactions</span></a>
           <a href="/categories" class="tabnav-item{{if eq .View "categories"}} active{{end}}"><span class="tab-index">04</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-categories"/></svg><span class="tab-label">Categories</span></a>
           <a href="/import" class="tabnav-item{{if eq .View "import"}} active{{end}}"><span class="tab-index">05</span><svg class="icon tab-icon" aria-hidden="true"><use href="#i-import"/></svg><span class="tab-label">Import</span></a>
