@@ -3,7 +3,7 @@
   <div class="view-head">
     <div>
       <h1>Transactions</h1>
-      <p class="sub">Your accounts, balances and every transaction.</p>
+      <p class="sub">Your accounts, balances and transactions.</p>
     </div>
     <button class="btn btn-primary" id="newTxBtn" type="button">
       <svg class="icon"><use href="#i-plus"/></svg> New transaction
@@ -78,7 +78,7 @@
     </table>
   </div>
 
-  {{template "tx-modal" dict "Symbol" (symbol .Currency) "Today" .Today "Categories" .Categories}}
+  {{template "tx-modal" dict "Symbol" (symbol .Currency) "Today" .Today "Categories" .Categories "Accounts" .Accounts}}
 </section>
 {{end}}
 

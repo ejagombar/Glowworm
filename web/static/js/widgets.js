@@ -140,9 +140,12 @@ function lineChartSVG(data, width = 640, height = 260) {
 
   const points = vals.map((v, i) => `${px(i)},${py(v)}`).join(" ");
   const area = `${padL},${py(min)} ${points} ${px(n - 1)},${py(min)}`;
-  const gradId = "grad-" + Math.random().toString(36).slice(2, 8);
-  parts.push(`<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="0.14"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient></defs>`);
-  parts.push(`<polygon points="${area}" fill="url(#${gradId})"/>`);
+  // The area under the line is a fading gradient with a grid like the page background over it, in the series colour.
+  const fillId = Math.random().toString(36).slice(2, 8);
+  parts.push(`<defs><linearGradient id="grad-${fillId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="0.14"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>` +
+    `<pattern id="grid-${fillId}" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M8 0V8M0 8H8" fill="none" stroke="${s.color}" stroke-opacity="0.22" stroke-width="1"/></pattern></defs>`);
+  parts.push(`<polygon points="${area}" fill="url(#grad-${fillId})"/>`);
+  parts.push(`<polygon points="${area}" fill="url(#grid-${fillId})"/>`);
   parts.push(`<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
 
   if (vals.length <= 80) {

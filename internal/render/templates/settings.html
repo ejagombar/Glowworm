@@ -71,7 +71,7 @@
 
         <div class="panel setting-block">
             <h2>AI provider</h2>
-            <p class="muted">Glowworm is AI agnostic. Pick whatever you trust.</p>
+            <p class="muted">Glowworm is AI agnostic. Choose your provider of choice.</p>
             <div class="field-row">
                 <label>Provider</label>
                 <select class="field select" id="aiProvider">
@@ -95,7 +95,7 @@
                 <label>API key</label>
                 <div class="key-row">
                     <input class="field" type="password" id="aiKey" data-has-key="{{if .AIHasKey}}1{{else}}0{{end}}"
-                        placeholder="{{if .AIHasKey}}API key saved — click to replace{{else}}Paste your API key{{end}}"
+                        placeholder="{{if .AIHasKey}}API key saved - click to replace{{else}}Paste your API key{{end}}"
                         autocomplete="off" />
                     <button class="btn btn-ghost btn-xs" id="aiKeyClear" type="button" title="Remove the saved key" {{if
                         not .AIHasKey}} hidden{{end}}>Clear</button>

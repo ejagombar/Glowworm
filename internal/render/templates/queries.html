@@ -25,7 +25,7 @@
         {{if not .Messages}}
         <div class="msg assistant">
           <div class="msg-content">
-            <div class="msg-text">Ask me anything about your money — try one of the suggestions below.</div>
+            <div class="msg-text">Ask anything about your money - try one of the suggestions below.</div>
           </div>
         </div>
         {{end}}
@@ -45,12 +45,12 @@
         {{end}}
       </div>
       <div class="queries-composer">
-        <textarea id="queryInput" rows="1" placeholder="Ask about your money — e.g. “transport spend this year”" autocomplete="off"></textarea>
+        <textarea id="queryInput" rows="1" placeholder="Ask about your money, e.g. “transport spend this year”" autocomplete="off"></textarea>
         <button class="btn btn-primary query-submit" id="queryBtn" aria-label="Send">
           <svg class="icon"><use href="#i-arrow-right"/></svg>
         </button>
       </div>
-      <div class="queries-suggestions" id="querySuggestions">
+      <div class="queries-suggestions" id="querySuggestions"{{if .Messages}} hidden{{end}}>
         <button class="chip" data-chat-suggest="How much have I spent on Transport over the past year?">Transport spend</button>
         <button class="chip" data-chat-suggest="Where did my money go this month?">Where did my money go?</button>
         <button class="chip" data-chat-suggest="How has my balance changed this year?">Balance over time</button>
