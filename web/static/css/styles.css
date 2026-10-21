@@ -106,7 +106,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html { height: 100%; }
+html { height: 100%; touch-action: manipulation; }
 body {
   margin: 0;
   height: 100%;
@@ -1852,4 +1852,9 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 /* Touch screens can't hover, so controls that appear on hover stay visible. */
 @media (hover: none) {
   .tx-table .row-actions, .widget-actions { opacity: 1; }
+}
+
+/* iOS zooms into any focused text field under 16px; keep phones at 16px. */
+@media (max-width: 760px) and (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
 }
