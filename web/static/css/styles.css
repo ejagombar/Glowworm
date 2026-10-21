@@ -1802,6 +1802,8 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   .masthead .tabnav-item.active { border-bottom-color: var(--primary); color: var(--primary); }
   .masthead .tabnav-item .tab-index { display: none; }
   .masthead .tabnav-item .tab-icon { display: block; width: 19px; height: 19px; }
+  .masthead .tabnav-item.tabnav-icon { flex: none; padding: 0 8px; }
+  .masthead .tabnav-item.tabnav-icon .icon { width: 19px; height: 19px; }
   .masthead .tabnav-item .tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .masthead .period-wrap { margin-left: auto; }
   .content { padding-top: 12px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
