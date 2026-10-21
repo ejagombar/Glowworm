@@ -1141,20 +1141,12 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 .setting-block h2 { margin-bottom: 3px; font-size: 13px; }
 .setting-block > .muted { margin-bottom: 14px; font-size: 12.5px; }
-.setting-head { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
+.setting-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .setting-head h2 { margin-bottom: 0; }
-.info-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
-  background: none; color: var(--muted); cursor: pointer;
-}
-.info-btn:hover, .info-btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
-.info-panel {
-  margin: -6px 0 14px; padding: 10px 12px; font-size: 12.5px;
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r);
-}
-.info-panel .muted { margin: 0; }
-.info-panel .muted + .muted { margin-top: 6px; }
+.setting-head .info-btn { margin-left: 0; }
+.info-popover.setting-info { margin: -6px 0 14px; box-shadow: none; }
+.setting-info .muted { margin: 0; font-size: 12.5px; }
+.setting-info .muted + .muted { margin-top: 6px; }
 .account-row {
   display: flex; align-items: center; gap: 11px; padding: 10px 0;
   border-bottom: 1px solid var(--line);
