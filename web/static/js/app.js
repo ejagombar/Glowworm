@@ -1496,6 +1496,12 @@ function saveAccount() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-info-toggle]").forEach((btn) => btn.addEventListener("click", () => {
+    const panel = document.getElementById(btn.dataset.infoToggle);
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    btn.setAttribute("aria-expanded", String(!panel.hidden));
+  }));
   document.getElementById("settingsAddAccountBtn")?.addEventListener("click", () => openAccountForm(null));
   document.querySelectorAll("[data-account-form]").forEach((card) =>
     card.addEventListener("click", () => openAccountForm(card.dataset.accountForm)));
