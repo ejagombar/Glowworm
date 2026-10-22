@@ -3,7 +3,7 @@
 {{$t := $row.Rep}}
 <div class="tx-row">
   {{if eq $row.Kind "linked"}}
-  <div class="tx-icon" style="background:var(--transfer)">⇄</div>
+  <div class="tx-icon transfer">⇄</div>
   <div class="tx-main">
     <div class="tx-merchant">{{$row.Source}} → {{$row.Destination}}</div>
     <div class="tx-sub">Transfer · {{if $t.Category}}{{$t.Category.Name}}{{else}}Uncategorised{{end}}
@@ -13,9 +13,9 @@
   </div>
   <div class="tx-amount transfer">⇄ {{money $t.AmountMinor $cur}}</div>
   {{else}}
-  {{$cat := ""}}{{$color := "#6b7280"}}
-  {{if $t.Category}}{{$cat = $t.Category.Name}}{{$color = $t.Category.Color}}{{end}}
-  <div class="tx-icon" style="background:{{$color}}">{{initial $t.Description}}</div>
+  {{$cat := ""}}
+  {{if $t.Category}}{{$cat = $t.Category.Name}}{{end}}
+  <div class="tx-icon">{{initial $t.Description}}</div>
   <div class="tx-main">
     <div class="tx-merchant">{{$t.Description}}
       {{if $t.RecurringKey}}<button type="button" class="badge badge-recurring badge-btn" data-recurring-key="{{$t.RecurringKey}}" title="View all related transactions">Recurring</button>{{end}}

@@ -45,7 +45,6 @@ type viewBase struct {
 	CSRFToken   string
 	SetupDone   bool
 	AuthMode    string
-	Palette     []string
 	Standalone  bool
 }
 
@@ -72,7 +71,6 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
 		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
 		SetupDone: s.SetupCompleted, AuthMode: a.Cfg.AuthMode,
-		Palette: core.Palette,
 	}, nil
 }
 
