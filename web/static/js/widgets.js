@@ -297,9 +297,27 @@ function pieChartSVG(data) {
     angle = end;
   });
   parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
-  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="23" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${fmtMoney(total)}</text>`);
+  // Shrink the type if even the short form would reach the ring (~0.6em a glyph).
+  const label = fmtMoneyCompact(total);
+  const size = Math.min(23, Math.floor(((inner - 8) * 2) / (label.length * 0.6)));
+  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`);
   parts.push(`<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10.5" style="fill:var(--muted)" font-family="Inter, sans-serif">total</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
+}
+// Short enough for the middle of a pie: pence only under £1,000, whole pounds
+// to £100,000, then £123K and £1.24M.
+function fmtMoneyCompact(v) {
+  const sym = ({ GBP: "\u00a3", USD: "$", EUR: "\u20ac" })[WIDGET_CURRENCY] || WIDGET_CURRENCY + " ";
+  const n = Number(v) / 100;
+  const sign = n < 0 ? "\u2212" : "";
+  const a = Math.abs(n);
+  let s;
+  if (a >= 999995000) s = (a / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+  else if (a >= 999500) s = (a / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M";
+  else if (a >= 1e5) s = Math.round(a / 1e3) + "K";
+  else if (a >= 1e3) s = Math.round(a).toLocaleString("en-GB");
+  else s = a.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return sign + sym + s;
 }
 function polar(cx, cy, r, a) {
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
