@@ -1221,7 +1221,9 @@ func (s *Service) enrichMerchants(batchID string) {
 }
 
 // typeForCategory lets the chosen category decide the type, so a refund put in
-// a spend category is an expense and nets off that category's spend.
+// a spend category is an expense and nets off that category's spend, and a row
+// put in Internal transfer stays out of spend and income even before its other
+// leg is imported and linked.
 func (s *Service) typeForCategory(tx *sql.Tx, categoryID *string, amount int64) string {
 	if categoryID != nil {
 		var catType string
@@ -1231,6 +1233,8 @@ func (s *Service) typeForCategory(tx *sql.Tx, categoryID *string, amount int64) 
 			return core.TypeExpense
 		case core.CategoryIncome:
 			return core.TypeIncome
+		case core.CategoryInternal:
+			return core.TypeTransfer
 		}
 	}
 	return typeFor(amount)
