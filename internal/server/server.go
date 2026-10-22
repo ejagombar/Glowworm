@@ -365,7 +365,7 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 }
 
 // afterImport runs the follow-on detection and retraining, then ties the
-// system entries written since the import (including merchant enrichment)
+// system entries written since the import
 // to it, so undoing the import undoes them too.
 func (a *App) afterImport(batchID string) {
 	a.refreshDerived()
