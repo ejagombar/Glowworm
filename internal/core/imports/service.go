@@ -1086,8 +1086,6 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 	}
 	// The import is committed; a schema failure must not undo that.
 	_ = s.rememberSchema(batchID, batch, accountID, schemaName)
-	// Merchants first: the retrain in AfterCommit learns from them.
-	s.enrichMerchants(batchID)
 	if s.AfterCommit != nil {
 		s.AfterCommit(batchID)
 	}
@@ -1152,6 +1150,12 @@ func (s *Service) defaultSchemaName(det *Detection, accountID, filename string) 
 	return filename
 }
 
+// enrichMerchants asks the AI for clean merchant names for a batch's first
+// rows. It isn't called on import any more: it held up every import for an
+// AI round trip (~10s) and covered only 20 rows. Kept for a better merchant
+// naming step later.
+//
+//nolint:unused // kept deliberately, see above
 func (s *Service) enrichMerchants(batchID string) {
 	if s.Provider == nil {
 		return
