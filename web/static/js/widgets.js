@@ -233,14 +233,19 @@ function chartDataFor(host) {
   return data;
 }
 function showChartTip(tip, svg, pt) {
+  placeChartTip(tip, svg, pt.x, pt.y, `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
+    + `<div class="chart-tip-value">${esc(fmtMoneyTip(pt.value))}</div>`);
+}
+// Puts the tip above (or below) the point x, y given in the svg's viewBox units.
+function placeChartTip(tip, svg, x, y, html) {
   const rect = svg.getBoundingClientRect();
   const vb = svg.viewBox && svg.viewBox.baseVal;
   const W = vb && vb.width ? vb.width : 640;
   const H = vb && vb.height ? vb.height : 260;
   if (!rect.width || !rect.height) return;
   tip.style.display = "block";
-  tip.innerHTML = `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
-    + `<div class="chart-tip-value">${esc(fmtMoneyTip(pt.value))}</div>`;
+  tip.innerHTML = html;
+  const pt = { x, y };
   const sx = rect.left + (pt.x / W) * rect.width;
   const sy = rect.top + (pt.y / H) * rect.height;
   const gap = 10;
@@ -260,7 +265,27 @@ function ensureChartHover() {
   ensureChartHover.done = true;
   const tip = ensureChartTip();
   if (!tip) return;
+  // Pie slices: hover on desktop, tap on a phone; the slice stays picked
+  // until the pointer leaves it or another tap lands elsewhere.
+  let activeSlice = null;
+  const pickSlice = (slice) => {
+    if (activeSlice === slice) return;
+    if (activeSlice) activeSlice.classList.remove("active");
+    activeSlice = slice;
+    if (!slice) { tip.style.display = "none"; return; }
+    slice.classList.add("active");
+    const d = slice.dataset;
+    placeChartTip(tip, slice.ownerSVGElement, Number(d.x), Number(d.y),
+      `<div class="chart-tip-label">${esc(d.label)}</div>`
+      + `<div class="chart-tip-value">${esc(fmtMoneyTip(d.value))} <span class="chart-tip-pct">· ${esc(d.pct)}%</span></div>`);
+  };
+  const sliceAt = (e) => (e.target && e.target.closest ? e.target.closest(".pie-slice") : null);
+  document.addEventListener("click", (e) => pickSlice(sliceAt(e)));
   document.addEventListener("mousemove", (e) => {
+    if (sliceAt(e) || activeSlice) {
+      pickSlice(sliceAt(e));
+      if (activeSlice) return;
+    }
     const host = e.target && e.target.closest ? e.target.closest('.chart-host[data-chart-type="line"]') : null;
     if (!host || chartGesture) { tip.style.display = "none"; return; }
     const svg = host.querySelector("svg");
@@ -271,7 +296,7 @@ function ensureChartHover() {
   });
   document.addEventListener("mouseleave", () => { tip.style.display = "none"; });
   // Fixed-position tip would go stale when the page scrolls under the pointer.
-  window.addEventListener("scroll", () => { tip.style.display = "none"; }, { passive: true });
+  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); }, { passive: true });
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", ensureChartHover);
@@ -293,7 +318,10 @@ function pieChartSVG(data) {
     const large = sweep > Math.PI ? 1 : 0;
     const p1 = polar(cx, cy, r, angle);
     const p2 = polar(cx, cy, r, end);
-    parts.push(`<path d="M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y} L ${cx} ${cy} Z" fill="${colors[i % colors.length]}" opacity="0.92"><title>${esc(labels[i])}: ${((v / total) * 100).toFixed(0)}%</title></path>`);
+    // The tooltip sits at the middle of the slice's ring.
+    const mid = polar(cx, cy, (r + inner) / 2, angle + sweep / 2);
+    parts.push(`<path class="pie-slice" d="M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y} L ${cx} ${cy} Z" fill="${colors[i % colors.length]}"` +
+      ` data-label="${esc(labels[i])}" data-value="${v}" data-pct="${((v / total) * 100).toFixed(0)}" data-x="${mid.x.toFixed(1)}" data-y="${mid.y.toFixed(1)}"/>`);
     angle = end;
   });
   parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
@@ -651,6 +679,10 @@ function ensureWidgetStyles() {
     .pie-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
     .pie-wrap svg { flex: none; width: 168px; height: 168px; }
     .pie-legend { flex: 1; min-width: 120px; max-width: 100%; display: flex; flex-direction: column; gap: 7px; }
+    .pie-slice { opacity: 0.92; cursor: pointer; transition: opacity 0.12s; }
+    .pie-chart svg:has(.pie-slice.active) .pie-slice:not(.active) { opacity: 0.45; }
+    .pie-slice.active { opacity: 1; }
+    .chart-tip-pct { color: var(--muted); font-weight: 500; }
     .pie-legend-dot { width: 8px; height: 8px; border-radius: 1px; flex: none; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
     .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
