@@ -300,8 +300,7 @@ function pieChartSVG(data) {
   // Shrink the type if even the short form would reach the ring (~0.6em a glyph).
   const label = fmtMoneyCompact(total);
   const size = Math.min(23, Math.floor(((inner - 8) * 2) / (label.length * 0.6)));
-  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`);
-  parts.push(`<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10.5" style="fill:var(--muted)" font-family="Inter, sans-serif">total</text>`);
+  parts.push(`<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
 }
 // Short enough for the middle of a pie: pence only under £1,000, whole pounds
@@ -325,7 +324,7 @@ function polar(cx, cy, r, a) {
 function legendHTML(labels, values, colors, total) {
   return `<div class="pie-legend">${labels.map((l, i) => `
     <div class="pie-legend-row">
-      <span class="category-dot" style="background:${colors[i % colors.length]}"></span>
+      <span class="pie-legend-dot" style="background:${colors[i % colors.length]}"></span>
       <span>${esc(l)}</span>
       <span class="pie-legend-val">${((values[i] / total) * 100).toFixed(0)}%</span>
     </div>`).join("")}</div>`;
@@ -652,6 +651,7 @@ function ensureWidgetStyles() {
     .pie-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
     .pie-wrap svg { flex: none; width: 168px; height: 168px; }
     .pie-legend { flex: 1; min-width: 120px; max-width: 100%; display: flex; flex-direction: column; gap: 7px; }
+    .pie-legend-dot { width: 8px; height: 8px; border-radius: 1px; flex: none; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
     .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
     .pie-legend-val { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
