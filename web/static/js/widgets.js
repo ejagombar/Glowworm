@@ -620,9 +620,12 @@ function widgetBody(widget) {
   if (t === "table") {
     const cols = data.columns || [];
     const rows = data.rows || [];
+    const links = data.links || [];
+    const cell = (v, ri, i) => (i === 0 && links[ri]
+      ? `<a class="table-link" href="${esc(links[ri])}" title="See these transactions">${esc(v)}</a>` : esc(v));
     return `<div class="table-widget"><table>
       <thead><tr>${cols.map((c, i) => `<th${i === cols.length - 1 ? ' class="num"' : ""}>${esc(c)}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map((r) => `<tr>${r.map((cell, i) => `<td${i === r.length - 1 ? ' class="num"' : ""}>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+      <tbody>${rows.map((r, ri) => `<tr>${r.map((v, i) => `<td${i === r.length - 1 ? ' class="num"' : ""}>${cell(v, ri, i)}</td>`).join("")}</tr>`).join("")}</tbody>
     </table></div>`;
   }
   if (t === "transactions") {
