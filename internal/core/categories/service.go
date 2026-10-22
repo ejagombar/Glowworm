@@ -34,34 +34,33 @@ func (s *Service) List(from, to string) ([]*core.Category, error) {
 		return nil, err
 	}
 	spent := map[string]int64{}
-	if from != "" || to != "" {
-		q := `SELECT category_id, SUM(amount_minor) FROM transactions
-			WHERE deleted_at IS NULL AND type = 'expense' AND category_id IS NOT NULL`
-		args := []any{}
-		if from != "" {
-			q += ` AND date >= ?`
-			args = append(args, from)
-		}
-		if to != "" {
-			q += ` AND date <= ?`
-			args = append(args, to)
-		}
-		q += ` GROUP BY category_id`
-		rows, err := s.DB.Query(q, args...)
-		if err != nil {
+	// No dates means all time: the totals are still wanted.
+	q := `SELECT category_id, SUM(amount_minor) FROM transactions
+		WHERE deleted_at IS NULL AND type = 'expense' AND category_id IS NOT NULL`
+	args := []any{}
+	if from != "" {
+		q += ` AND date >= ?`
+		args = append(args, from)
+	}
+	if to != "" {
+		q += ` AND date <= ?`
+		args = append(args, to)
+	}
+	q += ` GROUP BY category_id`
+	rows, err := s.DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id string
+		var sum int64
+		if err := rows.Scan(&id, &sum); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		for rows.Next() {
-			var id string
-			var sum int64
-			if err := rows.Scan(&id, &sum); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			spent[id] = sum
-		}
-		rows.Close()
+		spent[id] = sum
 	}
+	rows.Close()
 	for _, c := range cats {
 		if c.Type == core.CategorySpend {
 			v := spent[c.ID]
