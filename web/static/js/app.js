@@ -1301,11 +1301,10 @@ function openRecurring(key) {
 }
 function recurringRowHTML(t) {
   const cat = t.category ? t.category.name : "Uncategorised";
-  const color = t.category ? t.category.color : "#999";
   const amt = fmtMoneySigned(t.amount_minor, t.currency || "GBP");
   const cls = t.type === "transfer" ? "transfer" : t.amount_minor >= 0 ? "pos" : "neg";
   return `<div class="tx-row recurring-row">
-    <div class="tx-icon" style="background:${esc(color)}">${t.type === "transfer" ? "⇄" : esc(initialOf(t.description))}</div>
+    <div class="tx-icon${t.type === "transfer" ? " transfer" : ""}">${t.type === "transfer" ? "⇄" : esc(initialOf(t.description))}</div>
     <div class="tx-main"><div class="tx-merchant">${esc(t.description)}</div><div class="tx-sub">${esc(cat)} · ${esc(t.account ? t.account.name : "")}</div></div>
     <div class="tx-date">${esc(shortDate(t.date))}</div>
     <div class="tx-amount ${cls}">${esc(amt)}</div>
@@ -1862,17 +1861,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const catForm = document.getElementById("categoryForm");
   const catGrid = document.getElementById("categoriesGrid");
-  const catColors = document.getElementById("catColors");
-  let selectedColor = null;
-  if (catColors) {
-    catColors.addEventListener("click", (e) => {
-      const sw = e.target.closest("[data-cat-color]");
-      if (!sw) return;
-      selectedColor = sw.dataset.catColor;
-      document.getElementById("catColorInput").value = selectedColor;
-      catColors.querySelectorAll(".cat-color").forEach((el) => el.classList.toggle("selected", el === sw));
-    });
-  }
   const openCatForm = (editing) => {
     catForm.hidden = false;
     document.getElementById("catFormTitle").textContent = editing ? "Edit category" : "New category";
@@ -1884,9 +1872,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("addCategoryBtn")?.addEventListener("click", () => {
     catForm.dataset.categoryId = "";
     document.getElementById("catName").value = "";
-    document.getElementById("catColorInput").value = "";
-    selectedColor = null;
-    catColors?.querySelectorAll(".cat-color").forEach((el) => el.classList.remove("selected"));
     document.getElementById("catType").value = "spend";
     openCatForm(false);
   });
@@ -1894,13 +1879,8 @@ document.addEventListener("DOMContentLoaded", () => {
     catForm.dataset.categoryId = window.__EDIT_CATEGORY__.id;
     document.getElementById("catName").value = window.__EDIT_CATEGORY__.name;
     document.getElementById("catType").value = window.__EDIT_CATEGORY__.type;
-    selectedColor = window.__EDIT_CATEGORY__.color;
-    document.getElementById("catColorInput").value = selectedColor;
     catForm.hidden = false;
     openCatForm(true);
-    catColors?.querySelectorAll(".cat-color").forEach((el) => {
-      el.classList.toggle("selected", el.dataset.catColor === selectedColor);
-    });
   }
   document.getElementById("catCancelBtn")?.addEventListener("click", () => { catForm.hidden = true; });
   catForm?.addEventListener("submit", (e) => {
@@ -1908,7 +1888,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = catForm.dataset.categoryId;
     const body = {
       name: document.getElementById("catName").value.trim(),
-      color: document.getElementById("catColorInput").value,
       type: document.getElementById("catType").value || "spend",
     };
     if (!body.name) { toast("Category name is required"); return; }
