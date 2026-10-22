@@ -71,14 +71,14 @@ func (s *Service) Detect() (int, error) {
 		return 0, err
 	}
 	for _, a := range txs {
-		if used[a.ID] || a.Type == core.TypeTransfer {
+		if used[a.ID] {
 			continue
 		}
 		best := (*core.Transaction)(nil)
 		bestScore := 0.0
 		bestMethod := ""
 		for _, b := range txs {
-			if b.ID == a.ID || used[b.ID] || b.Type == core.TypeTransfer {
+			if b.ID == a.ID || used[b.ID] {
 				continue
 			}
 			if b.AccountID == a.AccountID {
@@ -101,11 +101,17 @@ func (s *Service) Detect() (int, error) {
 				score += scoreIdentifier
 				method = "identifier"
 			}
-			for _, kw := range lexicon {
-				if strings_contains(text, kw) {
-					score += scoreKeywords
-					method = "description"
-					break
+			if a.Type == core.TypeTransfer || b.Type == core.TypeTransfer {
+				// Already marked Internal transfer, waiting for its other leg.
+				score += scoreKeywords
+				method = "marked"
+			} else {
+				for _, kw := range lexicon {
+					if strings_contains(text, kw) {
+						score += scoreKeywords
+						method = "description"
+						break
+					}
 				}
 			}
 			if score > bestScore {
@@ -115,19 +121,20 @@ func (s *Service) Detect() (int, error) {
 		if best == nil || bestScore < threshold {
 			continue
 		}
-		ties := 0
-		for _, b := range txs {
-			if b.ID == a.ID || used[b.ID] || b.AccountID == a.AccountID {
-				continue
+		// Only another leg that could equally be the match is a tie (the same
+		// amount weeks apart, like a monthly transfer, is not), looked for from
+		// both legs so neither side has two possible partners.
+		matches := func(x *core.Transaction) int {
+			n := 0
+			for _, b := range txs {
+				if b.ID != x.ID && !used[b.ID] && b.AccountID != x.AccountID &&
+					b.AmountMinor == -x.AmountMinor && dateGap(x.Date, b.Date) <= dateWindowDays {
+					n++
+				}
 			}
-			if b.AmountMinor != -a.AmountMinor && dateGap(a.Date, b.Date) <= dateWindowDays {
-				continue
-			}
-			if b.AmountMinor == -a.AmountMinor {
-				ties++
-			}
+			return n
 		}
-		if ties > 1 {
+		if matches(a) > 1 || matches(best) > 1 {
 			continue
 		}
 		src, dst := a, best
@@ -373,7 +380,7 @@ func (s *Service) Suggestions(txID string) ([]*Suggestion, error) {
 			score += 1.0
 		}
 		score += 1 - math.Min(float64(gap), 30)/30
-		if c.Type == core.TypeTransfer || t.Type == core.TypeTransfer {
+		if c.TransferID != nil || t.TransferID != nil {
 			continue
 		}
 		out = append(out, &Suggestion{Tx: c, Score: score, Days: gap})
