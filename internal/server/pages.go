@@ -48,6 +48,15 @@ type viewBase struct {
 	Standalone  bool
 }
 
+// shortDate is "22 Oct 2025", matching the date range button in app.js.
+func shortDate(iso string) string {
+	t, err := time.Parse("2006-01-02", iso)
+	if err != nil {
+		return iso
+	}
+	return t.Format("2 Jan 2006")
+}
+
 func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (*viewBase, error) {
 	s := a.Settings.Get()
 	period := r.URL.Query().Get("period")
@@ -60,6 +69,11 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	from, to, label := periods.Resolve(period, r.URL.Query().Get("from"), r.URL.Query().Get("to"), a.Clock.TodayTime())
 	if label == "" {
 		label = periods.Labels[periods.All]
+	}
+	// The date range button is drawn with its final label, as app.js would set
+	// it, so it doesn't flicker from a placeholder on every page.
+	if period == periods.Custom && from != "" && to != "" {
+		label = shortDate(from) + " – " + shortDate(to)
 	}
 	privacy := s.PrivacyDefault
 	if c, err := r.Cookie(privacyCookie); err == nil {

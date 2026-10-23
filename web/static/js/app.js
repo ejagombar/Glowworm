@@ -1089,15 +1089,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const fromIn = document.getElementById("customFrom");
     const toIn = document.getElementById("customTo");
     const customForm = document.getElementById("customRange");
-    const shortDate = (iso) => {
-      const d = new Date(iso + "T00:00:00");
-      return isNaN(d) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-    };
+    // The button's label comes from the server (base view), so it's right on first paint.
     const current = periodSelect.value || "last-12m";
-    const opt = periodMenu.querySelector(`[data-period="${current}"]`);
-    document.getElementById("periodLabel").textContent = current === "custom" && fromIn.value && toIn.value
-      ? `${shortDate(fromIn.value)} – ${shortDate(toIn.value)}`
-      : (opt && opt.dataset.period !== "custom" ? opt.textContent : "Last 12 months");
     periodMenu.querySelectorAll("[role=option]").forEach((b) => b.setAttribute("aria-selected", b.dataset.period === current ? "true" : "false"));
     customForm.classList.toggle("selected", current === "custom");
 
