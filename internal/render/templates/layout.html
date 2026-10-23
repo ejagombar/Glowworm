@@ -201,5 +201,9 @@
   <script>window.__CSRF__ = {{.CSRFToken}};</script>
   <script src="/static/js/widgets.js"></script>
   <script src="/static/js/app.js"></script>
+  <script>
+    // Keeps a "Can't connect" page ready for when the server is down.
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(function () {});
+  </script>
 </body>
 </html>
