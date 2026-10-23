@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Can't connect | Glowworm</title>
-  <link rel="stylesheet" href="/static/css/styles.css" />
+  <link rel="stylesheet" href="/static/css/styles.css?offline" />
   <script>
     (function () {
       try {
@@ -58,13 +58,16 @@
         if (busy) return;
         busy = true;
         if (manual) { btn.disabled = true; status.textContent = "Checking…"; }
-        fetch("/healthz", { cache: "no-store" })
+        // Time out like the service worker does: off the VPN a request just hangs.
+        var ctrl = window.AbortController ? new AbortController() : null;
+        var timer = ctrl && setTimeout(function () { ctrl.abort(); }, 4000);
+        fetch("/healthz", { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
           .then(function (r) { if (r.ok) location.reload(); else throw new Error(); })
           .catch(function () {
             status.textContent = "Still can't reach it · last tried " +
               new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
           })
-          .then(function () { busy = false; btn.disabled = false; });
+          .then(function () { clearTimeout(timer); busy = false; btn.disabled = false; });
       }
       btn.addEventListener("click", function () { check(true); });
       setInterval(check, 10000);
