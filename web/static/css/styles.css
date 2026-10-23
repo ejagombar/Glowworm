@@ -949,6 +949,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .category-card .cat-edit:hover { color: var(--primary); background: var(--primary-soft); }
 .category-card .cat-edit .icon { width: 13px; height: 13px; }
 .category-card .cat-amount { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.category-card .cat-amount.pos { color: var(--income); }
 .category-card .cat-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
 .stat-card.clickable { cursor: pointer; }
