@@ -39,6 +39,19 @@ func New() (*Renderer, error) {
 		},
 		"money":        func(minor int64, cc string) string { return money.Format(minor, cc) },
 		"moneySigned":  func(minor int64, cc string) string { return money.FormatSigned(minor, cc) },
+		"deref": func(p *int64) int64 {
+			if p == nil {
+				return 0
+			}
+			return *p
+		},
+		// categoryTotal shows money out without a sign and money in with a +.
+		"categoryTotal": func(minor int64, cc string) string {
+			if minor > 0 {
+				return "+" + money.Format(minor, cc)
+			}
+			return money.Format(-minor, cc)
+		},
 		"moneyPtr": func(minor *int64, cc string) string {
 			if minor == nil {
 				return ""

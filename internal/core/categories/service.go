@@ -35,8 +35,11 @@ func (s *Service) List(from, to string) ([]*core.Category, error) {
 	}
 	spent := map[string]int64{}
 	// No dates means all time: the totals are still wanted.
+	// Each category's net over the range: spend for spend categories (with
+	// refunds netted off), money in for Income, and the net of transfers for
+	// Internal transfer. A row's type always follows its category.
 	q := `SELECT category_id, SUM(amount_minor) FROM transactions
-		WHERE deleted_at IS NULL AND type = 'expense' AND category_id IS NOT NULL`
+		WHERE deleted_at IS NULL AND category_id IS NOT NULL`
 	args := []any{}
 	if from != "" {
 		q += ` AND date >= ?`
@@ -62,10 +65,8 @@ func (s *Service) List(from, to string) ([]*core.Category, error) {
 	}
 	rows.Close()
 	for _, c := range cats {
-		if c.Type == core.CategorySpend {
-			v := spent[c.ID]
-			c.SpentMinor = &v
-		}
+		v := spent[c.ID]
+		c.SpentMinor = &v
 	}
 	return cats, nil
 }
