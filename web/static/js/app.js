@@ -51,7 +51,11 @@ function openModal(id) {
   const m = document.getElementById(id);
   if (!m) return;
   m.hidden = false;
-  const field = m.querySelector("input:not([type=hidden]), select, textarea");
+  // Start typing in the first text field. Not a select or date field: focusing
+  // those opens their picker on a phone. And not at all on touch screens,
+  // where focus would throw up the keyboard before anything is tapped.
+  if (window.matchMedia("(pointer: coarse)").matches) return;
+  const field = m.querySelector("input:not([type=hidden]):not([type=date]):not([type=checkbox]):not([type=radio]), textarea");
   if (field) field.focus();
 }
 function closeModal(id) {
