@@ -11,13 +11,45 @@ const STYLES = "/static/css/styles.css?offline";
 const FONTS = ["/static/fonts/inter-latin.woff2", "/static/fonts/inter-latin-ext.woff2"];
 const ASSETS = [OFFLINE, STYLES, ...FONTS];
 
+// Diagnostics: what happened to recent page loads, kept in the cache and sent
+// to the server log (POST /sw-log) on the next load that reaches it. It's
+// the only way to see what a home screen app did while it was offline.
+const LOG_KEY = "/__sw-log";
+const LOG_CACHE = "glowworm-sw-log";
+let logChain = Promise.resolve();
+function swLog(e) {
+  logChain = logChain.then(async () => {
+    const c = await caches.open(LOG_CACHE);
+    const r = await c.match(LOG_KEY);
+    const events = r ? await r.json() : [];
+    events.push({ t: Date.now(), e });
+    await c.put(LOG_KEY, new Response(JSON.stringify(events.slice(-60))));
+  }).catch(() => {});
+  return logChain;
+}
+function flushLog() {
+  logChain = logChain.then(async () => {
+    const c = await caches.open(LOG_CACHE);
+    const r = await c.match(LOG_KEY);
+    if (!r) return;
+    const events = await r.json();
+    if (!events.length) return;
+    const res = await fetch("/sw-log", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ua: self.navigator.userAgent, events }) });
+    if (res.ok) await c.delete(LOG_KEY);
+  }).catch(() => {});
+  return logChain;
+}
+swLog("worker started (" + CACHE + ")");
+
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => swLog("installed")).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys()
     .then((keys) => Promise.all(keys.filter((k) => k.startsWith("glowworm-offline-") && k !== CACHE).map((k) => caches.delete(k))))
+    .then(() => swLog("activated"))
     .then(() => self.clients.claim()));
 });
 
@@ -39,9 +71,21 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   if (req.mode === "navigate") {
+    const t0 = Date.now(), path = new URL(req.url).pathname;
+    const showOffline = (why) => {
+      e.waitUntil(swLog(`load ${path}: offline page (${why}) after ${Date.now() - t0}ms`));
+      return offline().then((r) => {
+        if (!r) e.waitUntil(swLog("offline page missing from the cache"));
+        return r || Response.error();
+      });
+    };
     e.respondWith(fetchWithTimeout(req, NAV_TIMEOUT_MS)
-      .then((r) => (r.status >= 502 && r.status <= 504 ? offline() : r))
-      .catch(offline));
+      .then((r) => {
+        if (r.status >= 502 && r.status <= 504) return showOffline("status " + r.status);
+        e.waitUntil(flushLog());
+        return r;
+      })
+      .catch((err) => showOffline(err && err.name === "AbortError" ? "timed out" : "network error")));
     return;
   }
   // The offline page's stylesheet and the fonts come straight from the cache:
