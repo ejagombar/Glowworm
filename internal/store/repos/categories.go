@@ -10,12 +10,12 @@ import (
 
 type Categories struct{ DB *store.DB }
 
-const categoryCols = `id, name, color, type, is_system, sort_order, created_at, updated_at, deleted_at`
+const categoryCols = `id, name, color, type, description, is_system, sort_order, created_at, updated_at, deleted_at`
 
 func scanCategory(sc Scanner) (*core.Category, error) {
 	var c core.Category
 	var isSys, deletedAt sql.NullString
-	err := sc.Scan(&c.ID, &c.Name, &c.Color, &c.Type, &isSys, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt, &deletedAt)
+	err := sc.Scan(&c.ID, &c.Name, &c.Color, &c.Type, &c.Description, &isSys, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt, &deletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +61,8 @@ func (r *Categories) Create(tx *sql.Tx, c *core.Category) error {
 	if c.IsSystem {
 		sys = 1
 	}
-	_, err := exec(r.DB, tx, `INSERT INTO categories (id, name, color, type, is_system, sort_order, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?)`, c.ID, c.Name, c.Color, c.Type, sys, c.SortOrder, c.CreatedAt, c.UpdatedAt)
+	_, err := exec(r.DB, tx, `INSERT INTO categories (id, name, color, type, description, is_system, sort_order, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`, c.ID, c.Name, c.Color, c.Type, c.Description, sys, c.SortOrder, c.CreatedAt, c.UpdatedAt)
 	return err
 }
 
@@ -73,8 +73,8 @@ func (r *Categories) CreateWithID(tx *sql.Tx, c *core.Category) error {
 	if c.IsSystem {
 		sys = 1
 	}
-	_, err := exec(r.DB, tx, `INSERT INTO categories (id, name, color, type, is_system, sort_order, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?)`, c.ID, c.Name, c.Color, c.Type, sys, c.SortOrder, c.CreatedAt, c.UpdatedAt)
+	_, err := exec(r.DB, tx, `INSERT INTO categories (id, name, color, type, description, is_system, sort_order, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`, c.ID, c.Name, c.Color, c.Type, c.Description, sys, c.SortOrder, c.CreatedAt, c.UpdatedAt)
 	return err
 }
 
@@ -84,8 +84,8 @@ func (r *Categories) Update(tx *sql.Tx, c *core.Category) error {
 	if c.IsSystem {
 		sys = 1
 	}
-	_, err := exec(r.DB, tx, `UPDATE categories SET name=?, color=?, type=?, is_system=?, updated_at=? WHERE id=? AND deleted_at IS NULL`,
-		c.Name, c.Color, c.Type, sys, c.UpdatedAt, c.ID)
+	_, err := exec(r.DB, tx, `UPDATE categories SET name=?, color=?, type=?, description=?, is_system=?, updated_at=? WHERE id=? AND deleted_at IS NULL`,
+		c.Name, c.Color, c.Type, c.Description, sys, c.UpdatedAt, c.ID)
 	return err
 }
 

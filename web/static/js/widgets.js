@@ -29,6 +29,22 @@ function toSeries(data) {
   return { labels: [], series: [] };
 }
 
+// Nothing to show: no rows, or a chart whose every value is zero (a fresh
+// instance's example widgets, or a range with no transactions in it).
+function widgetIsEmpty(type, data) {
+  data = data || {};
+  switch (type) {
+    case "number": case "text": return false;
+    case "table": return !(data.rows || []).length;
+    case "transactions": return !(data.transactions || []).length;
+    case "pie": return !(data.values || []).some((v) => Number(v) > 0);
+    default: return !toSeries(data).series.some((s) => (s.values || []).some((v) => Number(v)));
+  }
+}
+function widgetEmptyHTML() {
+  return `<div class="widget-empty">No data yet</div>`;
+}
+
 function convertWidgetData(from, to, data) {
   if (from === to) return data;
 
@@ -414,6 +430,12 @@ function redrawChartHost(host) {
   if (!type) return;
   let data;
   try { data = JSON.parse(host.dataset.chartData || "{}"); } catch (e) { return; }
+  if (widgetIsEmpty(type, data)) {
+    host.innerHTML = widgetEmptyHTML();
+    const legend = type === "pie" && host.parentElement && host.parentElement.querySelector(":scope > .pie-legend");
+    if (legend) legend.remove();
+    return;
+  }
   if (type === "pie") {
     const rendered = pieChartSVG(data);
     host.innerHTML = rendered.svg;

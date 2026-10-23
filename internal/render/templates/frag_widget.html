@@ -24,6 +24,9 @@
 <div class="num-widget"><div class="num-value">{{$w.NumberValue}}</div>{{if $w.NumberCaption}}<div class="num-caption">{{$w.NumberCaption}}</div>{{end}}</div>
 {{else if eq $w.Type "text"}}
 <div class="text-widget"><p>{{$w.TextBody}}</p></div>
+{{/* Empty charts are swapped for the same message by widgets.js. */}}
+{{else if or (and (eq $w.Type "table") (not $w.TableRows)) (and (eq $w.Type "transactions") (not $w.Transactions))}}
+<div class="widget-empty">No data yet</div>
 {{else if eq $w.Type "table"}}
 <div class="table-widget"><table>
   {{/* Labels on the left; only the last column (the value) is right-aligned. */}}

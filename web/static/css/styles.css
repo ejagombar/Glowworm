@@ -136,7 +136,7 @@ h3 { font-size: 13px; }
 p { margin: 0; }
 a { color: inherit; text-decoration: none; }
 button { font-family: inherit; font-size: inherit; cursor: pointer; }
-input, select { font-family: inherit; font-size: inherit; color: inherit; }
+input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 
 .muted { color: var(--muted); font-weight: 400; }
 .small { font-size: 12px; }
@@ -620,6 +620,11 @@ body.privacy .pie-total { filter: blur(4px); }
 .table-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--line-2); }
 .table-link:hover { color: var(--primary); border-bottom-color: var(--primary); }
 .widget .num-widget, .widget .text-widget { flex: none; }
+.widget-empty {
+  flex: 1; height: 100%; min-height: 72px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 13px;
+}
 .widgets-grid .pie-wrap { flex: 1; min-height: 0; align-content: center; }
 /* A long key scrolls inside the widget instead of being cut off. */
 .widgets-grid .pie-legend { max-height: 100%; overflow-y: auto; padding-right: 4px; }
@@ -829,6 +834,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .field-row { margin-bottom: 12px; }
 .field-row label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; color: var(--text-2); }
 .field-row .field { width: 100%; }
+textarea.field { display: block; resize: vertical; min-height: 64px; line-height: 1.45; }
 .key-row { display: flex; align-items: center; gap: 8px; }
 .key-row .field { flex: 1; min-width: 0; }
 .key-row .btn { flex: none; }

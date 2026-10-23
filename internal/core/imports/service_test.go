@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"glowworm/internal/ai"
@@ -175,6 +176,53 @@ func TestCategoriseAIManyChunks(t *testing.T) {
 	for desc, rs := range stagedByDesc(t, s, b.ID) {
 		if rs[0].category != "c-food" || rs[0].source != core.CategorySourceAI {
 			t.Fatalf("%s not placed by the AI: %+v", desc, rs[0])
+		}
+	}
+}
+
+// capturePrompts records each categorisation prompt on its way to the mock.
+type capturePrompts struct {
+	ai.Mock
+	mu      sync.Mutex
+	prompts []map[string]any
+}
+
+func (c *capturePrompts) CompleteStructured(req *ai.StructuredRequest) (string, *ai.Usage, error) {
+	if req.Capability == "categorisation" {
+		c.mu.Lock()
+		c.prompts = append(c.prompts, req.PromptJSON)
+		c.mu.Unlock()
+	}
+	return c.Mock.CompleteStructured(req)
+}
+
+func TestCategoriseAISendsCategoryDescriptions(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	mustExec(t, s, `UPDATE categories SET description = 'Cinema, gigs and streaming' WHERE id = 'c-fun'`)
+	cp := &capturePrompts{}
+	s.Cat.Provider = cp
+	acc := "acc-main"
+	b, err := s.Upload("statement.csv", []byte(statementCSV), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.ApplySchemaPublic(b.ID, userMapping(), []byte(statementCSV)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CategoriseAI(context.Background(), b.ID, func(Progress) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(cp.prompts) == 0 {
+		t.Fatal("the AI was never asked")
+	}
+	for _, p := range cp.prompts {
+		descs, ok := p["category_descriptions"].(map[string]string)
+		if !ok {
+			t.Fatalf("prompt has no category_descriptions: %v", p)
+		}
+		if len(descs) != 1 || descs["Entertainment"] != "Cinema, gigs and streaming" {
+			t.Fatalf("category_descriptions = %v, want only Entertainment's", descs)
 		}
 	}
 }

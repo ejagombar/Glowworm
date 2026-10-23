@@ -5,36 +5,11 @@
       <h1>Categories</h1>
       <p class="sub">Transactions are sorted into these categories. Glowworm improves at sorting over time.</p>
     </div>
-    <button class="btn btn-primary" id="addCategoryBtn">
-      <svg class="icon"><use href="#i-plus"/></svg> New category
+    <button class="btn btn-primary" id="addCategoryBtn" type="button">
+      <svg class="icon"><use href="#i-plus"/></svg> Add category
     </button>
   </div>
 
-  <form class="category-form panel" id="categoryForm" method="post" action="/categories" hidden>
-    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
-    <h3 class="category-form-title" id="catFormTitle">New category</h3>
-    <div class="field-row">
-      <label>Name</label>
-      <input class="field" id="catName" name="name" type="text" placeholder="e.g. Groceries" />
-    </div>
-    <div class="field-row" id="catTypeRow">
-      <label>Type</label>
-      <select class="field select" id="catType" name="type">
-        <option value="spend">Spend</option>
-        <option value="income">Income</option>
-      </select>
-    </div>
-    <div class="category-form-actions">
-      <button class="btn btn-danger" id="catDeleteBtn" hidden type="button">Delete category</button>
-      <span class="spacer"></span>
-      <button class="btn btn-primary" id="catSaveBtn" type="submit">Add category</button>
-      <button class="btn btn-ghost" id="catCancelBtn" type="button">Cancel</button>
-    </div>
-  </form>
-
-  {{if .Editing}}
-  <script>window.__EDIT_CATEGORY__ = {id: "{{.Editing.ID}}", name: "{{.Editing.Name}}", type: "{{.Editing.Type}}"};</script>
-  {{end}}
   <div class="category-grid" id="categoriesGrid">
     {{range .Categories}}
     <div class="category-card">
@@ -42,9 +17,10 @@
         <span class="cat-name">{{.Name}}</span>
         {{if .IsSystem}}<span class="cat-badge">System</span>{{end}}
         {{if not .IsSystem}}
-        <a class="icon-btn cat-edit" href="/categories?edit={{.ID}}&period={{$.Period}}" aria-label="Edit {{.Name}}" title="Edit category">
+        <button class="icon-btn cat-edit" type="button" data-cat-edit="{{.ID}}" data-name="{{.Name}}" data-description="{{.Description}}"
+          aria-label="Edit {{.Name}}" title="Edit category">
           <svg class="icon"><use href="#i-edit"/></svg>
-        </a>
+        </button>
         {{end}}
       </div>
       {{if .SpentMinor}}<div class="cat-amount{{if gt (deref .SpentMinor) 0}} pos{{end}}">{{categoryTotal .SpentMinor $.Currency}}</div>{{end}}
@@ -53,5 +29,6 @@
     </div>
     {{end}}
   </div>
+  {{template "category-modal"}}
 </section>
 {{end}}

@@ -703,6 +703,7 @@ function widgetBodyHTML(widget) {
       return { ...tx, amount: Number(v) };
     });
   }
+  if (window.widgetIsEmpty && widgetIsEmpty(widget.type, data)) return widgetEmptyHTML();
   if (widget.type === "number") {
     return `<div class="num-widget"><div class="num-value">${esc(data.value)}</div>
       ${data.caption ? `<div class="num-caption">${esc(data.caption)}</div>` : ""}</div>`;
@@ -1155,7 +1156,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Escape") {
       const cm = document.getElementById("confirmModal");
       if (cm && !cm.hidden) { cm.hidden = true; confirmCallback = null; return; }
-      closeDrawer(); closeModal("recurringModal"); closeModal("accountModal"); closeModal("txModal"); closePasswordModal(); closeNameModal();
+      closeDrawer(); closeModal("recurringModal"); closeModal("accountModal"); closeModal("txModal"); closeModal("categoryModal"); closePasswordModal(); closeNameModal();
     }
   });
 
@@ -1856,36 +1857,39 @@ document.addEventListener("DOMContentLoaded", () => {
       .catch(() => toast("Test failed"));
   });
 
+  // Add and edit share one modal; cat is the category being edited, if any.
+  // A category's type is fixed once it exists, so editing hides it.
   const catForm = document.getElementById("categoryForm");
   const catGrid = document.getElementById("categoriesGrid");
-  const openCatForm = (editing) => {
-    catForm.hidden = false;
-    document.getElementById("catFormTitle").textContent = editing ? "Edit category" : "New category";
-    document.getElementById("catSaveBtn").textContent = editing ? "Save changes" : "Add category";
-    document.getElementById("catDeleteBtn").hidden = !editing;
-    document.getElementById("catTypeRow").hidden = !!editing;
-    document.getElementById("catName").focus();
-  };
-  document.getElementById("addCategoryBtn")?.addEventListener("click", () => {
-    catForm.dataset.categoryId = "";
-    document.getElementById("catName").value = "";
+  const openCatModal = (cat) => {
+    catForm.dataset.categoryId = cat ? cat.id : "";
+    document.getElementById("catName").value = cat ? cat.name : "";
     document.getElementById("catType").value = "spend";
-    openCatForm(false);
+    document.getElementById("catDescription").value = cat ? cat.description : "";
+    document.getElementById("catModalTitle").textContent = cat ? "Edit category" : "Add category";
+    document.getElementById("catModalSub").textContent = cat ? "Rename it or change what the AI is told about it." : "Add a category to sort transactions into.";
+    document.getElementById("catSaveBtn").textContent = cat ? "Save changes" : "Add category";
+    document.getElementById("catDeleteBtn").hidden = !cat;
+    document.getElementById("catTypeRow").hidden = !!cat;
+    openModal("categoryModal");
+  };
+  document.getElementById("addCategoryBtn")?.addEventListener("click", () => openCatModal(null));
+  catGrid?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cat-edit]");
+    if (b) openCatModal({ id: b.dataset.catEdit, name: b.dataset.name, description: b.dataset.description || "" });
   });
-  if (window.__EDIT_CATEGORY__) {
-    catForm.dataset.categoryId = window.__EDIT_CATEGORY__.id;
-    document.getElementById("catName").value = window.__EDIT_CATEGORY__.name;
-    document.getElementById("catType").value = window.__EDIT_CATEGORY__.type;
-    catForm.hidden = false;
-    openCatForm(true);
-  }
-  document.getElementById("catCancelBtn")?.addEventListener("click", () => { catForm.hidden = true; });
+  document.querySelectorAll("[data-action='close-category-modal']").forEach((b) =>
+    b.addEventListener("click", () => closeModal("categoryModal")));
+  document.getElementById("categoryModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "categoryModal") closeModal("categoryModal");
+  });
   catForm?.addEventListener("submit", (e) => {
     e.preventDefault();
     const id = catForm.dataset.categoryId;
     const body = {
       name: document.getElementById("catName").value.trim(),
       type: document.getElementById("catType").value || "spend",
+      description: document.getElementById("catDescription").value.trim(),
     };
     if (!body.name) { toast("Category name is required"); return; }
     fetch(id ? `/api/v1/categories/${id}` : "/api/v1/categories", {
@@ -1898,8 +1902,7 @@ document.addEventListener("DOMContentLoaded", () => {
         toast((b.error && b.error.message) || "Could not save the category");
         return;
       }
-      toast(id ? "Category updated" : "Category added");
-      location.href = "/categories?period=" + new URLSearchParams(location.search).get("period") || "/categories";
+      reloadWithToast(id ? "Category updated" : "Category added");
     }).catch(() => toast("Could not save the category"));
   });
   document.getElementById("catDeleteBtn")?.addEventListener("click", () => {
@@ -1907,7 +1910,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!id) return;
     showConfirm("Delete category?", "Its transactions will be marked as Uncategorised.", "Delete category", () => {
       fetch(`/api/v1/categories/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
-        .then((r) => { if (!r.ok) { toast("Could not delete"); return; } toast("Category deleted"); location.href = "/categories"; });
+        .then((r) => { if (!r.ok) { toast("Could not delete"); return; } reloadWithToast("Category deleted"); });
     });
   });
 

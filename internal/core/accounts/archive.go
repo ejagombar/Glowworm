@@ -79,10 +79,11 @@ type snapTransfer struct {
 }
 
 type snapCategory struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
-	Type  string `json:"type"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+	Type        string `json:"type"`
+	Description string `json:"description,omitempty"`
 }
 
 type Archive struct {
@@ -207,7 +208,8 @@ func buildSnapshot(q querier, id string) (*snapshot, error) {
 		}
 		seen[*t.CategoryID] = true
 		var c snapCategory
-		err := q.QueryRow(`SELECT id, name, color, type FROM categories WHERE id = ?`, *t.CategoryID).Scan(&c.ID, &c.Name, &c.Color, &c.Type)
+		err := q.QueryRow(`SELECT id, name, color, type, description FROM categories WHERE id = ?`, *t.CategoryID).
+			Scan(&c.ID, &c.Name, &c.Color, &c.Type, &c.Description)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -496,8 +498,8 @@ func mapCategories(tx *sql.Tx, cats []snapCategory) (map[string]string, []string
 			}
 			out[c.ID] = id
 		case err == sql.ErrNoRows:
-			if _, err := tx.Exec(`INSERT INTO categories (id, name, color, type, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
-				c.ID, c.Name, c.Color, c.Type, now, now); err != nil {
+			if _, err := tx.Exec(`INSERT INTO categories (id, name, color, type, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+				c.ID, c.Name, c.Color, c.Type, c.Description, now, now); err != nil {
 				return nil, nil, err
 			}
 			out[c.ID] = c.ID

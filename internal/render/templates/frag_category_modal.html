@@ -1,0 +1,40 @@
+{{define "category-modal"}}
+<div class="modal-backdrop" id="categoryModal" hidden>
+  <div class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="catModalTitle">
+    <button class="icon-btn modal-close" type="button" data-action="close-category-modal" aria-label="Close">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+    <div class="modal-head">
+      <div class="modal-head-text">
+        <h3 id="catModalTitle">Add category</h3>
+        <p class="muted" id="catModalSub">Add a category to sort transactions into.</p>
+      </div>
+    </div>
+    <form class="modal-body" id="categoryForm" data-category-id="">
+      <div class="field-row">
+        <label for="catName">Name</label>
+        <input class="field" id="catName" type="text" placeholder="e.g. Groceries" />
+      </div>
+      <div class="field-row" id="catTypeRow">
+        <label for="catType">Type</label>
+        <select class="field select" id="catType">
+          <option value="spend">Spend</option>
+          <option value="income">Income</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="catDescription">Description <span class="muted">(optional)</span></label>
+        <textarea class="field" id="catDescription" rows="3" maxlength="500"
+          placeholder="e.g. Supermarkets and corner shops. Not restaurants or takeaways."></textarea>
+        <p class="field-hint">Helps the AI decide what goes in this category. It isn't shown anywhere else.</p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-danger" id="catDeleteBtn" type="button" hidden>Delete category</button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-action="close-category-modal">Cancel</button>
+        <button class="btn btn-primary" id="catSaveBtn" type="submit">Add category</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}

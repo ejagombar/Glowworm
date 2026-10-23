@@ -668,15 +668,10 @@ func (a *App) handleCategories(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	var editing *core.Category
-	if id := r.URL.Query().Get("edit"); id != "" {
-		editing, _ = a.Repos.Categories.Get(id)
-	}
 	data := struct {
 		*viewBase
 		Categories []*core.Category
-		Editing    *core.Category
-	}{viewBase: base, Categories: cats, Editing: editing}
+	}{viewBase: base, Categories: cats}
 	return a.Render.Render(w, "categories", data)
 }
 

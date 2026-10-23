@@ -200,16 +200,21 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 	}
 	catalogue := map[string]map[string]string{}
 	nameToID := map[string]map[string]string{}
+	descriptions := map[string]map[string]string{}
 	add := func(txType string, c *core.Category) {
 		if catalogue[txType] == nil {
 			catalogue[txType] = map[string]string{}
 			nameToID[txType] = map[string]string{}
+			descriptions[txType] = map[string]string{}
 		}
 		if _, taken := nameToID[txType][c.Name]; taken {
 			return
 		}
 		catalogue[txType][c.ID] = c.Name
 		nameToID[txType][c.Name] = c.ID
+		if c.Description != "" {
+			descriptions[txType][c.Name] = c.Description
+		}
 	}
 	// Income categories go in first so they win a name clash; spend categories
 	// follow because money in may be a refund.
@@ -289,10 +294,14 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 			items[i] = aiItem{Index: i, Date: g.Date, Description: g.Description, Destination: g.Destination,
 				AmountMinor: g.AmountMinor, Type: g.Type, Count: len(g.RowIDs)}
 		}
+		prompt := map[string]any{"transactions": items, "allowed_categories": catalogue[txType]}
+		if len(descriptions[txType]) > 0 {
+			prompt["category_descriptions"] = descriptions[txType]
+		}
 		t0 := time.Now()
 		resp, usage, err := s.Cat.Provider.CompleteStructured(&ai.StructuredRequest{
 			Capability: "categorisation",
-			PromptJSON: map[string]any{"transactions": items, "allowed_categories": catalogue[txType]},
+			PromptJSON: prompt,
 			Timeout:    aiChunkTimeout,
 		})
 		var parsed struct {

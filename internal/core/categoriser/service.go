@@ -179,6 +179,7 @@ func (s *Service) aiBatch(tx *sql.Tx, txs []*core.Transaction, aiThresh float64)
 		Type        string `json:"type"`
 	}
 	catsByType := map[string]map[string]string{}
+	descsByType := map[string]map[string]string{}
 	for _, t := range txs {
 		if _, ok := catsByType[t.Type]; ok {
 			continue
@@ -188,10 +189,15 @@ func (s *Service) aiBatch(tx *sql.Tx, txs []*core.Transaction, aiThresh float64)
 			return nil, err
 		}
 		m := map[string]string{}
+		descs := map[string]string{}
 		for id, c := range cats {
 			m[id] = c.Name
+			if c.Description != "" {
+				descs[c.Name] = c.Description
+			}
 		}
 		catsByType[t.Type] = m
+		descsByType[t.Type] = descs
 	}
 	assigned := []Assignment{}
 	for txType, catalogue := range catsByType {
@@ -207,12 +213,16 @@ func (s *Service) aiBatch(tx *sql.Tx, txs []*core.Transaction, aiThresh float64)
 		if len(items) == 0 {
 			continue
 		}
+		prompt := map[string]any{
+			"transactions":       items,
+			"allowed_categories": catalogue,
+		}
+		if descs := descsByType[txType]; len(descs) > 0 {
+			prompt["category_descriptions"] = descs
+		}
 		resp, _, err := s.Provider.CompleteStructured(&ai.StructuredRequest{
 			Capability: "categorisation",
-			PromptJSON: map[string]any{
-				"transactions":       items,
-				"allowed_categories": catalogue,
-			},
+			PromptJSON: prompt,
 		})
 		if err != nil {
 			return nil, err

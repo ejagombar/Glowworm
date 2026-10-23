@@ -342,6 +342,10 @@ func (x *Executor) applyCategoryFields(tx *sql.Tx, id string, f map[string]any) 
 	if v, ok := f["type"].(string); ok && v != "" && !c.IsSystem {
 		c.Type = v
 	}
+	// May be "" on purpose: the description was blank before.
+	if v, ok := f["description"].(string); ok && !c.IsSystem {
+		c.Description = v
+	}
 	return x.Categories.Update(tx, c)
 }
 
@@ -353,6 +357,7 @@ func (x *Executor) restoreCategory(tx *sql.Tx, id string, before map[string]any)
 		c.Name, _ = before["name"].(string)
 		c.Color, _ = before["color"].(string)
 		c.Type, _ = before["type"].(string)
+		c.Description, _ = before["description"].(string)
 	}
 	if c.Name == "" {
 		return fmt.Errorf("auditexec: cannot restore category %s (no snapshot)", id)

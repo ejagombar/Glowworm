@@ -78,16 +78,17 @@ type Valuation struct {
 }
 
 type Category struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	Color      string  `json:"color"`
-	Type       string  `json:"type"`
-	IsSystem   bool    `json:"is_system"`
-	SortOrder  int     `json:"sort_order"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
-	DeletedAt  *string `json:"-"`
-	SpentMinor *int64  `json:"spent_minor"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Color       string  `json:"color"`
+	Type        string  `json:"type"`
+	Description string  `json:"description"`
+	IsSystem    bool    `json:"is_system"`
+	SortOrder   int     `json:"sort_order"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+	DeletedAt   *string `json:"-"`
+	SpentMinor  *int64  `json:"spent_minor"`
 }
 
 type Transaction struct {

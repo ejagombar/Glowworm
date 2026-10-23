@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
@@ -26,6 +27,22 @@ type Input struct {
 	Name  string `json:"name"`
 	Color string `json:"color"`
 	Type  string `json:"type"`
+	// Description tells the categorisation AI what belongs in the category.
+	// On an update, nil leaves it as it is and "" clears it.
+	Description *string `json:"description"`
+}
+
+const maxDescription = 500
+
+func description(in Input) (string, error) {
+	if in.Description == nil {
+		return "", nil
+	}
+	d := strings.TrimSpace(*in.Description)
+	if utf8.RuneCountInString(d) > maxDescription {
+		return "", &ValidationError{Message: fmt.Sprintf("Category description is too long (%d characters at most)", maxDescription)}
+	}
+	return d, nil
 }
 
 func (s *Service) List(from, to string) ([]*core.Category, error) {
@@ -89,12 +106,16 @@ func (s *Service) Create(in Input) (*core.Category, error) {
 	if typ != core.CategorySpend && typ != core.CategoryIncome {
 		return nil, &ValidationError{Message: "Category type must be spend or income"}
 	}
-	c := &core.Category{Name: name, Color: in.Color, Type: typ, IsSystem: false,
+	desc, err := description(in)
+	if err != nil {
+		return nil, err
+	}
+	c := &core.Category{Name: name, Color: in.Color, Type: typ, Description: desc, IsSystem: false,
 		SortOrder: s.Repos.NextSortOrder()}
 	if c.Color == "" {
 		c.Color = core.Palette[len(core.Palette)-2]
 	}
-	err := s.DB.WithTx(func(tx *sql.Tx) error {
+	err = s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Repos.Create(tx, c); err != nil {
 			return err
 		}
@@ -102,7 +123,7 @@ func (s *Service) Create(in Input) (*core.Category, error) {
 			Actor: core.ActorUser, Action: "category.created",
 			EntityType: "category", EntityID: c.ID,
 			Title: "Added category", Sub: name,
-			After:  map[string]any{"id": c.ID, "name": c.Name, "color": c.Color, "type": c.Type},
+			After:  map[string]any{"id": c.ID, "name": c.Name, "color": c.Color, "type": c.Type, "description": c.Description},
 			Revert: map[string]any{"category_id": c.ID},
 		})
 		return err
@@ -118,7 +139,7 @@ func (s *Service) Update(id string, in Input) (*core.Category, error) {
 	if err != nil {
 		return nil, err
 	}
-	before := map[string]any{"name": c.Name, "color": c.Color, "type": c.Type}
+	before := map[string]any{"name": c.Name, "color": c.Color, "type": c.Type, "description": c.Description}
 	if c.IsSystem {
 		if strings.TrimSpace(in.Name) != "" && !strings.EqualFold(in.Name, c.Name) {
 			return nil, &ValidationError{Message: "System category — its name is fixed."}
@@ -140,12 +161,19 @@ func (s *Service) Update(id string, in Input) (*core.Category, error) {
 		if in.Color != "" {
 			c.Color = in.Color
 		}
+		if in.Description != nil {
+			desc, err := description(in)
+			if err != nil {
+				return nil, err
+			}
+			c.Description = desc
+		}
 	}
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Repos.Update(tx, c); err != nil {
 			return err
 		}
-		after := map[string]any{"name": c.Name, "color": c.Color, "type": c.Type}
+		after := map[string]any{"name": c.Name, "color": c.Color, "type": c.Type, "description": c.Description}
 		diff := []audit.DiffLine{}
 		if before["name"] != after["name"] {
 			diff = append(diff, audit.DiffLine{Line: "− " + fmt.Sprint(before["name"]), Cls: "diff-del"},
@@ -189,7 +217,7 @@ func (s *Service) Delete(id string) error {
 			Actor: core.ActorUser, Action: "category.deleted",
 			EntityType: "category", EntityID: id,
 			Title: "Deleted category", Sub: fmt.Sprintf("%s · %d transactions now uncategorised", c.Name, affected),
-			Before: map[string]any{"id": c.ID, "name": c.Name, "color": c.Color, "type": c.Type},
+			Before: map[string]any{"id": c.ID, "name": c.Name, "color": c.Color, "type": c.Type, "description": c.Description},
 			Revert: map[string]any{"category_id": c.ID, "restore": true},
 		})
 		return err
