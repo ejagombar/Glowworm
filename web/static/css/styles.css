@@ -1424,8 +1424,8 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 
 .glowworm-loader {
   position: relative;
-  width: 150px;
-  height: 56px;
+  width: 84px;
+  height: 32px;
 }
 .glowworm {
   width: 100%;
