@@ -106,7 +106,8 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html { height: 100%; }
+/* No pinch or double-tap zoom of the page; charts zoom themselves. */
+html { height: 100%; touch-action: pan-x pan-y; }
 body {
   margin: 0;
   height: 100%;
@@ -351,9 +352,19 @@ body.privacy .pie-total { filter: blur(4px); }
 .link:hover { text-decoration: underline; }
 
 .content { padding: 20px 22px 40px; width: 100%; }
-.view { display: none; animation: fade 0.16s ease; }
+.view { display: none; }
 .view.active { display: block; }
-@keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* Moving between pages: the browser keeps the old page up until the new one
+   has painted, then swaps them with a quick crossfade, instead of a blank
+   frame and a fade-in. The masthead is its own layer so it holds still. */
+@view-transition { navigation: auto; }
+.masthead { view-transition-name: masthead; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.12s; }
+::view-transition-group(masthead), ::view-transition-old(masthead), ::view-transition-new(masthead) { animation-duration: 0s; }
+@media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
+}
 
 .view-head {
   display: flex; align-items: flex-end; justify-content: space-between;
@@ -606,8 +617,12 @@ body.privacy .pie-total { filter: blur(4px); }
 .widget .chart-host { flex: 1; min-height: 0; }
 .widget .chart-host svg { width: 100%; height: 100%; }
 .widget .table-widget { flex: 1; min-height: 0; overflow: auto; }
+.table-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--line-2); }
+.table-link:hover { color: var(--primary); border-bottom-color: var(--primary); }
 .widget .num-widget, .widget .text-widget { flex: none; }
 .widgets-grid .pie-wrap { flex: 1; min-height: 0; align-content: center; }
+/* A long key scrolls inside the widget instead of being cut off. */
+.widgets-grid .pie-legend { max-height: 100%; overflow-y: auto; padding-right: 4px; }
 .widgets-grid .pie-chart { flex: 1 1 120px; min-width: 90px; min-height: 0; height: 100%; max-width: 100%; }
 .widgets-grid .pie-chart svg { display: block; width: 100%; height: 100%; }
 .widget-actions { display: flex; align-items: center; gap: 5px; opacity: 0; transition: opacity 0.14s; }
@@ -659,6 +674,16 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 
 .chart-host { width: 100%; }
 .chart-host svg { display: block; width: 100%; height: auto; }
+/* Line charts handle sideways drags and pinches themselves (x-axis zoom). */
+.chart-host[data-chart-type="line"] { position: relative; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.chart-host.chart-panning { cursor: grabbing; }
+.chart-zoom-reset {
+  position: absolute; top: 4px; right: 6px;
+  padding: 3px 8px; font-size: 11px; line-height: 1.3;
+  border: 1px solid var(--line-2); border-radius: 3px;
+  background: var(--surface); color: var(--text-2);
+}
+.chart-zoom-reset:hover { background: var(--surface-2); color: var(--text); }
 .chart-tooltip { font-size: 10.5px; fill: var(--muted); font-family: var(--font); }
 
 .chart-hover-tip {
@@ -759,8 +784,10 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .tx-icon {
   width: 32px; height: 32px; border-radius: 3px; flex: none;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12.5px; font-weight: 600; color: #fff;
+  font-size: 12.5px; font-weight: 600;
+  background: var(--surface-3); color: var(--text-2);
 }
+.tx-icon.transfer { background: var(--transfer); color: #fff; }
 .tx-main { flex: 1; min-width: 0; }
 .tx-merchant { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tx-sub { color: var(--muted); font-size: 12px; }
@@ -786,7 +813,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   font: inherit; font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em;
 }
 .badge-btn:hover { filter: brightness(0.96); }
-.category-dot { width: 8px; height: 8px; border-radius: 1px; flex: none; display: inline-block; }
 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; }
 .field {
@@ -912,14 +938,6 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .category-form-note { color: var(--muted); font-size: 12px; margin: -8px 0 12px; }
 .category-form-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .category-form-actions .spacer { flex: 1; }
-.cat-colors { display: flex; gap: 7px; }
-.cat-color {
-  width: 20px; height: 20px; border-radius: 50%; border: none; padding: 0;
-  cursor: pointer; outline: 2px solid transparent; outline-offset: 2px;
-  transition: outline-color 0.14s, transform 0.14s;
-}
-.cat-color:hover { transform: scale(1.15); }
-.cat-color.selected { outline-color: var(--text); }
 .category-card { background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 13px 15px; }
 .category-card .cat-top { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
 .category-card .cat-name { font-weight: 500; flex: 1; }
@@ -931,6 +949,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .category-card .cat-edit:hover { color: var(--primary); background: var(--primary-soft); }
 .category-card .cat-edit .icon { width: 13px; height: 13px; }
 .category-card .cat-amount { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.category-card .cat-amount.pos { color: var(--income); }
 .category-card .cat-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
 .stat-card.clickable { cursor: pointer; }
@@ -1141,6 +1160,12 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 .setting-block h2 { margin-bottom: 3px; font-size: 13px; }
 .setting-block > .muted { margin-bottom: 14px; font-size: 12.5px; }
+.setting-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.setting-head h2 { margin-bottom: 0; }
+.setting-head .info-btn { margin-left: 0; }
+.info-popover.setting-info { margin: -6px 0 14px; box-shadow: none; }
+.setting-info .muted { margin: 0; font-size: 12.5px; }
+.setting-info .muted + .muted { margin-top: 6px; }
 .account-row {
   display: flex; align-items: center; gap: 11px; padding: 10px 0;
   border-bottom: 1px solid var(--line);
@@ -1410,8 +1435,8 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 
 .glowworm-loader {
   position: relative;
-  width: 150px;
-  height: 56px;
+  width: 84px;
+  height: 32px;
 }
 .glowworm {
   width: 100%;
@@ -1565,6 +1590,7 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .login-error { color: var(--expense); font-size: 12.5px; margin: 0 0 10px; }
 .login-card h1.login-title { margin-bottom: 6px; }
 .login-sub { text-align: center; font-size: 12.5px; margin: 0 0 16px; }
+.offline-status { text-align: center; font-size: 11.5px; margin: 10px 0 0; min-height: 1.4em; }
 .tx-editor .tx-field select.field { min-width: 200px; }
 
 .msg-error { color: var(--danger); font-weight: 500; }
@@ -1796,6 +1822,8 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
   .masthead .tabnav-item.active { border-bottom-color: var(--primary); color: var(--primary); }
   .masthead .tabnav-item .tab-index { display: none; }
   .masthead .tabnav-item .tab-icon { display: block; width: 19px; height: 19px; }
+  .masthead .tabnav-item.tabnav-icon { flex: none; padding: 0 8px; }
+  .masthead .tabnav-item.tabnav-icon .icon { width: 19px; height: 19px; }
   .masthead .tabnav-item .tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .masthead .period-wrap { margin-left: auto; }
   .content { padding-top: 12px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
@@ -1838,4 +1866,9 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 /* Touch screens can't hover, so controls that appear on hover stay visible. */
 @media (hover: none) {
   .tx-table .row-actions, .widget-actions { opacity: 1; }
+}
+
+/* iOS zooms into any focused text field under 16px; keep phones at 16px. */
+@media (max-width: 760px) and (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
 }

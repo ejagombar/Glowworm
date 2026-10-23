@@ -1086,8 +1086,6 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 	}
 	// The import is committed; a schema failure must not undo that.
 	_ = s.rememberSchema(batchID, batch, accountID, schemaName)
-	// Merchants first: the retrain in AfterCommit learns from them.
-	s.enrichMerchants(batchID)
 	if s.AfterCommit != nil {
 		s.AfterCommit(batchID)
 	}
@@ -1152,6 +1150,12 @@ func (s *Service) defaultSchemaName(det *Detection, accountID, filename string) 
 	return filename
 }
 
+// enrichMerchants asks the AI for clean merchant names for a batch's first
+// rows. It isn't called on import any more: it held up every import for an
+// AI round trip (~10s) and covered only 20 rows. Kept for a better merchant
+// naming step later.
+//
+//nolint:unused // kept deliberately, see above
 func (s *Service) enrichMerchants(batchID string) {
 	if s.Provider == nil {
 		return
@@ -1221,7 +1225,9 @@ func (s *Service) enrichMerchants(batchID string) {
 }
 
 // typeForCategory lets the chosen category decide the type, so a refund put in
-// a spend category is an expense and nets off that category's spend.
+// a spend category is an expense and nets off that category's spend, and a row
+// put in Internal transfer stays out of spend and income even before its other
+// leg is imported and linked.
 func (s *Service) typeForCategory(tx *sql.Tx, categoryID *string, amount int64) string {
 	if categoryID != nil {
 		var catType string
@@ -1231,6 +1237,8 @@ func (s *Service) typeForCategory(tx *sql.Tx, categoryID *string, amount int64) 
 			return core.TypeExpense
 		case core.CategoryIncome:
 			return core.TypeIncome
+		case core.CategoryInternal:
+			return core.TypeTransfer
 		}
 	}
 	return typeFor(amount)

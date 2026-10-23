@@ -158,7 +158,9 @@ DATABASE (SQLite). Tables you may query:
 - categories(id, name)
 - accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date)
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
-(transfers are never spend or income). Balance(account) = opening_balance_minor +
+(transfers are never spend or income). Leave type='transfer' rows (moves between the
+user's own accounts) out of every figure, list and chart unless the question explicitly
+asks about transfers. Balance(account) = opening_balance_minor +
 SUM(amount_minor) of its transactions (only those after opening_balance_date when set).
 SAVINGS ARE EXCLUDED BY DEFAULT: leave savings accounts (accounts.type = 'savings')
 out of every figure — balances, spend, income, counts, lists, charts — unless the

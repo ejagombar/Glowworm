@@ -17,13 +17,6 @@
       <label>Name</label>
       <input class="field" id="catName" name="name" type="text" placeholder="e.g. Groceries" />
     </div>
-    <div class="field-row">
-      <label>Colour</label>
-      <div class="cat-colors" id="catColors">
-        {{range $.Palette}}<button type="button" class="cat-color" style="background:{{.}}" data-cat-color="{{.}}" aria-label="Colour {{.}}"></button>{{end}}
-      </div>
-      <input type="hidden" name="color" id="catColorInput" value="" />
-    </div>
     <div class="field-row" id="catTypeRow">
       <label>Type</label>
       <select class="field select" id="catType" name="type">
@@ -40,13 +33,12 @@
   </form>
 
   {{if .Editing}}
-  <script>window.__EDIT_CATEGORY__ = {id: "{{.Editing.ID}}", name: "{{.Editing.Name}}", color: "{{.Editing.Color}}", type: "{{.Editing.Type}}"};</script>
+  <script>window.__EDIT_CATEGORY__ = {id: "{{.Editing.ID}}", name: "{{.Editing.Name}}", type: "{{.Editing.Type}}"};</script>
   {{end}}
   <div class="category-grid" id="categoriesGrid">
     {{range .Categories}}
     <div class="category-card">
       <div class="cat-top">
-        <span class="category-dot" style="background:{{.Color}}"></span>
         <span class="cat-name">{{.Name}}</span>
         {{if .IsSystem}}<span class="cat-badge">System</span>{{end}}
         {{if not .IsSystem}}
@@ -55,7 +47,7 @@
         </a>
         {{end}}
       </div>
-      {{if not .IsSystem}}<div class="cat-amount">{{if .SpentMinor}}{{money .SpentMinor $.Currency}}{{else}}—{{end}}</div>{{end}}
+      {{if .SpentMinor}}<div class="cat-amount{{if gt (deref .SpentMinor) 0}} pos{{end}}">{{categoryTotal .SpentMinor $.Currency}}</div>{{end}}
       {{if eq .Type "income"}}<div class="cat-sub">Incoming</div>{{end}}
       {{if eq .Type "internal"}}<div class="cat-sub">Between your own accounts</div>{{end}}
     </div>

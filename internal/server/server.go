@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -241,6 +243,23 @@ func (a *App) Router() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /static/{path...}", a.staticHandlerFS(staticFS.FS, "/static/"))
+	mux.Handle("GET /sw.js", serviceWorkerHandler(staticFS.FS))
+	mux.HandleFunc("POST /sw-log", a.handleSWLog)
+	// Browsers and iOS ask for these at the root, whatever the page links to.
+	static := a.staticHandlerFS(staticFS.FS, "/static/")
+	for path, file := range map[string]string{
+		"/manifest.webmanifest":             "manifest.webmanifest",
+		"/favicon.ico":                      "icons/favicon-32.png",
+		"/apple-touch-icon.png":             "icons/apple-touch-icon.png",
+		"/apple-touch-icon-precomposed.png": "icons/apple-touch-icon.png",
+	} {
+		file := file
+		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) {
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/static/" + file
+			static.ServeHTTP(w, r2)
+		})
+	}
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -282,10 +301,52 @@ func (a *App) page(fn func(http.ResponseWriter, *http.Request) error) http.Handl
 	}
 }
 
+// publicPaths are served without a session: health checks, the service worker
+// and its diagnostics, and the icons and manifest a home screen app fetches.
+var publicPaths = map[string]bool{
+	"/healthz": true, "/sw.js": true, "/sw-log": true, "/manifest.webmanifest": true,
+	"/favicon.ico": true, "/apple-touch-icon.png": true, "/apple-touch-icon-precomposed.png": true,
+}
+
+// handleSWLog writes the service worker's diagnostics (what happened to page
+// loads while the server was out of reach) to the server log. Capped, and it
+// only ever logs, so it needs no session.
+func (a *App) handleSWLog(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UA     string `json:"ua"`
+		Events []struct {
+			T int64  `json:"t"`
+			E string `json:"e"`
+		} `json:"events"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&in); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if len(in.Events) > 100 {
+		in.Events = in.Events[len(in.Events)-100:]
+	}
+	for _, e := range in.Events {
+		msg := e.E
+		if len(msg) > 300 {
+			msg = msg[:300]
+		}
+		a.Log.Info("sw", "at", time.UnixMilli(e.T).Format(time.RFC3339), "event", msg, "ua", truncate(in.UA, 120))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
 func (a *App) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/login" || strings.HasPrefix(path, "/static/") || path == "/healthz" {
+		if path == "/login" || strings.HasPrefix(path, "/static/") || publicPaths[path] {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -324,6 +385,25 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 	})
 }
 
+// serviceWorkerHandler serves js/sw.js from the site root, where a worker must
+// live to cover every page, versioned by a hash of what it caches so the
+// browser picks up a new offline page or stylesheet.
+func serviceWorkerHandler(fsys fs.FS) http.Handler {
+	src, _ := fs.ReadFile(fsys, "js/sw.js")
+	h := sha256.New()
+	h.Write(src)
+	for _, f := range []string{"offline.html", "css/styles.css"} {
+		b, _ := fs.ReadFile(fsys, f)
+		h.Write(b)
+	}
+	body := bytes.ReplaceAll(src, []byte("__VERSION__"), []byte(hex.EncodeToString(h.Sum(nil))[:12]))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(body)
+	})
+}
+
 func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 	etags := map[string]string{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -342,10 +422,20 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		if etags[path] == "" {
 			etags[path] = etag
 		}
-		// Deliberately not `immutable`: the binary is updated in place and must
-		// never serve a cached stale app.js.
 		w.Header().Set("ETag", etag)
-		w.Header().Set("Cache-Control", "no-cache")
+		switch {
+		case r.URL.Query().Get("v") == etag:
+			// A versioned URL (the asset template func) names these exact bytes;
+			// a new build links a new URL, so it can be kept for good.
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		case strings.HasPrefix(path, "fonts/") || strings.HasPrefix(path, "icons/"):
+			// Linked from CSS and the manifest without a version; they don't change.
+			w.Header().Set("Cache-Control", "public, max-age=2592000")
+		default:
+			// Unversioned: the binary is updated in place and must never serve
+			// a stale app.js, so check every time.
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		if r.Header.Get("If-None-Match") == etag {
 			w.WriteHeader(http.StatusNotModified)
 			return
@@ -359,13 +449,17 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 			w.Header().Set("Content-Type", "font/woff2")
 		case strings.HasSuffix(path, ".svg"):
 			w.Header().Set("Content-Type", "image/svg+xml")
+		case strings.HasSuffix(path, ".png"):
+			w.Header().Set("Content-Type", "image/png")
+		case strings.HasSuffix(path, ".webmanifest"):
+			w.Header().Set("Content-Type", "application/manifest+json")
 		}
 		w.Write(data)
 	})
 }
 
 // afterImport runs the follow-on detection and retraining, then ties the
-// system entries written since the import (including merchant enrichment)
+// system entries written since the import
 // to it, so undoing the import undoes them too.
 func (a *App) afterImport(batchID string) {
 	a.refreshDerived()

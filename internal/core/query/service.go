@@ -740,7 +740,7 @@ func atoi(s string) int {
 
 func (s *Service) compileCount(p *Plan) (*widgets.Dataset, string, error) {
 	where, args := s.metricWhere(p)
-	where = strings.Replace(where, "type = 'expense'", "type != ''", 1)
+	where = strings.Replace(where, "type = 'expense'", "type != 'transfer'", 1)
 	sqlDisplay := fmt.Sprintf("SELECT COUNT(*) FROM tx WHERE %s", where)
 	var n int
 	err := s.DB.QueryRow(`SELECT COUNT(*) FROM transactions t WHERE t.deleted_at IS NULL`+where, args...).Scan(&n)

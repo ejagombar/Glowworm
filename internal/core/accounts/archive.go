@@ -440,11 +440,10 @@ func (s *Service) RestoreArchive(archiveID string) (*RestoredAccount, error) {
 			}
 			res.Transfers++
 		}
-		if _, err := tx.Exec(`UPDATE transactions SET
-				type = CASE WHEN amount_minor > 0 THEN 'income' ELSE 'expense' END,
-				category_id = CASE WHEN category_id = ? THEN NULL ELSE category_id END,
-				category_source = CASE WHEN category_id = ? THEN 'none' ELSE category_source END
-			WHERE account_id = ? AND type = 'transfer' AND transfer_id IS NULL`, internalCat, internalCat, a.ID); err != nil {
+		// Legs whose other side is gone stay transfers waiting to be paired
+		// again, so they stay out of spend and income.
+		if _, err := tx.Exec(`UPDATE transactions SET category_id = ?, category_source = 'none'
+			WHERE account_id = ? AND type = 'transfer' AND transfer_id IS NULL`, nullIfEmpty(internalCat), a.ID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE import_batches SET account_id = ? WHERE account_id IS NULL

@@ -402,7 +402,7 @@ func (r *Transactions) TransferByPeerTx(txID string) (*core.Transfer, error) {
 
 func (r *Transactions) UnlinkedCandidates(accountID string, from, to string) ([]*core.Transaction, error) {
 	q := `SELECT ` + txCols + ` FROM transactions t
-		WHERE t.deleted_at IS NULL AND t.type != 'transfer' AND t.transfer_id IS NULL
+		WHERE t.deleted_at IS NULL AND t.transfer_id IS NULL
 		AND t.account_id != ? AND t.date BETWEEN ? AND ?
 		ORDER BY t.date DESC LIMIT 2000`
 	rows, err := r.query(q, accountID, from, to)
@@ -412,9 +412,11 @@ func (r *Transactions) UnlinkedCandidates(accountID string, from, to string) ([]
 	return r.enrich(rows)
 }
 
+// UnlinkedTxs includes transfers with no other leg yet (marked Internal
+// transfer before the other account was imported), so they can be paired.
 func (r *Transactions) UnlinkedTxs() ([]*core.Transaction, error) {
 	rows, err := r.query(`SELECT ` + txCols + ` FROM transactions t
-		WHERE t.deleted_at IS NULL AND t.type != 'transfer' AND t.transfer_id IS NULL
+		WHERE t.deleted_at IS NULL AND t.transfer_id IS NULL
 		ORDER BY t.date DESC LIMIT 5000`)
 	if err != nil {
 		return nil, err

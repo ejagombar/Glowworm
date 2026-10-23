@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -49,6 +50,7 @@ type WidgetView struct {
 	TextBody      string        `json:"text_body,omitempty"`
 	TableColumns  []string      `json:"table_columns,omitempty"`
 	TableRows     [][]string    `json:"table_rows,omitempty"`
+	TableLinks    []string      `json:"table_links,omitempty"`
 	Transactions  []WidgetTxRow `json:"transactions,omitempty"`
 	Stale         bool          `json:"stale"`
 }
@@ -84,6 +86,11 @@ func (a *App) WidgetsList() ([]*WidgetView, error) {
 			if json.Unmarshal([]byte(plan.String), &p) == nil {
 				if ds, _, err := a.Query.CompilePublic(&p); err == nil && ds != nil {
 					w := widgets.Derive(typ, ds, title)
+					if m, ok := w.Data.(map[string]any); ok && typ == "table" {
+						if links := a.tableRowLinks(&p, ds); links != nil {
+							m["links"] = links
+						}
+					}
 					if b, err := json.Marshal(w.Data); err == nil {
 						data = string(b)
 					}
@@ -101,6 +108,86 @@ func (a *App) WidgetsList() ([]*WidgetView, error) {
 		out = append(out, view)
 	}
 	return out, rows.Err()
+}
+
+func asSlice(v any) []any {
+	s, _ := v.([]any)
+	return s
+}
+
+// tableRowLinks points each row of a merchant, category or account breakdown
+// at the transactions behind it: the Transactions page filtered to that row,
+// over the widget's own dates and type, so the list adds up to the figure.
+// Rows it can't filter to (Uncategorised, months) get an empty link; other
+// breakdowns get none at all.
+func (a *App) tableRowLinks(p *query_Plan, ds *widgets.Dataset) []string {
+	if p.Breakdown != "merchant" && p.Breakdown != "category" && p.Breakdown != "account" {
+		return nil
+	}
+	ids := map[string]string{}
+	if p.Breakdown == "category" || p.Breakdown == "account" {
+		table := map[string]string{"category": "categories", "account": "accounts"}[p.Breakdown]
+		rows, err := a.DB.Query(`SELECT id, name FROM ` + table + ` WHERE deleted_at IS NULL`)
+		if err != nil {
+			return nil
+		}
+		for rows.Next() {
+			var id, name string
+			if rows.Scan(&id, &name) == nil {
+				ids[name] = id
+			}
+		}
+		rows.Close()
+	}
+	base := url.Values{}
+	if p.From != "" || p.To != "" {
+		base.Set("period", "custom")
+		base.Set("from", p.From)
+		base.Set("to", p.To)
+	} else {
+		base.Set("period", "all")
+	}
+	switch p.Metric {
+	case "spend":
+		base.Set("type", "expense")
+	case "income":
+		base.Set("type", "income")
+	}
+	if p.AccountScope == "single" && p.EntityID != "" {
+		base.Set("account", p.EntityID)
+	}
+	if p.EntityKind == "category" && p.EntityID != "" {
+		base.Set("category", p.EntityID)
+	}
+	links := make([]string, len(ds.Rows))
+	for i, row := range ds.Rows {
+		if len(row) == 0 {
+			continue
+		}
+		label := str(row[0])
+		v := url.Values{}
+		for k, vs := range base {
+			v[k] = vs
+		}
+		switch p.Breakdown {
+		case "merchant":
+			v.Set("q", label)
+		case "category":
+			id, ok := ids[label]
+			if !ok {
+				continue
+			}
+			v.Set("category", id)
+		case "account":
+			id, ok := ids[label]
+			if !ok {
+				continue
+			}
+			v.Set("account", id)
+		}
+		links[i] = "/transactions?" + v.Encode()
+	}
+	return links
 }
 
 func spanOr(v int, typ string, def func(string) int) int {
@@ -131,6 +218,11 @@ func applyPresentation(v *WidgetView, typ, dataJSON string) {
 		if cols, ok := data["columns"].([]any); ok {
 			for _, c := range cols {
 				v.TableColumns = append(v.TableColumns, str(c))
+			}
+		}
+		if links, ok := data["links"].([]any); ok && len(links) == len(asSlice(data["rows"])) {
+			for _, l := range links {
+				v.TableLinks = append(v.TableLinks, str(l))
 			}
 		}
 		if rows, ok := data["rows"].([]any); ok {

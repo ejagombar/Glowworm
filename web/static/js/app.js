@@ -51,7 +51,11 @@ function openModal(id) {
   const m = document.getElementById(id);
   if (!m) return;
   m.hidden = false;
-  const field = m.querySelector("input:not([type=hidden]), select, textarea");
+  // Start typing in the first text field. Not a select or date field: focusing
+  // those opens their picker on a phone. And not at all on touch screens,
+  // where focus would throw up the keyboard before anything is tapped.
+  if (window.matchMedia("(pointer: coarse)").matches) return;
+  const field = m.querySelector("input:not([type=hidden]):not([type=date]):not([type=checkbox]):not([type=radio]), textarea");
   if (field) field.focus();
 }
 function closeModal(id) {
@@ -1089,15 +1093,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const fromIn = document.getElementById("customFrom");
     const toIn = document.getElementById("customTo");
     const customForm = document.getElementById("customRange");
-    const shortDate = (iso) => {
-      const d = new Date(iso + "T00:00:00");
-      return isNaN(d) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-    };
+    // The button's label comes from the server (base view), so it's right on first paint.
     const current = periodSelect.value || "last-12m";
-    const opt = periodMenu.querySelector(`[data-period="${current}"]`);
-    document.getElementById("periodLabel").textContent = current === "custom" && fromIn.value && toIn.value
-      ? `${shortDate(fromIn.value)} – ${shortDate(toIn.value)}`
-      : (opt && opt.dataset.period !== "custom" ? opt.textContent : "Last 12 months");
     periodMenu.querySelectorAll("[role=option]").forEach((b) => b.setAttribute("aria-selected", b.dataset.period === current ? "true" : "false"));
     customForm.classList.toggle("selected", current === "custom");
 
@@ -1301,11 +1298,10 @@ function openRecurring(key) {
 }
 function recurringRowHTML(t) {
   const cat = t.category ? t.category.name : "Uncategorised";
-  const color = t.category ? t.category.color : "#999";
   const amt = fmtMoneySigned(t.amount_minor, t.currency || "GBP");
   const cls = t.type === "transfer" ? "transfer" : t.amount_minor >= 0 ? "pos" : "neg";
   return `<div class="tx-row recurring-row">
-    <div class="tx-icon" style="background:${esc(color)}">${t.type === "transfer" ? "⇄" : esc(initialOf(t.description))}</div>
+    <div class="tx-icon${t.type === "transfer" ? " transfer" : ""}">${t.type === "transfer" ? "⇄" : esc(initialOf(t.description))}</div>
     <div class="tx-main"><div class="tx-merchant">${esc(t.description)}</div><div class="tx-sub">${esc(cat)} · ${esc(t.account ? t.account.name : "")}</div></div>
     <div class="tx-date">${esc(shortDate(t.date))}</div>
     <div class="tx-amount ${cls}">${esc(amt)}</div>
@@ -1496,6 +1492,12 @@ function saveAccount() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-info-toggle]").forEach((btn) => btn.addEventListener("click", () => {
+    const panel = document.getElementById(btn.dataset.infoToggle);
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    btn.setAttribute("aria-expanded", String(!panel.hidden));
+  }));
   document.getElementById("settingsAddAccountBtn")?.addEventListener("click", () => openAccountForm(null));
   document.querySelectorAll("[data-account-form]").forEach((card) =>
     card.addEventListener("click", () => openAccountForm(card.dataset.accountForm)));
@@ -1856,17 +1858,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const catForm = document.getElementById("categoryForm");
   const catGrid = document.getElementById("categoriesGrid");
-  const catColors = document.getElementById("catColors");
-  let selectedColor = null;
-  if (catColors) {
-    catColors.addEventListener("click", (e) => {
-      const sw = e.target.closest("[data-cat-color]");
-      if (!sw) return;
-      selectedColor = sw.dataset.catColor;
-      document.getElementById("catColorInput").value = selectedColor;
-      catColors.querySelectorAll(".cat-color").forEach((el) => el.classList.toggle("selected", el === sw));
-    });
-  }
   const openCatForm = (editing) => {
     catForm.hidden = false;
     document.getElementById("catFormTitle").textContent = editing ? "Edit category" : "New category";
@@ -1878,9 +1869,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("addCategoryBtn")?.addEventListener("click", () => {
     catForm.dataset.categoryId = "";
     document.getElementById("catName").value = "";
-    document.getElementById("catColorInput").value = "";
-    selectedColor = null;
-    catColors?.querySelectorAll(".cat-color").forEach((el) => el.classList.remove("selected"));
     document.getElementById("catType").value = "spend";
     openCatForm(false);
   });
@@ -1888,13 +1876,8 @@ document.addEventListener("DOMContentLoaded", () => {
     catForm.dataset.categoryId = window.__EDIT_CATEGORY__.id;
     document.getElementById("catName").value = window.__EDIT_CATEGORY__.name;
     document.getElementById("catType").value = window.__EDIT_CATEGORY__.type;
-    selectedColor = window.__EDIT_CATEGORY__.color;
-    document.getElementById("catColorInput").value = selectedColor;
     catForm.hidden = false;
     openCatForm(true);
-    catColors?.querySelectorAll(".cat-color").forEach((el) => {
-      el.classList.toggle("selected", el.dataset.catColor === selectedColor);
-    });
   }
   document.getElementById("catCancelBtn")?.addEventListener("click", () => { catForm.hidden = true; });
   catForm?.addEventListener("submit", (e) => {
@@ -1902,7 +1885,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = catForm.dataset.categoryId;
     const body = {
       name: document.getElementById("catName").value.trim(),
-      color: document.getElementById("catColorInput").value,
       type: document.getElementById("catType").value || "spend",
     };
     if (!body.name) { toast("Category name is required"); return; }

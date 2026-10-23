@@ -113,23 +113,37 @@ function barChartSVG(data, width = 640, height = 260) {
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="bar chart">${parts.join("")}</svg>`;
 }
 
-function lineChartSVG(data, width = 640, height = 260) {
-  const s = (data.series && data.series[0]) ? data.series[0] : { name: "Value", color: WIDGET_COLORS[0], values: [] };
+// Line chart geometry, shared by drawing and the hover tooltip. view is an
+// optional {lo, hi} window of fractional point indices for an x-axis zoom.
+function lineGeom(data, W, H, view) {
+  const series = (data.series && data.series[0]) ? data.series[0] : { name: "Value", color: WIDGET_COLORS[0], values: [] };
   const labels = data.labels || [];
-  const vals = s.values || [];
+  const vals = series.values || [];
+  const n = labels.length;
+  const padL = 46, padB = 30, padT = 14, padR = 14;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const lo = view ? view.lo : 0;
+  const hi = view ? view.hi : Math.max(n - 1, 0);
+  // The points drawn: the window plus one either side, so the line runs off the clipped edge.
+  const i0 = Math.max(0, Math.floor(lo) - (view ? 1 : 0));
+  const i1 = Math.min(vals.length - 1, Math.ceil(hi) + (view ? 1 : 0));
   // Loop, not spread: Math.max(...vals) throws RangeError on very long series.
   let max = 0, min = 0;
-  for (let i = 0; i < vals.length; i++) {
+  for (let i = Math.max(0, Math.floor(lo)); i <= Math.min(vals.length - 1, Math.ceil(hi)); i++) {
     const v = Number(vals[i]);
     if (v > max) max = v;
     if (v < min) min = v;
   }
-  const W = width, H = height, padL = 46, padB = 30, padT = 14, padR = 14;
-  const innerW = W - padL - padR, innerH = H - padT - padB;
   const span = (max - min) || 1;
-  const n = labels.length;
-  const px = (i) => (n <= 1 ? padL + innerW / 2 : padL + (i / (n - 1)) * innerW);
+  const px = (i) => (n <= 1 ? padL + innerW / 2 : padL + ((i - lo) / (hi - lo)) * innerW);
   const py = (v) => padT + innerH - ((v - min) / span) * innerH;
+  return { series, labels, vals, n, padL, padB, padT, padR, innerW, innerH, lo, hi, i0, i1, max, min, px, py };
+}
+
+function lineChartSVG(data, width = 640, height = 260, view = null) {
+  const W = width, H = height;
+  const g = lineGeom(data, W, H, view);
+  const { series: s, labels, vals, n, padL, padR, padT, innerW, innerH, i0, i1, max, min, px, py } = g;
 
   let parts = [];
   axisTicks(max, 4).forEach((t) => {
@@ -138,25 +152,33 @@ function lineChartSVG(data, width = 640, height = 260) {
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtMoneyAxis(t)}</text>`);
   });
 
-  const points = vals.map((v, i) => `${px(i)},${py(v)}`).join(" ");
-  const area = `${padL},${py(min)} ${points} ${px(n - 1)},${py(min)}`;
+  const shown = [];
+  for (let i = i0; i <= i1; i++) shown.push(i);
+  const points = shown.map((i) => `${px(i)},${py(vals[i])}`).join(" ");
+  const area = shown.length ? `${px(i0)},${py(min)} ${points} ${px(i1)},${py(min)}` : "";
   // The area under the line is a fading gradient with a grid like the page background over it, in the series colour.
   const fillId = Math.random().toString(36).slice(2, 8);
   parts.push(`<defs><linearGradient id="grad-${fillId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="0.14"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>` +
-    `<pattern id="grid-${fillId}" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M8 0V8M0 8H8" fill="none" stroke="${s.color}" stroke-opacity="0.22" stroke-width="1"/></pattern></defs>`);
+    `<pattern id="grid-${fillId}" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M8 0V8M0 8H8" fill="none" stroke="${s.color}" stroke-opacity="0.22" stroke-width="1"/></pattern>` +
+    `<clipPath id="clip-${fillId}"><rect x="${padL - 4}" y="0" width="${innerW + 8}" height="${padT + innerH + 4}"/></clipPath></defs>`);
+  parts.push(`<g clip-path="url(#clip-${fillId})">`);
   parts.push(`<polygon points="${area}" fill="url(#grad-${fillId})"/>`);
   parts.push(`<polygon points="${area}" fill="url(#grid-${fillId})"/>`);
   parts.push(`<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
-
-  if (vals.length <= 80) {
-    vals.forEach((v, i) => {
-      parts.push(`<circle cx="${px(i)}" cy="${py(v)}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(v)}</title></circle>`);
+  if (shown.length <= 80) {
+    shown.forEach((i) => {
+      parts.push(`<circle cx="${px(i)}" cy="${py(vals[i])}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(vals[i])}</title></circle>`);
     });
   }
+  parts.push(`</g>`);
+
   const xTickCount = width < 420 ? 2 : width < 700 ? 4 : 6;
-  xTickLabels(labels, xTickCount).forEach(({ i, text }) => {
-    const anchor = n === 1 ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle";
-    parts.push(`<text x="${px(i)}" y="${H - 8}" text-anchor="${anchor}" class="chart-tooltip">${esc(text)}</text>`);
+  const first = Math.max(0, Math.ceil(g.lo - 1e-9)), last = Math.min(n - 1, Math.floor(g.hi + 1e-9));
+  xTickLabels(labels.slice(first, last + 1), xTickCount).forEach(({ i: j, text }) => {
+    const i = first + j;
+    const x = px(i);
+    const anchor = n === 1 ? "middle" : x - padL < 30 ? "start" : padL + innerW - x < 30 ? "end" : "middle";
+    parts.push(`<text x="${x}" y="${H - 8}" text-anchor="${anchor}" class="chart-tooltip">${esc(text)}</text>`);
   });
   parts.push(`<rect class="chart-hover-layer" x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`);
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="line chart">${parts.join("")}</svg>`;
@@ -180,36 +202,24 @@ function fmtMoneyTip(v) {
 }
 function nearestLinePoint(host, svg, clientX, clientY) {
   const data = chartDataFor(host);
-  const labels = data.labels || [];
-  const series = (data.series && data.series[0]) || {};
-  const vals = series.values || [];
-  const n = Math.min(labels.length, vals.length);
-  if (!n) return null;
   const vb = svg.viewBox && svg.viewBox.baseVal;
   const W = vb && vb.width ? vb.width : 640;
   const H = vb && vb.height ? vb.height : 260;
-  const padL = 46, padR = 14, padT = 14, padB = 30; // must match lineChartSVG
-  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const g = lineGeom(data, W, H, chartZoomFor(host, data));
+  const n = Math.min(g.labels.length, g.vals.length);
+  if (!n) return null;
   const rect = svg.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
   const x = ((clientX - rect.left) / rect.width) * W;
   const y = ((clientY - rect.top) / rect.height) * H;
-  let max = 0, min = 0; // loop: spread throws RangeError on very long series
-  for (let i = 0; i < n; i++) {
-    const v = Number(vals[i]);
-    if (v > max) max = v;
-    if (v < min) min = v;
-  }
-  const span = (max - min) || 1;
-  const px = (i) => (n <= 1 ? padL + innerW / 2 : padL + (i / (n - 1)) * innerW);
-  const py = (v) => padT + innerH - ((v - min) / span) * innerH;
-  let idx = 0, best = Infinity;
-  for (let i = 0; i < n; i++) {
-    const dx = px(i) - x, dy = py(vals[i]) - y;
+  let idx = -1, best = Infinity;
+  for (let i = Math.max(0, Math.ceil(g.lo - 1e-9)); i <= Math.min(n - 1, Math.floor(g.hi + 1e-9)); i++) {
+    const dx = g.px(i) - x, dy = g.py(g.vals[i]) - y;
     const d = dx * dx + dy * dy;
     if (d < best) { best = d; idx = i; }
   }
-  return { label: labels[idx], value: vals[idx], name: series.name || "Value", x: px(idx), y: py(vals[idx]) };
+  if (idx < 0) return null;
+  return { label: g.labels[idx], value: g.vals[idx], name: g.series.name || "Value", x: g.px(idx), y: g.py(g.vals[idx]) };
 }
 
 const chartDataCache = new WeakMap();
@@ -223,14 +233,19 @@ function chartDataFor(host) {
   return data;
 }
 function showChartTip(tip, svg, pt) {
+  placeChartTip(tip, svg, pt.x, pt.y, `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
+    + `<div class="chart-tip-value">${esc(fmtMoneyTip(pt.value))}</div>`);
+}
+// Puts the tip above (or below) the point x, y given in the svg's viewBox units.
+function placeChartTip(tip, svg, x, y, html) {
   const rect = svg.getBoundingClientRect();
   const vb = svg.viewBox && svg.viewBox.baseVal;
   const W = vb && vb.width ? vb.width : 640;
   const H = vb && vb.height ? vb.height : 260;
   if (!rect.width || !rect.height) return;
   tip.style.display = "block";
-  tip.innerHTML = `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
-    + `<div class="chart-tip-value">${esc(fmtMoneyTip(pt.value))}</div>`;
+  tip.innerHTML = html;
+  const pt = { x, y };
   const sx = rect.left + (pt.x / W) * rect.width;
   const sy = rect.top + (pt.y / H) * rect.height;
   const gap = 10;
@@ -250,9 +265,29 @@ function ensureChartHover() {
   ensureChartHover.done = true;
   const tip = ensureChartTip();
   if (!tip) return;
+  // Pie slices: hover on desktop, tap on a phone; the slice stays picked
+  // until the pointer leaves it or another tap lands elsewhere.
+  let activeSlice = null;
+  const pickSlice = (slice) => {
+    if (activeSlice === slice) return;
+    if (activeSlice) activeSlice.classList.remove("active");
+    activeSlice = slice;
+    if (!slice) { tip.style.display = "none"; return; }
+    slice.classList.add("active");
+    const d = slice.dataset;
+    placeChartTip(tip, slice.ownerSVGElement, Number(d.x), Number(d.y),
+      `<div class="chart-tip-label">${esc(d.label)}</div>`
+      + `<div class="chart-tip-value">${esc(fmtMoneyTip(d.value))} <span class="chart-tip-pct">· ${esc(d.pct)}%</span></div>`);
+  };
+  const sliceAt = (e) => (e.target && e.target.closest ? e.target.closest(".pie-slice") : null);
+  document.addEventListener("click", (e) => pickSlice(sliceAt(e)));
   document.addEventListener("mousemove", (e) => {
+    if (sliceAt(e) || activeSlice) {
+      pickSlice(sliceAt(e));
+      if (activeSlice) return;
+    }
     const host = e.target && e.target.closest ? e.target.closest('.chart-host[data-chart-type="line"]') : null;
-    if (!host) { tip.style.display = "none"; return; }
+    if (!host || chartGesture) { tip.style.display = "none"; return; }
     const svg = host.querySelector("svg");
     if (!svg) { tip.style.display = "none"; return; }
     const pt = nearestLinePoint(host, svg, e.clientX, e.clientY);
@@ -261,7 +296,7 @@ function ensureChartHover() {
   });
   document.addEventListener("mouseleave", () => { tip.style.display = "none"; });
   // Fixed-position tip would go stale when the page scrolls under the pointer.
-  window.addEventListener("scroll", () => { tip.style.display = "none"; }, { passive: true });
+  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); }, { passive: true });
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", ensureChartHover);
@@ -283,13 +318,33 @@ function pieChartSVG(data) {
     const large = sweep > Math.PI ? 1 : 0;
     const p1 = polar(cx, cy, r, angle);
     const p2 = polar(cx, cy, r, end);
-    parts.push(`<path d="M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y} L ${cx} ${cy} Z" fill="${colors[i % colors.length]}" opacity="0.92"><title>${esc(labels[i])}: ${((v / total) * 100).toFixed(0)}%</title></path>`);
+    // The tooltip sits at the middle of the slice's ring.
+    const mid = polar(cx, cy, (r + inner) / 2, angle + sweep / 2);
+    parts.push(`<path class="pie-slice" d="M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y} L ${cx} ${cy} Z" fill="${colors[i % colors.length]}"` +
+      ` data-label="${esc(labels[i])}" data-value="${v}" data-pct="${((v / total) * 100).toFixed(0)}" data-x="${mid.x.toFixed(1)}" data-y="${mid.y.toFixed(1)}"/>`);
     angle = end;
   });
   parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
-  parts.push(`<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="23" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${fmtMoney(total)}</text>`);
-  parts.push(`<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10.5" style="fill:var(--muted)" font-family="Inter, sans-serif">total</text>`);
+  // Shrink the type if even the short form would reach the ring (~0.6em a glyph).
+  const label = fmtMoneyCompact(total);
+  const size = Math.min(23, Math.floor(((inner - 8) * 2) / (label.length * 0.6)));
+  parts.push(`<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
+}
+// Short enough for the middle of a pie: pence only under £1,000, whole pounds
+// to £100,000, then £123K and £1.24M.
+function fmtMoneyCompact(v) {
+  const sym = ({ GBP: "\u00a3", USD: "$", EUR: "\u20ac" })[WIDGET_CURRENCY] || WIDGET_CURRENCY + " ";
+  const n = Number(v) / 100;
+  const sign = n < 0 ? "\u2212" : "";
+  const a = Math.abs(n);
+  let s;
+  if (a >= 999995000) s = (a / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+  else if (a >= 999500) s = (a / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M";
+  else if (a >= 1e5) s = Math.round(a / 1e3) + "K";
+  else if (a >= 1e3) s = Math.round(a).toLocaleString("en-GB");
+  else s = a.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return sign + sym + s;
 }
 function polar(cx, cy, r, a) {
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
@@ -297,7 +352,7 @@ function polar(cx, cy, r, a) {
 function legendHTML(labels, values, colors, total) {
   return `<div class="pie-legend">${labels.map((l, i) => `
     <div class="pie-legend-row">
-      <span class="category-dot" style="background:${colors[i % colors.length]}"></span>
+      <span class="pie-legend-dot" style="background:${colors[i % colors.length]}"></span>
       <span>${esc(l)}</span>
       <span class="pie-legend-val">${((values[i] / total) * 100).toFixed(0)}%</span>
     </div>`).join("")}</div>`;
@@ -378,7 +433,156 @@ function redrawChartHost(host) {
   // Hosts not laid out yet report 0; without defaults they'd stay empty.
   if (!w || w < 80) w = 640;
   if (!h || h < 80) h = 260;
-  host.innerHTML = type === "line" ? lineChartSVG(data, w, h) : barChartSVG(data, w, h);
+  if (type !== "line") {
+    host.innerHTML = barChartSVG(data, w, h);
+    return;
+  }
+  const view = chartZoomFor(host, data);
+  host.innerHTML = lineChartSVG(data, w, h, view) +
+    (view ? `<button type="button" class="chart-zoom-reset" data-chart-zoom-reset>Reset zoom</button>` : "");
+}
+
+// ---- Line charts zoom along the x axis: Ctrl + scroll or a trackpad pinch
+// on desktop, two fingers on a phone; drag (or scroll sideways) to move along,
+// double-click or "Reset zoom" to go back. The zoom lives only in memory, so
+// a reload or a redraw with different data starts from the full range.
+const chartZooms = new WeakMap();
+let chartGesture = null;
+
+function chartZoomFor(host, data) {
+  const z = chartZooms.get(host);
+  if (!z) return null;
+  if (z.src !== host.dataset.chartData) { chartZooms.delete(host); return null; }
+  return z;
+}
+
+function setChartZoom(host, lo, hi) {
+  const n = (chartDataFor(host).labels || []).length;
+  const full = n - 1;
+  if (full < 2) return;
+  const minSpan = Math.min(full, 3);
+  let span = Math.min(Math.max(hi - lo, minSpan), full);
+  if (span >= full - 1e-6) chartZooms.delete(host);
+  else {
+    lo = Math.min(Math.max(lo, 0), full - span);
+    chartZooms.set(host, { src: host.dataset.chartData, lo, hi: lo + span });
+  }
+  if (!host.zoomFrame) {
+    host.zoomFrame = requestAnimationFrame(() => { host.zoomFrame = 0; redrawChartHost(host); });
+  }
+}
+
+// Where the plot area sits on screen, and the visible index window.
+function chartPlot(host) {
+  const svg = host.querySelector("svg");
+  if (!svg) return null;
+  const rect = svg.getBoundingClientRect();
+  const vb = svg.viewBox.baseVal;
+  if (!rect.width || !vb || !vb.width) return null;
+  const data = chartDataFor(host);
+  const n = (data.labels || []).length;
+  const z = chartZoomFor(host, data);
+  const k = rect.width / vb.width;
+  const g = lineGeom(data, vb.width, vb.height, z);
+  return { left: rect.left + g.padL * k, width: g.innerW * k, lo: z ? z.lo : 0, hi: z ? z.hi : n - 1, n };
+}
+
+function zoomableChart(target) {
+  const host = target && target.closest ? target.closest('.chart-host[data-chart-type="line"]') : null;
+  if (!host || host.closest(".widgets-grid.editing")) return null;
+  return host;
+}
+
+function ensureChartZoom() {
+  if (ensureChartZoom.done || !document.body) return;
+  ensureChartZoom.done = true;
+  // iOS Safari ignores user-scalable=no; its gesture events still let a pinch be refused.
+  ["gesturestart", "gesturechange"].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
+  document.addEventListener("wheel", (e) => {
+    const host = zoomableChart(e.target);
+    if (!host) return;
+    const p = chartPlot(host);
+    if (!p || p.n < 3) return;
+    const span = p.hi - p.lo;
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl + wheel, and a trackpad pinch, which browsers send as one.
+      e.preventDefault();
+      const f = Math.min(Math.max((e.clientX - p.left) / p.width, 0), 1);
+      const at = p.lo + f * span;
+      // A mouse notch is ~100, a trackpad pinch step a few: cap so a notch zooms ~25%.
+      const next = span * Math.exp(Math.min(Math.max(e.deltaY, -40), 40) * 0.007);
+      setChartZoom(host, at - f * next, at - f * next + next);
+    } else if (chartZooms.has(host) && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      e.preventDefault();
+      const shift = (e.deltaX / p.width) * span;
+      setChartZoom(host, p.lo + shift, p.hi + shift);
+    }
+  }, { passive: false });
+
+  const pointers = new Map();
+  const begin = (host) => {
+    const p = chartPlot(host);
+    if (!p) { chartGesture = null; return; }
+    const pts = [...pointers.values()];
+    const x = pts.reduce((a, q) => a + q.x, 0) / pts.length;
+    const dist = pts.length > 1 ? Math.abs(pts[0].x - pts[1].x) : 0;
+    chartGesture = { host, p, x, dist, moved: false };
+  };
+  document.addEventListener("pointerdown", (e) => {
+    if (e.target.closest && e.target.closest("[data-chart-zoom-reset]")) return;
+    const host = zoomableChart(e.target);
+    if (!host || (chartGesture && chartGesture.host !== host)) return;
+    if (e.pointerType === "mouse" && (e.button !== 0 || !chartZooms.has(host))) return;
+    pointers.set(e.pointerId, { x: e.clientX });
+    begin(host);
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!chartGesture || !pointers.has(e.pointerId)) return;
+    pointers.get(e.pointerId).x = e.clientX;
+    const { host, p } = chartGesture;
+    const pts = [...pointers.values()];
+    const x = pts.reduce((a, q) => a + q.x, 0) / pts.length;
+    const span = p.hi - p.lo;
+    let next = span;
+    if (pts.length > 1 && chartGesture.dist > 10) {
+      next = span * chartGesture.dist / Math.max(Math.abs(pts[0].x - pts[1].x), 1);
+    } else if (!chartZooms.has(host)) {
+      return; // one finger on an unzoomed chart: leave it to the page
+    }
+    if (Math.abs(x - chartGesture.x) > 3 || next !== span) {
+      chartGesture.moved = true;
+      if (!host.hasPointerCapture(e.pointerId)) host.setPointerCapture(e.pointerId);
+      host.classList.add("chart-panning");
+    }
+    // Keep the index that was under the fingers (or cursor) under them.
+    const f0 = (chartGesture.x - p.left) / p.width;
+    const at = p.lo + f0 * span;
+    const f = (x - p.left) / p.width;
+    setChartZoom(host, at - f * next, at - f * next + next);
+  });
+  const end = (e) => {
+    if (!pointers.delete(e.pointerId) || !chartGesture) return;
+    const host = chartGesture.host;
+    if (pointers.size) begin(host);
+    else { chartGesture = null; host.classList.remove("chart-panning"); }
+  };
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
+
+  const reset = (host) => { chartZooms.delete(host); redrawChartHost(host); };
+  document.addEventListener("dblclick", (e) => {
+    const host = zoomableChart(e.target);
+    if (host && chartZooms.has(host)) reset(host);
+  });
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest("[data-chart-zoom-reset]");
+    if (btn) reset(btn.closest(".chart-host"));
+  });
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", ensureChartZoom);
+} else {
+  ensureChartZoom();
 }
 
 const CHART_HOST_SELECTOR = ".chart-host[data-chart-type], .pie-chart[data-chart-type]";
@@ -416,9 +620,12 @@ function widgetBody(widget) {
   if (t === "table") {
     const cols = data.columns || [];
     const rows = data.rows || [];
+    const links = data.links || [];
+    const cell = (v, ri, i) => (i === 0 && links[ri]
+      ? `<a class="table-link" href="${esc(links[ri])}" title="See these transactions">${esc(v)}</a>` : esc(v));
     return `<div class="table-widget"><table>
       <thead><tr>${cols.map((c, i) => `<th${i === cols.length - 1 ? ' class="num"' : ""}>${esc(c)}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map((r) => `<tr>${r.map((cell, i) => `<td${i === r.length - 1 ? ' class="num"' : ""}>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+      <tbody>${rows.map((r, ri) => `<tr>${r.map((v, i) => `<td${i === r.length - 1 ? ' class="num"' : ""}>${cell(v, ri, i)}</td>`).join("")}</tr>`).join("")}</tbody>
     </table></div>`;
   }
   if (t === "transactions") {
@@ -475,6 +682,11 @@ function ensureWidgetStyles() {
     .pie-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
     .pie-wrap svg { flex: none; width: 168px; height: 168px; }
     .pie-legend { flex: 1; min-width: 120px; max-width: 100%; display: flex; flex-direction: column; gap: 7px; }
+    .pie-slice { opacity: 0.92; cursor: pointer; transition: opacity 0.12s; }
+    .pie-chart svg:has(.pie-slice.active) .pie-slice:not(.active) { opacity: 0.45; }
+    .pie-slice.active { opacity: 1; }
+    .chart-tip-pct { color: var(--muted); font-weight: 500; }
+    .pie-legend-dot { width: 8px; height: 8px; border-radius: 1px; flex: none; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
     .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
     .pie-legend-val { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }

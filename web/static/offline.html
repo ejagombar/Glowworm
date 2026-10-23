@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Can't connect | Glowworm</title>
+  <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/static/icons/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Glowworm" />
+  <link rel="stylesheet" href="/static/css/styles.css?offline" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("glowworm-theme") || "system";
+        var dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <!-- Served by the service worker (sw.js) when Glowworm can't be reached. -->
+  <div class="login-shell">
+    <div class="login-card offline-card">
+      <div class="brand">
+        <svg class="gw" viewBox="0 0 40 32" aria-hidden="true">
+                <g class="gw-body">
+                    <circle class="gw-seg gw-seg-1" cx="7.5" cy="23.5" r="3" fill="#7dffb8" />
+                    <circle class="gw-seg gw-seg-2" cx="13" cy="21" r="5.5" fill="#2cc57a" />
+                    <circle class="gw-seg gw-seg-3" cx="21" cy="18" r="7" fill="#27b268" />
+                </g>
+                <g class="gw-head">
+                    <circle cx="30" cy="17" r="8.5" fill="#1f9b57" />
+                    <circle cx="27.6" cy="14.6" r="2.1" fill="#ffffff" />
+                    <circle cx="33.4" cy="14.6" r="2.1" fill="#ffffff" />
+                    <circle cx="28" cy="15" r="1.15" fill="#0c3a22" />
+                    <circle cx="33.8" cy="15" r="1.15" fill="#0c3a22" />
+                    <path d="M28.5 9.5 q-1.8 -4 2.5 -5.2" stroke="#1f9b57" stroke-width="1.5" fill="none"
+                        stroke-linecap="round" />
+                    <circle cx="31" cy="5" r="1.3" fill="#7dffb8" />
+                    <path d="M33 9.5 q1.6 -3.6 5.6 -4" stroke="#1f9b57" stroke-width="1.5" fill="none"
+                        stroke-linecap="round" />
+                    <circle cx="38.4" cy="6.6" r="1.3" fill="#7dffb8" />
+                    <path d="M29 21 q3 2 6 0" stroke="#0c3a22" stroke-width="1.3" fill="none" stroke-linecap="round" />
+                </g>
+            </svg>
+        <span class="brand-name">Glowworm</span>
+      </div>
+      <h1 class="login-title">Can't connect to Glowworm</h1>
+      <p class="login-sub muted">The server isn't responding right now. This page will reconnect by itself as soon as it's back.</p>
+      <button class="btn btn-primary" id="offlineRetry" type="button" style="width:100%">Try again</button>
+      <p class="offline-status muted" id="offlineStatus" aria-live="polite"></p>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var status = document.getElementById("offlineStatus");
+      var btn = document.getElementById("offlineRetry");
+      var busy = false;
+      function check(manual) {
+        if (busy) return;
+        busy = true;
+        if (manual) { btn.disabled = true; status.textContent = "Checking…"; }
+        // Time out like the service worker does: off the VPN a request just hangs.
+        var ctrl = window.AbortController ? new AbortController() : null;
+        var timer = ctrl && setTimeout(function () { ctrl.abort(); }, 4000);
+        fetch("/healthz", { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
+          .then(function (r) { if (r.ok) location.reload(); else throw new Error(); })
+          .catch(function () {
+            status.textContent = "Still can't reach it · last tried " +
+              new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          })
+          .then(function () { clearTimeout(timer); busy = false; btn.disabled = false; });
+      }
+      btn.addEventListener("click", function () { check(true); });
+      setInterval(check, 10000);
+      window.addEventListener("online", function () { check(false); });
+      document.addEventListener("visibilitychange", function () { if (!document.hidden) check(false); });
+    })();
+  </script>
+</body>
+</html>
