@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"glowworm/internal/money"
+	"glowworm/web/static"
 )
 
 //go:embed templates/*.html
@@ -21,6 +22,11 @@ type Renderer struct {
 func New() (*Renderer, error) {
 	r := &Renderer{tmpl: map[string]*template.Template{}}
 	funcs := template.FuncMap{
+		// asset is a static file's URL with its content version, so it can be
+		// cached for good (see static.Version).
+		"asset": func(path string) string {
+			return "/static/" + path + "?v=" + static.Version(path)
+		},
 		"accountTypeBadge": func(t string) string {
 			switch t {
 			case "savings":

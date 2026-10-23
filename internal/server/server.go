@@ -422,10 +422,20 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		if etags[path] == "" {
 			etags[path] = etag
 		}
-		// Deliberately not `immutable`: the binary is updated in place and must
-		// never serve a cached stale app.js.
 		w.Header().Set("ETag", etag)
-		w.Header().Set("Cache-Control", "no-cache")
+		switch {
+		case r.URL.Query().Get("v") == etag:
+			// A versioned URL (the asset template func) names these exact bytes;
+			// a new build links a new URL, so it can be kept for good.
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		case strings.HasPrefix(path, "fonts/") || strings.HasPrefix(path, "icons/"):
+			// Linked from CSS and the manifest without a version; they don't change.
+			w.Header().Set("Cache-Control", "public, max-age=2592000")
+		default:
+			// Unversioned: the binary is updated in place and must never serve
+			// a stale app.js, so check every time.
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		if r.Header.Get("If-None-Match") == etag {
 			w.WriteHeader(http.StatusNotModified)
 			return

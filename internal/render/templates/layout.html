@@ -11,7 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Glowworm" />
-  <link rel="stylesheet" href="/static/css/styles.css" />
+  <link rel="stylesheet" href="{{asset "css/styles.css"}}" />
   <script>
     (function () {
       try {
@@ -205,11 +205,34 @@
   <div class="toast" id="toast" hidden></div>
 
   <script>window.__CSRF__ = {{.CSRFToken}};</script>
-  <script src="/static/js/widgets.js"></script>
-  <script src="/static/js/app.js"></script>
+  <script src="{{asset "js/widgets.js"}}"></script>
+  <script src="{{asset "js/app.js"}}"></script>
   <script>
     // Keeps a "Can't connect" page ready for when the server is down.
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(function () {});
+
+    // Ask the service worker to start fetching a page as soon as a link is
+    // touched, pressed or hovered, so it's mostly loaded by the time of the click.
+    (function () {
+      if (!("serviceWorker" in navigator)) return;
+      var asked = {};
+      function intent(target) {
+        var sw = navigator.serviceWorker.controller;
+        var a = sw && target && target.closest && target.closest("a[href]");
+        if (!a || a.target || a.hasAttribute("download")) return;
+        var u = new URL(a.href, location.href);
+        if (u.origin !== location.origin || /^\/(api|static)\//.test(u.pathname) || u.pathname === "/logout") return;
+        if (u.pathname === location.pathname && u.search === location.search) return;
+        if (asked[u.href] && Date.now() - asked[u.href] < 5000) return;
+        asked[u.href] = Date.now();
+        sw.postMessage({ type: "prefetch", url: u.href });
+      }
+      addEventListener("touchstart", function (e) { intent(e.target); }, { passive: true });
+      addEventListener("mousedown", function (e) { intent(e.target); });
+      var hover;
+      addEventListener("mouseover", function (e) { clearTimeout(hover); hover = setTimeout(function () { intent(e.target); }, 65); });
+      addEventListener("mouseout", function () { clearTimeout(hover); });
+    })();
   </script>
 </body>
 </html>

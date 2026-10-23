@@ -11,6 +11,32 @@ const STYLES = "/static/css/styles.css?offline";
 const FONTS = ["/static/fonts/inter-latin.woff2", "/static/fonts/inter-latin-ext.woff2"];
 const ASSETS = [OFFLINE, STYLES, ...FONTS];
 
+// Pages fetched ahead when the pointer goes down on (or hovers over) a link,
+// so the page is often already on its way when the click arrives. Only used
+// within a few seconds, and dropped as soon as anything is saved, so a page
+// never shows data from before a change.
+const PREFETCH_TTL_MS = 10000;
+const prefetched = new Map(); // url -> { at, res: Promise<Response|null> }
+
+self.addEventListener("message", (e) => {
+  const d = e.data || {};
+  if (d.type !== "prefetch" || typeof d.url !== "string") return;
+  const url = new URL(d.url);
+  if (url.origin !== self.location.origin || prefetched.has(url.href)) return;
+  const res = fetchWithTimeout(new Request(url.href, { credentials: "same-origin" }), PREFETCH_TTL_MS)
+    .then((r) => (r.ok && !r.redirected ? r : null))
+    .catch(() => null);
+  prefetched.set(url.href, { at: Date.now(), res });
+  setTimeout(() => prefetched.delete(url.href), PREFETCH_TTL_MS);
+  e.waitUntil(res);
+});
+
+function takePrefetched(url) {
+  const hit = prefetched.get(url);
+  prefetched.delete(url);
+  return hit && Date.now() - hit.at < PREFETCH_TTL_MS ? hit.res : null;
+}
+
 // Diagnostics: what happened to recent page loads, kept in the cache and sent
 // to the server log (POST /sw-log) on the next load that reaches it. It's
 // the only way to see what a home screen app did while it was offline.
@@ -69,7 +95,10 @@ function fetchWithTimeout(req, ms) {
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
-  if (req.method !== "GET") return;
+  if (req.method !== "GET") {
+    prefetched.clear(); // something is being saved: pages fetched ahead may be stale
+    return;
+  }
   if (req.mode === "navigate") {
     const t0 = Date.now(), path = new URL(req.url).pathname;
     const showOffline = (why) => {
@@ -79,7 +108,9 @@ self.addEventListener("fetch", (e) => {
         return r || Response.error();
       });
     };
-    e.respondWith(fetchWithTimeout(req, NAV_TIMEOUT_MS)
+    const early = takePrefetched(req.url);
+    const load = early ? early.then((r) => r || fetchWithTimeout(req, NAV_TIMEOUT_MS)) : fetchWithTimeout(req, NAV_TIMEOUT_MS);
+    e.respondWith(load
       .then((r) => {
         if (r.status >= 502 && r.status <= 504) return showOffline("status " + r.status);
         e.waitUntil(flushLog());
