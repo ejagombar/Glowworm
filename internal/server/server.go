@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -241,6 +242,7 @@ func (a *App) Router() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /static/{path...}", a.staticHandlerFS(staticFS.FS, "/static/"))
+	mux.Handle("GET /sw.js", serviceWorkerHandler(staticFS.FS))
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -285,7 +287,7 @@ func (a *App) page(fn func(http.ResponseWriter, *http.Request) error) http.Handl
 func (a *App) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/login" || strings.HasPrefix(path, "/static/") || path == "/healthz" {
+		if path == "/login" || strings.HasPrefix(path, "/static/") || path == "/healthz" || path == "/sw.js" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -321,6 +323,25 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// serviceWorkerHandler serves js/sw.js from the site root, where a worker must
+// live to cover every page, versioned by a hash of what it caches so the
+// browser picks up a new offline page or stylesheet.
+func serviceWorkerHandler(fsys fs.FS) http.Handler {
+	src, _ := fs.ReadFile(fsys, "js/sw.js")
+	h := sha256.New()
+	h.Write(src)
+	for _, f := range []string{"offline.html", "css/styles.css"} {
+		b, _ := fs.ReadFile(fsys, f)
+		h.Write(b)
+	}
+	body := bytes.ReplaceAll(src, []byte("__VERSION__"), []byte(hex.EncodeToString(h.Sum(nil))[:12]))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(body)
 	})
 }
 
