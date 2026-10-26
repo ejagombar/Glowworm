@@ -180,6 +180,20 @@ func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.
 		}
 	}
 	before := s.snapshot(t)
+	if in.AccountID != "" && in.AccountID != t.AccountID {
+		if t.TransferID != nil {
+			return nil, &ValidationError{Message: "Break the transfer link before moving it to another account"}
+		}
+		var currency string
+		err := s.DB.QueryRow(`SELECT currency FROM accounts WHERE id = ? AND deleted_at IS NULL`, in.AccountID).Scan(&currency)
+		if err != nil {
+			return nil, &ValidationError{Message: "That account doesn't exist"}
+		}
+		if currency != t.Currency {
+			return nil, &ValidationError{Message: "That account is in " + currency + ", not " + t.Currency}
+		}
+		t.AccountID = in.AccountID
+	}
 	if in.Date != "" {
 		t.Date = in.Date
 	}
@@ -227,7 +241,7 @@ func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.
 			return err
 		}
 		after := s.snapshot(t)
-		diff := fieldDiffs(before, after)
+		diff := s.fieldDiffs(before, after)
 		_, err := s.Audit.Write(tx, audit.Input{
 			Actor: core.ActorUser, Action: "transaction.edited",
 			EntityType: "transaction", EntityID: t.ID,
@@ -307,7 +321,7 @@ func (s *Service) SetCategory(id string, categoryID *string) error {
 			Actor: core.ActorUser, Action: "transaction.edited",
 			EntityType: "transaction", EntityID: id,
 			Title: "Categorised transaction", Sub: t.Description,
-			Diff: fieldDiffs(before, after), Before: before, After: after,
+			Diff: s.fieldDiffs(before, after), Before: before, After: after,
 			Revert: map[string]any{"transaction_id": id, "fields": before},
 		})
 		return err
@@ -352,7 +366,7 @@ func (s *Service) mustReload(id string) *core.Transaction {
 	return t
 }
 
-func fieldDiffs(before, after TxSnapshot) []audit.DiffLine {
+func (s *Service) fieldDiffs(before, after TxSnapshot) []audit.DiffLine {
 	var out []audit.DiffLine
 	pair := func(label string, b, a any) {
 		if fmt.Sprint(b) != fmt.Sprint(a) {
@@ -361,12 +375,36 @@ func fieldDiffs(before, after TxSnapshot) []audit.DiffLine {
 				audit.DiffLine{Line: "+ " + label + ": " + fmt.Sprint(a), Cls: "diff-add"})
 		}
 	}
+	if before.AccountID != after.AccountID {
+		pair("account", s.accountName(before.AccountID), s.accountName(after.AccountID))
+	}
 	pair("date", before.Date, after.Date)
 	pair("description", before.Description, after.Description)
 	pair("amount", before.AmountMinor, after.AmountMinor)
 	pair("type", before.Type, after.Type)
-	pair("category", before.CategoryID, after.CategoryID)
+	if deref(before.CategoryID) != deref(after.CategoryID) {
+		pair("category", s.categoryName(before.CategoryID), s.categoryName(after.CategoryID))
+	}
 	return out
+}
+
+func (s *Service) categoryName(id *string) string {
+	if id == nil || *id == "" {
+		return "Uncategorised"
+	}
+	var name string
+	if s.DB.QueryRow(`SELECT name FROM categories WHERE id = ?`, *id).Scan(&name) != nil {
+		return *id
+	}
+	return name
+}
+
+func (s *Service) accountName(id string) string {
+	var name string
+	if s.DB.QueryRow(`SELECT name FROM accounts WHERE id = ?`, id).Scan(&name) != nil {
+		return id
+	}
+	return name
 }
 
 func IsNotFound(err error) bool { return errors.Is(err, sql.ErrNoRows) }

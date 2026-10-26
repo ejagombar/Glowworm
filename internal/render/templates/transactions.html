@@ -57,6 +57,7 @@
   </div>
 
   <script>window.__CAT_OPTIONS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", internal: {{if eq .Type "internal"}}true{{else}}false{{end}}},{{end}}];</script>
+  <script>window.__ACCOUNT_OPTIONS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];</script>
   <div class="panel table-panel">
     <table class="tx-table{{if .SelectedAcc}} account-view{{end}}" id="transactionsTable"
       data-tx-next-offset="{{.NextOffset}}"{{if .HasMore}} data-tx-has-more="1"{{end}}

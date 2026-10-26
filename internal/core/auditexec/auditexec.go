@@ -208,6 +208,9 @@ func (x *Executor) applyTxFields(tx *sql.Tx, id string, f map[string]any) error 
 	if err != nil {
 		return err
 	}
+	if v, ok := f["account_id"].(string); ok && v != "" {
+		t.AccountID = v
+	}
 	if v, ok := f["date"].(string); ok && v != "" {
 		t.Date = v
 	}
@@ -247,9 +250,9 @@ func (x *Executor) applyTxFields(tx *sql.Tx, id string, f map[string]any) error 
 			t.Merchant = nil
 		}
 	}
-	_, err = tx.Exec(`UPDATE transactions SET date=?, description=?, merchant=?, amount_minor=?, type=?,
+	_, err = tx.Exec(`UPDATE transactions SET account_id=?, date=?, description=?, merchant=?, amount_minor=?, type=?,
 		category_id=?, category_source=?, updated_at=? WHERE id=?`,
-		t.Date, t.Description, t.Merchant, t.AmountMinor, t.Type,
+		t.AccountID, t.Date, t.Description, t.Merchant, t.AmountMinor, t.Type,
 		t.CategoryID, t.CategorySource, util.NowStr(), t.ID)
 	return err
 }

@@ -2118,10 +2118,20 @@ document.addEventListener("DOMContentLoaded", () => {
       editor.dataset.txId = id;
       const linked = !!t.transfer_id;
       const cats = window.__CAT_OPTIONS__ || [];
+      const accounts = window.__ACCOUNT_OPTIONS__ || [];
+      const internalCat = cats.find((c) => c.internal);
+      // The transfer link only applies to a transfer: one already linked, or
+      // one in the Internal transfer category.
+      const isTransfer = () => linked || (!!internalCat && document.getElementById("txeCategory").value === internalCat.id);
       editor.innerHTML = `<td colspan="6">
         <div class="tx-editor">
           <label class="tx-field">Date
             <input class="field" type="date" id="txeDate" value="${esc(t.date)}" />
+          </label>
+          <label class="tx-field">Account
+            <select class="field" id="txeAccount" ${linked ? 'disabled title="Break the transfer link to move it to another account"' : ""}>
+              ${accounts.map((a) => `<option value="${esc(a.id)}"${t.account_id === a.id ? " selected" : ""}>${esc(a.name)}</option>`).join("")}
+            </select>
           </label>
           <label class="tx-field grow">Description
             <input class="field" type="text" id="txeDescription" value="${esc(t.description)}" placeholder="e.g. Tesco Express" />
@@ -2131,7 +2141,7 @@ document.addEventListener("DOMContentLoaded", () => {
               ${linked ? `<option selected>Internal transfer</option>` : `<option value="">Select category…</option>` + cats.map((c) => `<option value="${esc(c.id)}"${t.category && t.category.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
             </select>
           </label>
-          <label class="tx-field grow" id="txeTransferField">Transfer link
+          <label class="tx-field grow" id="txeTransferField" hidden>Transfer link
             ${linked
               ? `<select class="field" id="txeCounterpart" disabled><option selected>Linked: ${esc(t.counterpart_tx ? t.counterpart_tx.description + " · " + (t.counterpart_tx.account_name || "") : "transfer leg")}</option></select>`
               : `<select class="field" id="txeCounterpart"><option value="">Not a transfer</option></select>`}
@@ -2170,23 +2180,22 @@ document.addEventListener("DOMContentLoaded", () => {
           toast("Could not load transfer suggestions");
         }
       };
-      if (!linked) {
-        loadTransferSuggestions();
-        const cpSel = document.getElementById("txeCounterpart");
-        if (cpSel) {
-          cpSel.addEventListener("change", () => {
-            if (cpSel.value) {
-              const internal = (window.__CAT_OPTIONS__ || []).find((c) => c.internal);
-              if (internal) catSel.value = internal.id;
-              catSel.disabled = true;
-            } else {
-              catSel.disabled = false;
-            }
-          });
+      let suggestionsLoaded = false;
+      const syncTransferField = () => {
+        const show = isTransfer();
+        cpField.hidden = !show;
+        if (!show) {
+          const cpSel = document.getElementById("txeCounterpart");
+          if (cpSel && !linked) cpSel.value = "";
+        } else if (!linked && !suggestionsLoaded) {
+          suggestionsLoaded = true;
+          loadTransferSuggestions();
         }
-      }
+      };
+      syncTransferField();
+      catSel.addEventListener("change", syncTransferField);
       document.getElementById("txeCancel").addEventListener("click", closeEditor);
-      const editorState = () => ["txeDate", "txeDescription", "txeCategory", "txeCounterpart", "txeAmount"]
+      const editorState = () => ["txeDate", "txeAccount", "txeDescription", "txeCategory", "txeCounterpart", "txeAmount"]
         .map((x) => document.getElementById(x)?.value ?? "").join("\u0000");
       const initialState = editorState();
       editorSave = () => {
@@ -2202,7 +2211,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!description) { toast("Description is required"); return; }
         if (isNaN(amount)) { toast("Amount is required"); return; }
         const cpSel = document.getElementById("txeCounterpart");
-        if (cpSel && !linked && cpSel.value) {
+        if (cpSel && !linked && isTransfer() && cpSel.value) {
           fetch(`/api/v1/transactions/${id}/link`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -2220,6 +2229,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const body = {
           date, description,
+          account_id: linked ? undefined : document.getElementById("txeAccount").value,
           amount_minor: Math.round(amount * 100),
           category_id: (!linked && document.getElementById("txeCategory").value) || null,
         };
