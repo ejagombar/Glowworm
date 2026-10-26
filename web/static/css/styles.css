@@ -948,6 +948,12 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 }
 .category-card .cat-edit:hover { color: var(--primary); background: var(--primary-soft); }
 .category-card .cat-edit .icon { width: 13px; height: 13px; }
+/* With a mouse, the edit button shows when the card is hovered or the button
+   has keyboard focus; touch screens, which can't hover, always show it. */
+@media (hover: hover) and (pointer: fine) {
+  .category-card .cat-edit { opacity: 0; transition: opacity 0.12s; }
+  .category-card:hover .cat-edit, .category-card .cat-edit:focus-visible { opacity: 1; }
+}
 .category-card .cat-amount { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .category-card .cat-amount.pos { color: var(--income); }
 .category-card .cat-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
