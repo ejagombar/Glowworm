@@ -204,6 +204,7 @@
 
   <div class="toast" id="toast" hidden></div>
 
+  {{template "recurring-modal"}}
   <script>window.__CSRF__ = {{.CSRFToken}};</script>
   <script src="{{asset "js/widgets.js"}}"></script>
   <script src="{{asset "js/app.js"}}"></script>

@@ -1284,13 +1284,13 @@ function openRecurring(key) {
       const txs = body.transactions || [];
       const list = document.getElementById("recurringTxList");
       list.innerHTML = txs.map((t) => recurringRowHTML(t)).join("");
-      document.getElementById("recurringTitle").textContent = key;
+      document.getElementById("recurringTitle").textContent = (body.series && body.series.label) || "Recurring series";
       document.getElementById("recurringSub").textContent =
         txs.length + (txs.length === 1 ? " transaction" : " transactions") + " · auto-detected series";
       let total = 0;
       txs.forEach((t) => { total += t.amount_minor || 0; });
       document.getElementById("recurringTotal").textContent =
-        (total < 0 ? "\\u2212" : total > 0 ? "+" : "") + fmtMoneyMinor(total, body.currency || "GBP");
+        (total < 0 ? "\u2212" : total > 0 ? "+" : "") + fmtMoneyMinor(total, body.currency || "GBP");
       document.getElementById("recurringTotalLabel").textContent = total < 0 ? "Total spent" : total > 0 ? "Total received" : "Total";
       openModal("recurringModal");
     })
