@@ -14,7 +14,12 @@ import (
 	"glowworm/internal/money"
 )
 
+// utf8BOM is the byte-order mark some programs (Excel among them) put at the
+// start of a text file. Left in, it becomes part of the first column's name.
+var utf8BOM = []byte("\xef\xbb\xbf")
+
 func ReadCSV(data []byte) ([][]string, string, error) {
+	data = bytes.TrimPrefix(data, utf8BOM)
 	delim := sniffDelimiter(data)
 	r := csv.NewReader(bytes.NewReader(data))
 	r.Comma = delim
@@ -186,7 +191,7 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 }
 
 func ReadQIF(data []byte, currency string) ([]Row, error) {
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	lines := strings.Split(strings.ReplaceAll(string(bytes.TrimPrefix(data, utf8BOM)), "\r\n", "\n"), "\n")
 	var rows []Row
 	var cur *Row
 	lineNo := 0

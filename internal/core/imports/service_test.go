@@ -291,6 +291,17 @@ func TestCategoriseGroupsReviewAndRememberSchema(t *testing.T) {
 	if b2.AccountID == nil || *b2.AccountID != "acc-main" {
 		t.Fatalf("matched schema should preselect its account, got %v", b2.AccountID)
 	}
+
+	// The same export saved with a byte-order mark (as Excel does) is the
+	// same schema, not a new one.
+	withBOM := "\ufeff" + strings.Replace(statementCSV, "2026-06-0", "2026-08-0", -1)
+	b3, err := s.Upload("august.csv", []byte(withBOM), &joint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b3.Status != "awaiting_review" || b3.SchemaName != "My Bank CSV" {
+		t.Fatalf("schema not matched with a byte-order mark: status=%q schema=%q", b3.Status, b3.SchemaName)
+	}
 }
 
 func TestForcedDuplicateJoinsItsGroup(t *testing.T) {

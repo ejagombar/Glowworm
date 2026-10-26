@@ -751,7 +751,7 @@ func schemaHash(kind importer.Kind, header []string) string {
 func normHeaders(header []string) []string {
 	out := make([]string, len(header))
 	for i, h := range header {
-		out[i] = strings.ToLower(strings.TrimSpace(h))
+		out[i] = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(h, "\ufeff")))
 	}
 	return out
 }
