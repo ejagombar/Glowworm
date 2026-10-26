@@ -12,7 +12,7 @@
 
   <div class="accounts-grid" id="accountsGrid">
     {{range .Accounts}}
-    <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions?{{if ne .ID $.SelectedAcc}}account={{.ID}}&{{end}}period={{$.Period}}"{{if eq .ID $.SelectedAcc}} title="Show all accounts" aria-current="true"{{end}}>
+    <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions{{if ne .ID $.SelectedAcc}}?account={{.ID}}{{end}}"{{if eq .ID $.SelectedAcc}} title="Show all accounts" aria-current="true"{{end}}>
       <div class="account-card-top">
         <span class="account-dot" style="background:{{.Color}}"></span>
         <span class="account-name">{{.Name}}</span>

@@ -1899,7 +1899,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       toast(id ? "Category updated" : "Category added");
-      location.href = "/categories?period=" + new URLSearchParams(location.search).get("period") || "/categories";
+      location.href = "/categories";
     }).catch(() => toast("Could not save the category"));
   });
   document.getElementById("catDeleteBtn")?.addEventListener("click", () => {
@@ -3296,7 +3296,6 @@ function loadHistoryPane(url, push) {
   const u = new URL(url, location.origin);
   const mode = u.searchParams.get("mode") === "audit" ? "audit" : "transactions";
   const filter = u.searchParams.get("filter") || "all";
-  const period = u.searchParams.get("period") || "all";
 
   document.querySelectorAll(".history-mode .segmented-item").forEach((a) => {
     const on = a.dataset.historyMode === mode;
@@ -3306,7 +3305,8 @@ function loadHistoryPane(url, push) {
   host.innerHTML = historySkeletonHTML(mode);
 
   const token = ++historyPaneToken;
-  fetch(`/history/pane?mode=${mode}&filter=${filter}&period=${period}`, { headers: { "X-Requested-With": "fetch" } })
+  // No period: the server uses the selected date range (see selectedPeriod).
+  fetch(`/history/pane?mode=${mode}&filter=${filter}`, { headers: { "X-Requested-With": "fetch" } })
     .then((r) => {
       // A redirect (e.g. to /setup) would otherwise be injected as pane HTML.
       if (!r.ok || r.redirected) throw new Error("pane " + r.status);

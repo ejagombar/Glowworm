@@ -57,16 +57,48 @@ func shortDate(iso string) string {
 	return t.Format("2 Jan 2006")
 }
 
-func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (*viewBase, error) {
-	s := a.Settings.Get()
-	period := r.URL.Query().Get("period")
-	if period == "" {
-		period = s.DefaultPeriod
-		if period == "" {
-			period = "all"
+// selectedPeriod is the date range chosen in the masthead. Choosing one puts
+// it in the URL (?period=, plus from/to for a custom range), which is
+// remembered in a cookie, so every other page and link keeps it until the
+// user picks another. Without either, it's the default from Settings.
+func (a *App) selectedPeriod(w http.ResponseWriter, r *http.Request) (period, from, to string) {
+	q := r.URL.Query()
+	if p := q.Get("period"); validPeriod(p) {
+		period = p
+		if p == periods.Custom {
+			from, to = q.Get("from"), q.Get("to")
+		}
+		v := url.Values{"period": {period}}
+		if from != "" || to != "" {
+			v.Set("from", from)
+			v.Set("to", to)
+		}
+		http.SetCookie(w, &http.Cookie{Name: periodCookie, Value: v.Encode(), Path: "/",
+			MaxAge: 365 * 24 * 3600, HttpOnly: true, Secure: isTLS(r), SameSite: http.SameSiteLaxMode})
+		return period, from, to
+	}
+	if c, err := r.Cookie(periodCookie); err == nil {
+		if v, err := url.ParseQuery(c.Value); err == nil && validPeriod(v.Get("period")) {
+			return v.Get("period"), v.Get("from"), v.Get("to")
 		}
 	}
-	from, to, label := periods.Resolve(period, r.URL.Query().Get("from"), r.URL.Query().Get("to"), a.Clock.TodayTime())
+	period = a.Settings.Get().DefaultPeriod
+	if !validPeriod(period) {
+		period = periods.All
+	}
+	return period, "", ""
+}
+
+// validPeriod is a choice the date range menu offers.
+func validPeriod(p string) bool {
+	_, ok := periods.Labels[p]
+	return ok && p != periods.ThisMonthPreset
+}
+
+func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (*viewBase, error) {
+	s := a.Settings.Get()
+	period, from, to := a.selectedPeriod(w, r)
+	from, to, label := periods.Resolve(period, from, to, a.Clock.TodayTime())
 	if label == "" {
 		label = periods.Labels[periods.All]
 	}
@@ -161,7 +193,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	seriesAvailable := a.balanceSeriesFor(base, "available")
 	seriesSavings := a.balanceSeriesFor(base, "savings")
 
-	widgetViews, err := a.WidgetsList()
+	widgetViews, err := a.WidgetsList(base.Period, base.PeriodFrom, base.PeriodTo)
 	if err != nil {
 		return err
 	}

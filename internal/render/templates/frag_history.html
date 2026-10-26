@@ -2,9 +2,9 @@
 {{if eq .Mode "audit"}}
 <div class="history-pane" id="historyAuditPane">
   <div class="filters panel">
-    <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all&period={{.Period}}">All</a>
-    <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you&period={{.Period}}">You</a>
-    <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?mode=audit&filter=system&period={{.Period}}">System</a>
+    <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all">All</a>
+    <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you">You</a>
+    <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?mode=audit&filter=system">System</a>
   </div>
 
   <div class="history-list" id="historyList">

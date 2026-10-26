@@ -308,7 +308,8 @@ function pieChartSVG(data) {
   const labels = data.labels || [];
   const values = (data.values || []).map(Number);
   const colors = data.colors || WIDGET_COLORS;
-  const total = values.reduce((a, b) => a + b, 0) || 1;
+  const sum = values.reduce((a, b) => a + b, 0);
+  const total = sum || 1; // only to divide by: an empty chart would otherwise divide by zero
   const W = 260, H = 260, cx = 130, cy = 130, r = 92, inner = 56;
   let angle = -Math.PI / 2;
   const parts = [];
@@ -326,7 +327,7 @@ function pieChartSVG(data) {
   });
   parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
   // Shrink the type if even the short form would reach the ring (~0.6em a glyph).
-  const label = fmtMoneyCompact(total);
+  const label = fmtMoneyCompact(sum);
   const size = Math.min(23, Math.floor(((inner - 8) * 2) / (label.length * 0.6)));
   parts.push(`<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };

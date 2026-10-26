@@ -228,7 +228,8 @@ func (a *App) apiConversationDelete(w http.ResponseWriter, r *http.Request) erro
 }
 
 func (a *App) apiWidgetsGet(w http.ResponseWriter, r *http.Request) error {
-	list, err := a.WidgetsList()
+	period, from, to := a.selectedPeriod(w, r)
+	list, err := a.WidgetsList(period, from, to)
 	if err != nil {
 		return err
 	}

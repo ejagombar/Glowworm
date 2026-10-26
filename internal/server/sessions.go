@@ -15,6 +15,7 @@ const (
 	sessionCookie = "glowworm_session"
 	csrfCookie    = "glowworm_csrf"
 	privacyCookie = "glowworm_privacy"
+	periodCookie  = "glowworm_period"
 	sessionTTL    = 30 * 24 * time.Hour
 )
 

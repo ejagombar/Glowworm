@@ -42,7 +42,7 @@
         <span class="cat-name">{{.Name}}</span>
         {{if .IsSystem}}<span class="cat-badge">System</span>{{end}}
         {{if not .IsSystem}}
-        <a class="icon-btn cat-edit" href="/categories?edit={{.ID}}&period={{$.Period}}" aria-label="Edit {{.Name}}" title="Edit category">
+        <a class="icon-btn cat-edit" href="/categories?edit={{.ID}}" aria-label="Edit {{.Name}}" title="Edit category">
           <svg class="icon"><use href="#i-edit"/></svg>
         </a>
         {{end}}

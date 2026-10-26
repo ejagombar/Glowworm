@@ -310,11 +310,17 @@ func (s *Service) resolve(p *Plan) error {
 func (s *Service) resolveTime(p *Plan) error {
 	today := s.Clock.Today()
 	tt, _ := time.Parse("2006-01-02", today)
-	from, to, _ := periods.Resolve(pickString(p.TimePreset, "last-12m"), p.From, p.To, tt)
-	if p.From == "" && p.To == "" && from == "" {
-		from, to, _ = periods.Resolve(periods.Last12M, "", "", tt)
+	switch preset := pickString(p.TimePreset, ""); {
+	case preset != "":
+		// A named range, worked out from today (custom uses p.From/p.To; "all"
+		// leaves both empty: no date limit).
+		p.From, p.To, _ = periods.Resolve(preset, p.From, p.To, tt)
+	case p.From != "" || p.To != "":
+		// Explicit dates: keep them. (They used to be replaced by the last
+		// 12 months whenever no preset was named.)
+	default:
+		p.From, p.To, _ = periods.Resolve(periods.Last12M, "", "", tt)
 	}
-	p.From, p.To = from, to
 	return nil
 }
 
