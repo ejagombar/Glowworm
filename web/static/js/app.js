@@ -1292,9 +1292,32 @@ function openRecurring(key) {
       document.getElementById("recurringTotal").textContent =
         (total < 0 ? "\u2212" : total > 0 ? "+" : "") + fmtMoneyMinor(total, body.currency || "GBP");
       document.getElementById("recurringTotalLabel").textContent = total < 0 ? "Total spent" : total > 0 ? "Total received" : "Total";
+      document.getElementById("recurringSearch").href = recurringSearchHref(txs);
       openModal("recurringModal");
     })
     .catch(() => toast("Could not load the series"));
+}
+// A Transactions search for the series, like Top merchants' links: the text
+// its descriptions share ("Pure Gym Ltd - 02410…0002" and "…0003" share
+// "Pure Gym Ltd"), cut back to a whole word, plus their type when they agree.
+function recurringSearchHref(txs) {
+  const descs = txs.map((t) => t.description || "");
+  let common = descs[0] || "";
+  for (const d of descs) {
+    let i = 0;
+    while (i < common.length && i < d.length && common[i].toLowerCase() === d[i].toLowerCase()) i++;
+    common = common.slice(0, i);
+  }
+  if (descs.some((d) => d.length > common.length && /[\p{L}\p{N}]/u.test(d[common.length]))) {
+    common = common.replace(/[\p{L}\p{N}]+$/u, "");
+  }
+  common = common.replace(/[^\p{L}\p{N})]+$/u, "").trim();
+  const params = new URLSearchParams();
+  if (common) params.set("q", common);
+  const types = new Set(txs.map((t) => t.type));
+  if (types.size === 1 && (types.has("expense") || types.has("income"))) params.set("type", [...types][0]);
+  const qs = params.toString();
+  return "/transactions" + (qs ? "?" + qs : "");
 }
 function recurringRowHTML(t) {
   const cat = t.category ? t.category.name : "Uncategorised";

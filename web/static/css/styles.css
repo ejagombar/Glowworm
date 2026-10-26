@@ -1254,7 +1254,10 @@ body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 .modal-head .brand-mark.lg { margin: 0; width: 38px; height: 38px; flex: none; }
 .recurring-total { display: flex; flex-direction: column; align-items: flex-end; flex: none; }
 .recurring-total strong { font-size: 18px; font-family: var(--mono); letter-spacing: -0.01em; }
-.modal-body { max-height: 60vh; overflow-y: auto; }
+.modal-body { max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
+/* The page behind an open pop-up stays put while it's scrolled. */
+html:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
+.modal-backdrop { overscroll-behavior: contain; }
 .recurring-modal { max-width: 540px; }
 .tx-row .tx-date { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .recurring-row { align-items: center; }
