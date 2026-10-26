@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"glowworm/internal/core/periods"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/money"
@@ -84,7 +85,15 @@ func (a *App) WidgetsList(period, from, to string) ([]*WidgetView, error) {
 			Rows: spanOr(rowsN, typ, defaultSpanRows), DatasetJSON: dataset}
 		data := dataset
 		stale := false
-		if plan.Valid && plan.String != "" && a.Query != nil {
+		if spec := query.ParseSpec(plan.String); spec != nil && a.Query != nil {
+			if w, err := a.Query.RunSpec(spec, typ, a.specWindow(period, from, to)); err == nil {
+				if b, err := json.Marshal(w.Data); err == nil {
+					data = string(b)
+				}
+			} else {
+				stale = true
+			}
+		} else if plan.Valid && plan.String != "" && a.Query != nil {
 			var p query_Plan
 			if json.Unmarshal([]byte(plan.String), &p) == nil {
 				if (p.TimePreset == nil || *p.TimePreset == "") && p.From == "" && p.To == "" {
@@ -118,6 +127,16 @@ func (a *App) WidgetsList(period, from, to string) ([]*WidgetView, error) {
 		out = append(out, view)
 	}
 	return out, rows.Err()
+}
+
+// specWindow is the selected date range for a widget query's :from and :to;
+// all time leaves both open.
+func (a *App) specWindow(period, from, to string) *query.TimeWindow {
+	f, t, label := periods.Resolve(period, from, to, a.Clock.TodayTime())
+	if period == periods.Custom && f != "" {
+		label = shortDate(f) + " – " + shortDate(t)
+	}
+	return &query.TimeWindow{From: f, To: t, Label: label}
 }
 
 func asSlice(v any) []any {
@@ -363,10 +382,17 @@ func seedPlanThisMonth(metric, breakdown string) string {
 	return string(b)
 }
 
-func seedPlanNumber() string {
-	b, _ := json.Marshal(query_Plan{
-		V: 1, Metric: "spend", Breakdown: "none",
-		AccountScope: "all", Limit: 1, ChartHint: "number", Title: "Savings rate",
+// savingsRateSQL is the share of income not spent over the selected range.
+// Transfers between the user's own accounts count as neither.
+const savingsRateSQL = `SELECT CASE WHEN inc > 0 THEN (inc - spend) * 1.0 / inc END AS rate FROM (
+  SELECT COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount_minor END), 0) AS inc,
+         COALESCE(SUM(CASE WHEN t.type = 'expense' THEN -t.amount_minor END), 0) AS spend
+  FROM transactions t WHERE t.deleted_at IS NULL AND t.date BETWEEN :from AND :to)`
+
+func seedSpecSavingsRate() string {
+	b, _ := json.Marshal(query.Spec{
+		V: query.SpecVersion, SQL: savingsRateSQL, Caption: "of income not spent",
+		Columns: map[string]query.SpecColumn{"rate": {Format: "percent"}},
 	})
 	return string(b)
 }

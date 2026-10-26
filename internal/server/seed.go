@@ -67,7 +67,7 @@ func (a *App) seedExampleWidgets(tx *sql.Tx) error {
 		col, rows        int
 	}{
 		{"Spending by category — this month", "bar", seedPlanThisMonth("spend", "category"), 8, 4},
-		{"Savings rate", "number", seedPlanNumber(), 4, 2},
+		{"Savings rate", "number", seedSpecSavingsRate(), 4, 2},
 		{"Spending mix — this month", "pie", seedPlanThisMonth("spend", "category"), 4, 3},
 		{"Top merchants", "table", seedPlanTopMerchants(), 8, 4},
 	}

@@ -109,7 +109,7 @@ func TestSandboxRowCapAndTruncation(t *testing.T) {
 func TestAgentLoopRunsQueryThenAnswers(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{
 		`{"action":"run_query","sql":"SELECT c.name AS name, SUM(-t.amount_minor) AS total FROM transactions t JOIN categories c ON c.id = t.category_id WHERE t.type='expense' GROUP BY c.name ORDER BY total DESC LIMIT 10"}`,
-		`{"action":"final","text":"You spent **£7,000** on Transport across 5 trips.","widgets":[{"type":"bar","title":"Spend by category","data":{"labels":["Transport"],"series":[{"name":"Spend","values":[7000]}]}}]}`,
+		`{"action":"final","text":"You spent **£7,000** on Transport across 5 trips.","widgets":[{"type":"bar","title":"Spend by category","sql":"SELECT c.name, SUM(-t.amount_minor) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE t.type = 'expense' GROUP BY 1","columns":{"spend":{"label":"Spend","format":"money"}}}]}`,
 	}}
 	svc := newAgentService(t, provider)
 	defer svc.DB.Close()
@@ -395,8 +395,8 @@ func TestAgentPromptIncludesViewWindow(t *testing.T) {
 	svc := newAgentService(t, &ai.Mock{})
 	defer svc.DB.Close()
 	plain := svc.agentSystemPrompt(nil)
-	if strings.Contains(plain, "CURRENT VIEW PERIOD") {
-		t.Error("no window → no period section")
+	if !strings.Contains(plain, "CURRENT VIEW PERIOD: all time") {
+		t.Error("no window → the period should read all time")
 	}
 	win := &TimeWindow{From: "2025-10-01", To: "2026-10-01", Label: "Last 12 months"}
 	with := svc.agentSystemPrompt(win)
@@ -413,7 +413,7 @@ func TestAgentPromptIncludesViewWindow(t *testing.T) {
 func TestListAnswerEmptyTextWithTransactionsWidget(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{
 		`{"action":"run_query","sql":"SELECT * FROM transactions LIMIT 10"}`,
-		`{"action":"final","text":"","widgets":[{"type":"transactions","title":"Recent transactions","data":{"transactions":[{"date":"2024-06-30","description":"Rent","category":"Bills & Utilities","amount_minor":-106266,"currency":"GBP","type":"expense"}]}}]}`,
+		`{"action":"final","text":"","widgets":[{"type":"transactions","title":"Recent transactions","sql":"SELECT t.date, t.description, c.name AS category, t.amount_minor, t.type FROM transactions t LEFT JOIN categories c ON c.id = t.category_id ORDER BY t.date DESC LIMIT 1"}]}`,
 	}}
 	svc := newAgentService(t, provider)
 	defer svc.DB.Close()
@@ -428,7 +428,7 @@ func TestListAnswerEmptyTextWithTransactionsWidget(t *testing.T) {
 		t.Fatalf("widgets = %+v", ans.Widgets)
 	}
 	tx := ans.Widgets[0].Data.(map[string]any)["transactions"].([]map[string]any)[0]
-	if tx["amount_minor"].(int64) != -106266 || tx["type"] != "expense" {
+	if tx["amount_minor"].(int64) != -1400 || tx["type"] != "expense" || tx["category"] != "Transport" {
 		t.Errorf("tx payload = %v", tx)
 	}
 }
@@ -457,7 +457,7 @@ func TestWidgetSpecNormalisation(t *testing.T) {
 func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{
 		`{"action":"final","text":"","widgets":[]}`,
-		`{"action":"final","text":"","widgets":[{"type":"transactions","title":"Recent","data":{"transactions":[{"date":"2024-06-30","description":"Rent","category":"Bills","amount_minor":-106266,"currency":"GBP","type":"expense"}]}}]}`,
+		`{"action":"final","text":"","widgets":[{"type":"transactions","title":"Recent","sql":"SELECT date, description, amount_minor, type FROM transactions LIMIT 5"}]}`,
 	}}
 	svc := newAgentService(t, provider)
 	defer svc.DB.Close()
@@ -491,4 +491,92 @@ func (p *emptyThenBroken) CompleteStructured(req *ai.StructuredRequest) (string,
 		return `{"action":"final","text":"","widgets":[]}`, nil, nil
 	}
 	return (&ai.Mock{}).CompleteStructured(req)
+}
+
+// A widget's query runs before the answer is shown; one that fails, or
+// leaves a numeric column without a format, goes back to the model to fix.
+func TestAgentWidgetCheckFeedsErrorsBack(t *testing.T) {
+	var sawCheck string
+	provider := &ai.MockAgent{Replies: []string{
+		`{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","sql":"SELECT SUM(-amount_minor) FROM nope"}]}`,
+		`{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","sql":"SELECT SUM(-amount_minor) AS spend FROM transactions"}]}`,
+		`{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","sql":"SELECT SUM(-amount_minor) AS spend FROM transactions","columns":{"spend":"money"}}]}`,
+	}}
+	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
+	defer svc.DB.Close()
+	ans, err := svc.Ask("how much have I spent?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sawCheck, "WIDGET CHECK FAILED") || !strings.Contains(sawCheck, "spend") {
+		t.Errorf("format problem not fed back: %q", sawCheck)
+	}
+	if len(ans.Widgets) != 1 || ans.Widgets[0].Data.(map[string]any)["value"] != "£60.00" {
+		t.Fatalf("widgets = %+v", ans.Widgets)
+	}
+	if sp, ok := ans.Widgets[0].Plan.(*Spec); !ok || sp.V != SpecVersion {
+		t.Errorf("widget plan is not a spec: %#v", ans.Widgets[0].Plan)
+	}
+}
+
+// After the retries, a snapshot widget is kept rather than losing the answer.
+func TestAgentWidgetCheckGivesUp(t *testing.T) {
+	snapshot := `{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","data":{"value":"£60.00"}}]}`
+	provider := &ai.MockAgent{Replies: []string{snapshot, snapshot, snapshot}}
+	svc := newAgentService(t, provider)
+	defer svc.DB.Close()
+	ans, err := svc.Ask("how much have I spent?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ans.Widgets) != 1 || ans.Widgets[0].Plan != nil {
+		t.Fatalf("widgets = %+v", ans.Widgets)
+	}
+}
+
+func TestRunSpecDatesAndFormats(t *testing.T) {
+	svc := newAgentService(t, nil)
+	defer svc.DB.Close()
+	sp := ParseSpec(`{"v":2,"sql":"SELECT COUNT(*) AS n, SUM(-amount_minor) AS spend, SUM(-amount_minor) * 1.0 / 24000 AS share FROM transactions WHERE date BETWEEN :from AND :to","columns":{"n":"number","spend":"money","share":{"label":"Share","format":"percent"}},"caption":"on buses"}`)
+	if sp == nil || !sp.UsesDates() {
+		t.Fatalf("spec = %+v", sp)
+	}
+	for _, c := range []struct {
+		win  *TimeWindow
+		want []string
+	}{
+		{nil, []string{"5", "£60.00", "25%"}},
+		{&TimeWindow{From: "2024-06-12", To: "2024-06-13", Label: "Two days"}, []string{"2", "£25.00", "10%"}},
+		{&TimeWindow{From: "2024-07-01", Label: "July on"}, []string{"0", "—", "—"}},
+	} {
+		w, err := svc.RunSpec(sp, "table", c.win)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := w.Data.(map[string]any)["rows"].([][]string)[0]
+		if strings.Join(row, "|") != strings.Join(c.want, "|") {
+			t.Errorf("%v: row = %v, want %v", c.win, row, c.want)
+		}
+		if cols := w.Data.(map[string]any)["columns"].([]string); cols[2] != "Share" {
+			t.Errorf("columns = %v", cols)
+		}
+	}
+	w, err := svc.RunSpec(sp, "number", &TimeWindow{Label: "All time"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := w.Data.(map[string]any); d["value"] != "5" || d["caption"] != "on buses · All time" {
+		t.Errorf("number = %v", d)
+	}
+	line, err := svc.RunSpec(&Spec{V: 2, SQL: "SELECT date, -amount_minor * 1.0 / 1000 AS r FROM transactions ORDER BY date",
+		Columns: map[string]SpecColumn{"r": {Format: "percent"}}}, "line", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := line.Data.(map[string]any); d["format"] != "percent" || len(d["labels"].([]string)) != 5 {
+		t.Errorf("line = %v", d)
+	}
+	if ParseSpec(`{"v":1,"metric":"spend"}`) != nil {
+		t.Error("an old plan parsed as a spec")
+	}
 }

@@ -123,15 +123,16 @@ func truncateCell(s string) string {
 }
 
 // Wrapping as SELECT * FROM (<query>) LIMIT 201 caps rows regardless of any
-// inner LIMIT; SQLite accepts WITH inside the subquery.
-func RunReadonlyQuery(db *store.DB, sql string) (*QueryResult, error) {
+// inner LIMIT; SQLite accepts WITH inside the subquery. args bind the query's
+// parameters, such as a widget's :from and :to.
+func RunReadonlyQuery(db *store.DB, sql string, args ...any) (*QueryResult, error) {
 	if err := validateReadonly(sql); err != nil {
 		return nil, fmt.Errorf("query rejected: %w", err)
 	}
 	wrapped := fmt.Sprintf("SELECT * FROM (%s) LIMIT %d", strings.TrimSpace(sql), wrapLimit)
 	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout)
 	defer cancel()
-	rows, err := db.QueryContext(ctx, wrapped)
+	rows, err := db.QueryContext(ctx, wrapped, args...)
 	if err != nil {
 		return nil, err
 	}
