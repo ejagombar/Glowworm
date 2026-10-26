@@ -23,7 +23,7 @@ function toast(msg) {
   el.hidden = false;
   el.innerHTML = `<svg class="icon"><use href="#i-check"/></svg> ${esc(msg)}`;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), 2600);
+  toastTimer = setTimeout(() => (el.hidden = true), Math.max(2600, String(msg).length * 70));
 }
 function reloadWithToast(msg) {
   try { sessionStorage.setItem("glowworm-toast", msg); } catch (e) {}
@@ -1947,8 +1947,9 @@ document.addEventListener("DOMContentLoaded", () => {
           toast((b.error && b.error.message) || "That didn't work");
           return;
         }
-        toast(okMsg);
-        location.reload();
+        // Parts changed again later are kept; say which.
+        const out = await r.json().catch(() => ({}));
+        reloadWithToast(out.notes && out.notes.length ? okMsg + ". " + out.notes.join(". ") + "." : okMsg);
       }).catch(() => toast("That didn't work"));
     });
   }

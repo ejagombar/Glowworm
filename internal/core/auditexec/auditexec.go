@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
@@ -62,6 +64,12 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		}
 		if cat, ok := target["categories"]; ok {
 			return x.applyCategories(tx, id, cat, reapply)
+		}
+		if ent.Action == "transaction.edited" && before != nil && after != nil {
+			if reapply {
+				return x.applyTxEdit(tx, id, before, after)
+			}
+			return x.applyTxEdit(tx, id, after, before)
 		}
 		return x.applyTxFields(tx, id, target)
 
@@ -257,24 +265,156 @@ func (x *Executor) applyTxFields(tx *sql.Tx, id string, f map[string]any) error 
 	return err
 }
 
+// txEditFields are the parts of a transaction an edit can change. Each is
+// undone or redone on its own, and only if it still holds the value the
+// entry left: one changed again since keeps that later value. category_source
+// follows category_id and isn't checked.
+var txEditFields = []struct {
+	label string
+	keys  []string
+}{
+	{"account", []string{"account_id"}},
+	{"date", []string{"date"}},
+	{"description", []string{"description"}},
+	{"merchant", []string{"merchant"}},
+	{"amount", []string{"amount_minor"}},
+	{"category", []string{"category_id", "type", "category_source"}},
+}
+
+// applyTxEdit moves a transaction from one snapshot of an edit (from) to the
+// other (to), touching only the fields the edit changed.
+func (x *Executor) applyTxEdit(tx *sql.Tx, id string, from, to map[string]any) error {
+	t, err := getTxIn(x.Txs, tx, id)
+	if err != nil {
+		return err
+	}
+	cur := map[string]any{
+		"account_id": t.AccountID, "date": t.Date, "description": t.Description,
+		"merchant": t.Merchant, "amount_minor": t.AmountMinor, "type": t.Type,
+		"category_id": t.CategoryID, "category_source": t.CategorySource,
+	}
+	var kept []string
+	for _, f := range txEditFields {
+		changed, conflict := false, false
+		for _, k := range f.keys {
+			if snapVal(from[k]) == snapVal(to[k]) {
+				continue
+			}
+			changed = true
+			if k != "category_source" && snapVal(cur[k]) != snapVal(from[k]) {
+				conflict = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		if conflict {
+			kept = append(kept, f.label)
+			continue
+		}
+		for _, k := range f.keys {
+			if snapVal(from[k]) == snapVal(to[k]) {
+				continue
+			}
+			v := snapVal(to[k])
+			switch k {
+			case "account_id":
+				t.AccountID = v
+			case "date":
+				t.Date = v
+			case "description":
+				t.Description = v
+			case "merchant":
+				t.Merchant = optStr(v)
+			case "amount_minor":
+				t.AmountMinor = int64F(to[k])
+			case "type":
+				t.Type = v
+			case "category_id":
+				t.CategoryID = optStr(v)
+			case "category_source":
+				if v != "" {
+					t.CategorySource = v
+				}
+			}
+		}
+	}
+	if _, err := tx.Exec(`UPDATE transactions SET account_id=?, date=?, description=?, merchant=?, amount_minor=?, type=?,
+		category_id=?, category_source=?, updated_at=? WHERE id=?`,
+		t.AccountID, t.Date, t.Description, t.Merchant, t.AmountMinor, t.Type,
+		t.CategoryID, t.CategorySource, util.NowStr(), t.ID); err != nil {
+		return err
+	}
+	if len(kept) > 0 {
+		return &audit.Partial{Notes: []string{fmt.Sprintf("%s: kept the %s from a later change", t.Description, joinAnd(kept))}}
+	}
+	return nil
+}
+
+// snapVal is a snapshot value as text, so values read back from JSON
+// (float64, nil) compare equal to the live ones (int64, *string, "").
+func snapVal(v any) string {
+	switch n := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return n
+	case *string:
+		if n == nil {
+			return ""
+		}
+		return *n
+	case float64:
+		return strconv.FormatFloat(n, 'f', -1, 64)
+	case int64:
+		return strconv.FormatInt(n, 10)
+	}
+	return fmt.Sprint(v)
+}
+
+func optStr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func joinAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
 func (x *Executor) applyCategories(tx *sql.Tx, id string, cat any, reapply bool) error {
 	items, ok := cat.([]any)
 	if !ok {
 		return fmt.Errorf("auditexec: bad categories payload")
 	}
+	var kept []string
 	for _, it := range items {
 		m, _ := it.(map[string]any)
 		if m == nil {
 			continue
 		}
 		txID := str(m["transaction_id"])
-		which := m["before"]
+		which, other := m["before"], m["after"]
 		if reapply {
-			which = m["after"]
+			which, other = m["after"], m["before"]
 		}
 		wm, _ := which.(map[string]any)
 		if wm == nil || txID == "" {
 			continue
+		}
+		// A transaction recategorised again since keeps that later category.
+		if om, _ := other.(map[string]any); om != nil {
+			var curCat sql.NullString
+			var desc string
+			if err := tx.QueryRow(`SELECT category_id, description FROM transactions WHERE id = ?`, txID).Scan(&curCat, &desc); err == nil &&
+				curCat.String != snapVal(om["category_id"]) {
+				kept = append(kept, desc)
+				continue
+			}
 		}
 		var catID any
 		switch c := wm["category_id"].(type) {
@@ -295,6 +435,10 @@ func (x *Executor) applyCategories(tx *sql.Tx, id string, cat any, reapply bool)
 			catID, src, nowStr(), txID); err != nil {
 			return err
 		}
+	}
+	if len(kept) > 0 {
+		return &audit.Partial{Notes: []string{fmt.Sprintf("%d transaction%s kept a category from a later change (%s)",
+			len(kept), map[bool]string{true: "", false: "s"}[len(kept) == 1], strings.Join(kept, ", "))}}
 	}
 	return nil
 }

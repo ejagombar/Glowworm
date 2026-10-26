@@ -215,7 +215,8 @@ func (e *Engine) JumpBack(entryID int64, apply ApplyFunc) (JumpResult, error) {
 				continue
 			}
 			if apply != nil {
-				if err := apply(tx, &t, false); err != nil {
+				var notes []string
+				if err := apply(tx, &t, false); err != nil && !partialNotes(err, &notes) {
 					failed = append(failed, map[string]any{"id": t.ID, "reason": err.Error()})
 					continue
 				}
@@ -268,7 +269,8 @@ func (e *Engine) RestorePath(pathID string, apply ApplyFunc) (RestoreResult, err
 		for i := len(toShelve) - 1; i >= 0; i-- {
 			t := toShelve[i]
 			if apply != nil {
-				if err := apply(tx, &t, false); err != nil {
+				var notes []string
+				if err := apply(tx, &t, false); err != nil && !partialNotes(err, &notes) {
 					continue // never block a restore on a failed shelve
 				}
 			}
@@ -298,7 +300,8 @@ func (e *Engine) RestorePath(pathID string, apply ApplyFunc) (RestoreResult, err
 				continue
 			}
 			if apply != nil {
-				if err := apply(tx, &r, true); err != nil {
+				var notes []string
+				if err := apply(tx, &r, true); err != nil && !partialNotes(err, &notes) {
 					skipped = append(skipped, r.ID)
 					continue
 				}

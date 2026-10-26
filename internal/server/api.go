@@ -510,12 +510,13 @@ func (a *App) apiAuditRevert(w http.ResponseWriter, r *http.Request) error {
 		apiError(w, http.StatusBadRequest, "validation_failed", "Bad id")
 		return nil
 	}
-	if err := a.Audit.Undo(id, a.applyEntry); err != nil {
+	notes, err := a.Audit.Undo(id, a.applyEntry)
+	if err != nil {
 		apiError(w, http.StatusConflict, "conflict", err.Error())
 		return nil
 	}
 	a.afterHistoryChange()
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "notes": notes})
 	return nil
 }
 
@@ -526,12 +527,13 @@ func (a *App) apiAuditRedo(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	if err := a.Audit.Redo(in.IDs, a.applyEntry); err != nil {
+	notes, err := a.Audit.Redo(in.IDs, a.applyEntry)
+	if err != nil {
 		apiError(w, http.StatusConflict, "conflict", err.Error())
 		return nil
 	}
 	a.afterHistoryChange()
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "notes": notes})
 	return nil
 }
 
