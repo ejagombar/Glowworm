@@ -158,10 +158,13 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	if err := app.bootstrapOwner(); err != nil {
 		return nil, err
 	}
-	// Learnt rules are derived from transactions; rebuilding them picks up
-	// any change a migration made to descriptions.
+	// Learnt rules and recurring series are derived from transactions;
+	// rebuilding them picks up any change a migration or a fix made.
 	if err := app.Cat.RefreshRules(); err != nil {
 		log.Error("rules refresh", "err", err)
+	}
+	if _, err := app.Recurring.Detect(); err != nil {
+		log.Error("recurring detection", "err", err)
 	}
 	return app, nil
 }
@@ -481,6 +484,9 @@ func (a *App) afterImport(batchID string) {
 func (a *App) afterHistoryChange() {
 	if err := a.Cat.RefreshRules(); err != nil {
 		a.Log.Error("rules refresh", "err", err)
+	}
+	if _, err := a.Recurring.Detect(); err != nil {
+		a.Log.Error("recurring detection", "err", err)
 	}
 	a.Cat.RetrainQuiet()
 }
