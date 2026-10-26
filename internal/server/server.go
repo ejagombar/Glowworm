@@ -24,6 +24,7 @@ import (
 	"glowworm/internal/core/auditexec"
 	"glowworm/internal/core/categories"
 	"glowworm/internal/core/categoriser"
+	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/recurring"
@@ -59,6 +60,7 @@ type App struct {
 	Imports      *imports.Service
 	Transfers    *transfers.Service
 	Recurring    *recurring.Service
+	Grouping     *grouping.Service
 	Query        *query.Service
 
 	AuditWriter  *audit.Writer
@@ -137,6 +139,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		},
 	}
 	app.Recurring = &recurring.Service{DB: db, Txs: rp.Transactions, Audit: writer}
+	app.Grouping = &grouping.Service{DB: db, Audit: writer}
 	app.Query = &query.Service{
 		DB: db, Provider: queryProvider, Clock: clk,
 		Repo: &query.ConvRepo{DB: db},
@@ -166,6 +169,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	if _, err := app.Recurring.Detect(); err != nil {
 		log.Error("recurring detection", "err", err)
 	}
+	app.regroup()
 	return app, nil
 }
 
@@ -488,10 +492,20 @@ func (a *App) afterHistoryChange() {
 	if _, err := a.Recurring.Detect(); err != nil {
 		a.Log.Error("recurring detection", "err", err)
 	}
+	a.regroup()
 	a.Cat.RetrainQuiet()
 }
 
+// regroup puts transactions in their groups by the grouping rules, after
+// anything that adds transactions or changes their descriptions.
+func (a *App) regroup() {
+	if err := a.Grouping.Apply(); err != nil {
+		a.Log.Error("grouping", "err", err)
+	}
+}
+
 func (a *App) refreshDerived() {
+	a.regroup()
 	if n, err := a.Transfers.Detect(); err == nil && n > 0 {
 		a.Log.Info("transfer detection", "linked", n)
 	}

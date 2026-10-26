@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"glowworm/internal/ai"
+	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/util"
 )
@@ -34,6 +35,9 @@ type agentWidgetSpec struct {
 	Columns map[string]SpecColumn `json:"columns"`
 	Caption string                `json:"caption"`
 	Data    json.RawMessage       `json:"data"`
+	// A group_rule widget: grouping rules drafted for the user to create.
+	Group string               `json:"group"`
+	Rules []grouping.DraftRule `json:"rules"`
 }
 
 type agentAction struct {
@@ -76,6 +80,18 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 		SQL: rawStr(m["sql"]), Caption: rawStr(m["caption"])}
 	if c, ok := m["columns"]; ok && sp.SQL != "" {
 		_ = json.Unmarshal(c, &sp.Columns)
+	}
+	if strings.EqualFold(sp.Type, "group_rule") {
+		src := m
+		if d, ok := m["data"]; ok {
+			var dm map[string]json.RawMessage
+			if json.Unmarshal(d, &dm) == nil && dm["rules"] != nil {
+				src = dm
+			}
+		}
+		sp.Group = rawStr(src["group"])
+		_ = json.Unmarshal(src["rules"], &sp.Rules)
+		return sp
 	}
 	if sp.SQL != "" {
 		return sp
@@ -168,11 +184,14 @@ DATABASE (SQLite). Tables you may query:
 - transactions(id, date TEXT 'YYYY-MM-DD', description, merchant, amount_minor INTEGER
   [negative = expense, positive = income, in minor units e.g. pence], type TEXT
   'expense'|'income'|'transfer', category_id, account_id, currency, deleted_at)
-  IMPORTANT: merchant is frequently empty — the payee is usually in
-  description. When the user names a merchant/payee/shop, match
-  COALESCE(NULLIF(merchant,''), description), never merchant alone.
+  IMPORTANT: merchant is the GROUP the transaction belongs to by one of the
+  user's grouping rules (see GROUPING), and is NULL for most transactions —
+  the payee is in description. Group and label payees by
+  COALESCE(NULLIF(merchant,''), description); when the user names a
+  merchant/payee/shop, match that expression, never merchant alone.
 - categories(id, name)
 - accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date)
+- group_rules(id, group_name, match TEXT 'is'|'contains', text, created_at, deleted_at)
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
@@ -295,6 +314,30 @@ EXAMPLE QUERIES (verified against this schema — prefer these patterns):
     WHERE t.deleted_at IS NULL AND t.type = 'expense'
     AND COALESCE(NULLIF(t.merchant,''), t.description) LIKE '%Virgin Trains%'
 
+GROUPING: the same payee or purpose can appear under slightly different
+descriptions ("To Jaeren Rodrigues - rent and water", "Jaeren Rodrigues -
+Rent and water"), so it shows up as separate merchants. The user fixes this
+with grouping rules: each rule puts transactions whose description IS, or
+CONTAINS, some text into a named group (comparison ignores case and
+punctuation; "contains" matches whole words). A group exists only through
+its rules. You never create or delete rules yourself — you DRAFT them and
+the user presses a button:
+- When the user wants transactions grouped, first query the descriptions
+  involved (SELECT description, COUNT(*) ... GROUP BY description), then
+  answer with a group_rule widget:
+    {"type":"group_rule","group":"Rent and water",
+     "rules":[{"match":"contains","text":"rent and water"}]}
+  Prefer the fewest, most specific rules that catch exactly the intended
+  descriptions: "is" with the full description for one-offs, "contains"
+  with a distinctive phrase for variants. Never draft text so general it
+  would pull in unrelated payees (a single common word, a person's name
+  when only one purpose was meant). The widget shows the user which
+  descriptions it would catch. Say in the text that pressing Create rule
+  applies it — never claim it is done.
+- To show, review or remove rules: {"type":"group_rules","title":"Grouping rules"}
+  — a live list where each rule can be deleted. Removing a group means
+  deleting its rules from that list.
+
 PROTOCOL — every reply is ONE JSON object, no prose outside it:
 1. To fetch data: {"action":"run_query","sql":"SELECT ..."}
    - If a query errors, fix it and retry; if it returns 0 rows, do not conclude
@@ -310,7 +353,8 @@ PROTOCOL — every reply is ONE JSON object, no prose outside it:
    - "text": short, factual, impersonal. Quote amounts in major units
      (e.g. £128.40). Reference the numbers you actually found; never invent figures.
    - "widgets": 0-3 live query widgets as described under WIDGETS ARE LIVE
-     QUERIES, type one of number, bar, line, pie, table, transactions, text.
+     QUERIES, type one of number, bar, line, pie, table, transactions, text;
+     or the group_rule / group_rules widgets under GROUPING (these have no sql).
      Test a widget's sql with run_query first when unsure.
    - Use at most one widget unless the question clearly needs more.
 3. If the user names something that isn't in their categories/accounts/merchants,
@@ -493,6 +537,31 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 		typ := strings.ToLower(strings.TrimSpace(sp.Type))
 		title := truncateChars(strings.TrimSpace(sp.Title), 120)
 		name := fmt.Sprintf("widget %d (%q)", i+1, title)
+		switch typ {
+		case "group_rules":
+			if title == "" {
+				title = "Grouping rules"
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: map[string]any{}})
+			continue
+		case "group_rule":
+			draft := grouping.Draft{Group: sp.Group, Rules: sp.Rules}
+			p, err := (&grouping.Service{DB: s.DB}).Preview(draft)
+			if err == nil && len(p.Matched) == 0 {
+				err = fmt.Errorf("these rules match no transactions; check the text against real descriptions")
+			}
+			if err != nil {
+				if !lenient {
+					problems = append(problems, name+": "+err.Error())
+				}
+				continue
+			}
+			if title == "" {
+				title = "Group as “" + p.Group + "”"
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: p.Draft})
+			continue
+		}
 		if strings.TrimSpace(sp.SQL) == "" {
 			if typ == "text" || lenient {
 				if w := sanitizeWidget(sp); w != nil {

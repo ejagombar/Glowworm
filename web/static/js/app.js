@@ -687,16 +687,18 @@ function widgetCardHTML(widget) {
   el.innerHTML = `
     <div class="widget-head">
       <div class="widget-title">${esc(widget.title || "Widget")}</div>
-      <div class="widget-actions">
+      ${isRulesWidget(widget.type) ? "" : `<div class="widget-actions">
         <button class="widget-btn${widget.pinned ? " pinned-on" : ""}" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
         <button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
-      </div>
+      </div>`}
     </div>
     <div class="widget-body">${widgetBodyHTML(widget)}</div>`;
   return el.outerHTML;
 }
 function widgetBodyHTML(widget) {
   const data = widget.data || {};
+  if (widget.type === "group_rules") return `<div class="rules-host" data-rules-kind="list"></div>`;
+  if (widget.type === "group_rule") return `<div class="rules-host" data-rules-kind="draft" data-draft="${esc(JSON.stringify(data))}"></div>`;
   if (data.transactions) {
     data.transactions = data.transactions.map((tx) => {
       const v = tx.amount_minor ?? tx.amount ?? 0;
@@ -1319,6 +1321,101 @@ function recurringSearchHref(txs) {
   const qs = params.toString();
   return "/transactions" + (qs ? "?" + qs : "");
 }
+// ---- Grouping rules, shown only in the query window. Both widgets read the
+// rules live, so an old answer still shows what's true now.
+function isRulesWidget(type) { return type === "group_rule" || type === "group_rules"; }
+function ruleText(r) {
+  return `${r.match === "is" ? "is" : "contains"} “${r.text}”`;
+}
+function hydrateRules(root) {
+  (root || document).querySelectorAll(".rules-host").forEach((host) => {
+    if (host.dataset.rulesKind === "list") loadRulesList(host);
+    else loadRuleDraft(host);
+  });
+}
+function loadRulesList(host) {
+  fetch("/api/v1/group-rules").then((r) => r.json()).then((body) => {
+    const items = body.items || [];
+    if (!items.length) {
+      host.innerHTML = `<p class="rules-empty">No grouping rules yet. Ask to group transactions that should count as one merchant.</p>`;
+      return;
+    }
+    host.innerHTML = `<div class="table-widget"><table class="rules-table">
+      <thead><tr><th>Group</th><th>Description</th><th class="num">Transactions</th><th></th></tr></thead>
+      <tbody>${items.map((r) => `<tr>
+        <td>${esc(r.group)}</td><td class="cell-sub">${esc(ruleText(r))}</td><td class="num">${r.count}</td>
+        <td class="row-actions"><button class="widget-btn" data-delete-rule="${esc(r.id)}" data-rule-label="${esc(r.group + " · " + ruleText(r))}" title="Delete rule" aria-label="Delete rule"><svg class="icon"><use href="#i-close"/></svg></button></td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }).catch(() => { host.innerHTML = `<p class="rules-empty">Could not load the rules.</p>`; });
+}
+function loadRuleDraft(host) {
+  let draft;
+  try { draft = JSON.parse(host.dataset.draft || "{}"); } catch (e) { draft = {}; }
+  fetch("/api/v1/group-rules/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: JSON.stringify(draft),
+  }).then(async (r) => {
+    const p = await r.json();
+    if (!r.ok) throw new Error((p.error && p.error.message) || "preview failed");
+    const total = (p.matched || []).reduce((n, m) => n + m.count, 0);
+    host.innerHTML = `<div class="rule-draft">
+      <p class="rule-draft-head">Transactions whose description ${(p.rules || []).map((r) => `<strong>${esc(ruleText(r))}</strong>`).join(" or ")}
+        go in the group <strong>${esc(p.group)}</strong>:</p>
+      <div class="table-widget"><table class="rules-table">
+        <thead><tr><th>Description</th><th class="num">Transactions</th></tr></thead>
+        <tbody>${(p.matched || []).map((m) => `<tr><td>${esc(m.description)}${m.current ? ` <span class="cell-sub">· now in ${esc(m.current)}</span>` : ""}</td><td class="num">${m.count}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="rule-draft-foot">
+        <span class="cell-sub">${total} transaction${total === 1 ? "" : "s"}${p.created ? " · rule created" : ""}</span>
+        ${p.created ? "" : `<button class="btn btn-primary btn-xs" data-create-rule>Create rule</button>`}
+      </div></div>`;
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the rule.")}</p>`; });
+}
+document.addEventListener("click", (e) => {
+  const create = e.target.closest("[data-create-rule]");
+  if (create) {
+    const host = create.closest(".rules-host");
+    create.disabled = true;
+    fetch("/api/v1/group-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: host.dataset.draft,
+    }).then(async (r) => {
+      if (!r.ok) { toast(await apiErrorText(r, "Could not create the rule")); create.disabled = false; return; }
+      toast("Rule created");
+      hydrateRules();
+    }).catch(() => { toast("Could not create the rule"); create.disabled = false; });
+    return;
+  }
+  const del = e.target.closest("[data-delete-rule]");
+  if (del) {
+    showConfirm("Delete this rule?", `${del.dataset.ruleLabel}. Its transactions leave the group, and a group with no rules left is gone. You can undo this from History.`, "Delete", () => {
+      fetch(`/api/v1/group-rules/${encodeURIComponent(del.dataset.deleteRule)}`, {
+        method: "DELETE",
+        headers: { "X-CSRF-Token": csrfToken() },
+      }).then(async (r) => {
+        if (!r.ok) { toast(await apiErrorText(r, "Could not delete the rule")); return; }
+        toast("Rule deleted");
+        hydrateRules();
+      }).catch(() => toast("Could not delete the rule"));
+    }, "danger");
+  }
+});
+document.addEventListener("DOMContentLoaded", () => {
+  const box = document.getElementById("queryMessages");
+  if (!box) return;
+  hydrateRules(box);
+  // Answers and older pages of the conversation arrive later.
+  new MutationObserver((muts) => {
+    for (const m of muts) m.addedNodes.forEach((n) => {
+      if (n.nodeType !== 1) return;
+      if (n.matches(".rules-host")) hydrateRules(n.parentNode);
+      else if (n.querySelector(".rules-host")) hydrateRules(n);
+    });
+  }).observe(box, { childList: true, subtree: true });
+});
+
 function recurringRowHTML(t) {
   const cat = t.category ? t.category.name : "Uncategorised";
   const amt = fmtMoneySigned(t.amount_minor, t.currency || "GBP");

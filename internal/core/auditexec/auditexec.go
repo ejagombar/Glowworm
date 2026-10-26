@@ -155,6 +155,17 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		// Derived from the data; recomputed after any undo or redo.
 		return nil
 
+	case "group_rule.created", "group_rule.deleted":
+		// Rules are soft-deleted, so either way it's the same row on or off.
+		// Transactions are regrouped after every undo and redo.
+		on := (ent.Action == "group_rule.created") == reapply
+		var deletedAt any
+		if !on {
+			deletedAt = nowStr()
+		}
+		_, err := tx.Exec(`UPDATE group_rules SET deleted_at = ? WHERE id = ?`, deletedAt, str(revert["rule_id"]))
+		return err
+
 	case "transfer.linked", "transfer.unlink":
 		return x.applyTransfer(tx, ent, before, after, revert, reapply)
 

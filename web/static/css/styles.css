@@ -1881,3 +1881,10 @@ html:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
 @media (max-width: 760px) and (pointer: coarse) {
   input, select, textarea { font-size: 16px !important; }
 }
+
+/* Grouping rules in the query window */
+.rules-empty { color: var(--muted); font-size: 13px; margin: 4px 0; }
+.rules-table td, .rules-table th { padding: 7px 10px; }
+.rules-table .row-actions { width: 1%; white-space: nowrap; text-align: right; }
+.rule-draft-head { font-size: 13px; margin: 0 0 8px; }
+.rule-draft-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }

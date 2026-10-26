@@ -19,6 +19,7 @@ import (
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/categories"
+	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/setup"
 	"glowworm/internal/core/transactions"
@@ -77,6 +78,11 @@ func serviceError(w http.ResponseWriter, err error) bool {
 	var ae *acctValidationError
 	if errors.As(err, &ae) {
 		apiError(w, http.StatusBadRequest, "validation_failed", ae.Message)
+		return true
+	}
+	var ge *grouping.ValidationError
+	if errors.As(err, &ge) {
+		apiError(w, http.StatusBadRequest, "validation_failed", ge.Message)
 		return true
 	}
 	var ie *imports.ValidationError
@@ -167,6 +173,11 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/transactions/{id}/unlink", j(a.apiTransferUnlink))
 	mux.HandleFunc("GET /api/v1/transactions/{id}/transfer-suggestions", j(a.apiTransferSuggestions))
 	mux.HandleFunc("POST /api/v1/transfers/detect", j(a.apiTransferDetect))
+
+	mux.HandleFunc("GET /api/v1/group-rules", j(a.apiGroupRulesList))
+	mux.HandleFunc("POST /api/v1/group-rules/preview", j(a.apiGroupRulesPreview))
+	mux.HandleFunc("POST /api/v1/group-rules", j(a.apiGroupRulesCreate))
+	mux.HandleFunc("DELETE /api/v1/group-rules/{id}", j(a.apiGroupRuleDelete))
 
 	mux.HandleFunc("GET /api/v1/recurring", j(a.apiRecurringList))
 	mux.HandleFunc("GET /api/v1/recurring/{key}/transactions", j(a.apiRecurringSeries))
@@ -358,6 +369,7 @@ func (a *App) apiTransactionCreate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
+	a.regroup()
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, t)
 	return nil
@@ -372,6 +384,7 @@ func (a *App) apiTransactionUpdate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
+	a.regroup()
 	writeJSON(w, t)
 	return nil
 }
@@ -1263,5 +1276,48 @@ func balancesAll(db *store.DB, date string) (map[string]int64, error) {
 func (a *App) apiReconcileStatus(w http.ResponseWriter, r *http.Request) error {
 	status, label, hint := a.reconcileSummary()
 	writeJSON(w, map[string]any{"status": status, "label": label, "hint": hint})
+	return nil
+}
+
+func (a *App) apiGroupRulesList(w http.ResponseWriter, r *http.Request) error {
+	rules, err := a.Grouping.List()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"items": rules})
+	return nil
+}
+
+func (a *App) apiGroupRulesPreview(w http.ResponseWriter, r *http.Request) error {
+	var d grouping.Draft
+	if err := decodeBody(r, &d); err != nil {
+		return err
+	}
+	p, err := a.Grouping.Preview(d)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, p)
+	return nil
+}
+
+func (a *App) apiGroupRulesCreate(w http.ResponseWriter, r *http.Request) error {
+	var d grouping.Draft
+	if err := decodeBody(r, &d); err != nil {
+		return err
+	}
+	created, err := a.Grouping.Create(d)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"created": created})
+	return nil
+}
+
+func (a *App) apiGroupRuleDelete(w http.ResponseWriter, r *http.Request) error {
+	if err := a.Grouping.Delete(r.PathValue("id")); err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }

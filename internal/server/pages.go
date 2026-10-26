@@ -1125,11 +1125,19 @@ func widgetCardHTML(w *widgets.Widget) string {
 		b.WriteString(` data-widget-dataset="` + template.HTMLEscapeString(marshalAny(w.Dataset)) + `"`)
 	}
 	b.WriteString(`><div class="widget-head"><div class="widget-title">` + template.HTMLEscapeString(w.Title) + `</div>`)
-	b.WriteString(`<div class="widget-actions">
+	rules := w.Type == "group_rule" || w.Type == "group_rules"
+	if !rules {
+		b.WriteString(`<div class="widget-actions">
 		<button class="widget-btn" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
 		<button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
-	</div></div><div class="widget-body">`)
+	</div>`)
+	}
+	b.WriteString(`</div><div class="widget-body">`)
 	switch w.Type {
+	case "group_rules":
+		b.WriteString(`<div class="rules-host" data-rules-kind="list"></div>`)
+	case "group_rule":
+		b.WriteString(`<div class="rules-host" data-rules-kind="draft" data-draft="` + template.HTMLEscapeString(w.DataJSON()) + `"></div>`)
 	case "number":
 		d, _ := w.Data.(map[string]any)
 		b.WriteString(`<div class="num-widget"><div class="num-value">` + template.HTMLEscapeString(str(d["value"])) + `</div>`)

@@ -580,3 +580,31 @@ func TestRunSpecDatesAndFormats(t *testing.T) {
 		t.Error("an old plan parsed as a spec")
 	}
 }
+
+// A drafted grouping rule is checked against the data: one that matches
+// nothing goes back to the model; one that matches becomes a draft widget
+// and changes nothing until the user creates it.
+func TestAgentDraftsGroupRule(t *testing.T) {
+	var sawCheck string
+	provider := &ai.MockAgent{Replies: []string{
+		`{"action":"final","text":"Press Create rule to group them.","widgets":[{"type":"group_rule","group":"Buses","rules":[{"match":"is","text":"Tram"}]}]}`,
+		`{"action":"final","text":"Press Create rule to group them.","widgets":[{"type":"group_rule","group":"Buses","rules":[{"match":"is","text":"Bus"}]}]}`,
+	}}
+	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
+	defer svc.DB.Close()
+	ans, err := svc.Ask("group my bus trips")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sawCheck, "match no transactions") {
+		t.Errorf("empty draft not fed back: %q", sawCheck)
+	}
+	if len(ans.Widgets) != 1 || ans.Widgets[0].Type != "group_rule" {
+		t.Fatalf("widgets = %+v", ans.Widgets)
+	}
+	var n int
+	_ = svc.DB.QueryRow(`SELECT COUNT(*) FROM group_rules`).Scan(&n)
+	if n != 0 {
+		t.Errorf("a draft created %d rules", n)
+	}
+}
