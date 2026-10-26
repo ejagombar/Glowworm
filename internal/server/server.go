@@ -158,6 +158,11 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	if err := app.bootstrapOwner(); err != nil {
 		return nil, err
 	}
+	// Learnt rules are derived from transactions; rebuilding them picks up
+	// any change a migration made to descriptions.
+	if err := app.Cat.RefreshRules(); err != nil {
+		log.Error("rules refresh", "err", err)
+	}
 	return app, nil
 }
 

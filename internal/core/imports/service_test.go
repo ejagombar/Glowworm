@@ -426,3 +426,42 @@ func TestForeignCurrencyRowsAreConverted(t *testing.T) {
 		t.Fatalf("home-currency row = %+v", r)
 	}
 }
+
+// HTML-escaped text ("Marks &amp; Spencer") is decoded on import, and a row
+// imported before that, saved escaped with the escaped text's hash, is still
+// recognised as a duplicate.
+func TestImportDecodesHTMLEntities(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	csv := "Date,Description,Payee,Amount\n2026-06-01,Marks &amp; Spencer,B&amp;Q &lt;Ltd&gt;,-10.00\n2026-06-02,Marks &amp; Spencer,,-7.00\n"
+	if _, err := s.DB.Exec(`INSERT INTO transactions (id, account_id, date, description, amount_minor, currency, type, dedupe_hash, created_at, updated_at)
+		VALUES ('old','acc-main','2026-06-02','Marks & Spencer',-700,'GBP','expense',?,'2026-06-03T00:00:00Z','2026-06-03T00:00:00Z')`,
+		repos.DedupeHash("acc-main", "2026-06-02", -700, "Marks &amp; Spencer")); err != nil {
+		t.Fatal(err)
+	}
+	acc := "acc-main"
+	b, err := s.Upload("chase.csv", []byte(csv), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.ApplySchemaPublic(b.ID, userMapping(), []byte(csv)); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.DB.Query(`SELECT description, destination_text, COALESCE(duplicate_of, '') FROM import_staging WHERE batch_id = ? ORDER BY line_no`, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var d, dest, dup string
+		if err := rows.Scan(&d, &dest, &dup); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, d+"|"+dest+"|"+dup)
+	}
+	want := []string{"Marks & Spencer|B&Q <Ltd>|", "Marks & Spencer||old"}
+	if strings.Join(got, ";") != strings.Join(want, ";") {
+		t.Fatalf("staged = %v, want %v", got, want)
+	}
+}

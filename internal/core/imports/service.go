@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"math"
 	"sort"
@@ -514,7 +515,17 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 		}
 		for _, r := range rows {
 			stagingID := util.NewID()
+			// Some banks (Chase) export text HTML-escaped: "Marks &amp; Spencer".
+			r.Description = html.UnescapeString(r.Description)
+			r.SourceText = html.UnescapeString(r.SourceText)
+			r.DestinationText = html.UnescapeString(r.DestinationText)
 			hash := repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, r.Description)
+			// Transactions imported before that keep the hash of their escaped
+			// description, so a re-import must match that too.
+			hashes := []any{hash}
+			if escaped := strings.ReplaceAll(r.Description, "&", "&amp;"); escaped != r.Description {
+				hashes = append(hashes, repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, escaped))
+			}
 			if r.FitID != "" {
 				hash = "fitid:" + r.FitID
 			}
@@ -527,8 +538,8 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 				}
 			} else {
 				var existing string
-				err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash = ? AND deleted_at IS NULL LIMIT 1`,
-					deref(s.batchAccountID(tx, batchID)), hash).Scan(&existing)
+				err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash IN (?`+strings.Repeat(",?", len(hashes)-1)+`)
+					AND deleted_at IS NULL LIMIT 1`, append([]any{deref(s.batchAccountID(tx, batchID))}, hashes...)...).Scan(&existing)
 				if err == nil {
 					dup = existing
 				}
