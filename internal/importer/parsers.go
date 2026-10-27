@@ -159,7 +159,7 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 	if err != nil {
 		return nil, nil, fmt.Errorf("couldn't read the Excel file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sheets = f.GetSheetList()
 	if len(sheets) == 0 {
 		return nil, nil, fmt.Errorf("the workbook has no sheets")
@@ -182,9 +182,7 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 	}
 	for _, r := range rows {
 		row := make([]string, len(r))
-		for i, cell := range r {
-			row[i] = cell
-		}
+		copy(row, r)
 		table = append(table, row)
 	}
 	return sheets, table, nil

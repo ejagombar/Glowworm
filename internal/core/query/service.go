@@ -450,8 +450,6 @@ func (s *Service) compileMoney(p *Plan) (*widgets.Dataset, string, error) {
 		total += v
 		ds.Rows = append(ds.Rows, []any{bucket, float64(v)})
 	}
-	if p.Sort == "value_desc" && (p.Breakdown == "category" || p.Breakdown == "merchant") {
-	}
 	ds.Meta.Currency = s.currency()
 	ds.Meta.EntityLabel = entityLabel(p)
 	ds.Meta.TotalMinor = &total
@@ -864,13 +862,13 @@ func (s *Service) presentBody(p *Plan, ds *widgets.Dataset) *widgets.Widget {
 	}
 	kind := p.ChartHint
 	if kind == "" {
-		switch {
-		case p.Breakdown == "month" || p.Breakdown == "week" || p.Breakdown == "day":
+		switch p.Breakdown {
+		case "month", "week", "day":
 			kind = "line"
 			if p.Metric == "spend" || p.Metric == "income" {
 				kind = "bar"
 			}
-		case p.Breakdown == "category" || p.Breakdown == "merchant":
+		case "category", "merchant":
 			if len(ds.Rows) <= 8 {
 				kind = "pie"
 			} else {

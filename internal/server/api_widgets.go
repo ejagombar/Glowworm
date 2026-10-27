@@ -15,8 +15,6 @@ import (
 	"glowworm/internal/util"
 )
 
-type query_Answer = query.Answer
-
 func (a *App) viewWindow(period, from, to string) *query.TimeWindow {
 	if period == "" {
 		period = a.Settings.Get().DefaultPeriod
@@ -127,7 +125,7 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 			m[k] = v
 		}
 		b, _ := json.Marshal(m)
-		w.Write(append(b, '\n'))
+		_, _ = w.Write(append(b, '\n'))
 		if flusher != nil {
 			flusher.Flush()
 		}

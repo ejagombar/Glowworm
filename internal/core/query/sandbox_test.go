@@ -39,7 +39,7 @@ func TestReadonlyConnectionCantWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	// A function that writes isn't reachable from SQL, so prove it with a
 	// statement the validator would refuse, run on the same kind of connection.

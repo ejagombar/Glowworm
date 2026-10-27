@@ -80,7 +80,7 @@ func (a *App) streamCategorise(w http.ResponseWriter, r *http.Request, run func(
 	w.WriteHeader(http.StatusOK)
 
 	rc := http.NewResponseController(w)
-	rc.Flush()
+	_ = rc.Flush()
 
 	ctx := r.Context()
 	cancelled := false

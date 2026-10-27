@@ -232,17 +232,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	return a.Render.Render(w, "dashboard", data)
 }
 
-func lowerFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	b := []byte(s)
-	if b[0] >= 'A' && b[0] <= 'Z' {
-		b[0] += 32
-	}
-	return string(b)
-}
-
 func (a *App) monthTotals() (income, spend int64) {
 	from, to := periods.ThisMonth(a.Clock.TodayTime())
 	var i, sp any
@@ -494,28 +483,6 @@ func accountValuations(a *App, accountID, until string) ([]valuationPoint, error
 		}
 	}
 	return out, rows.Err()
-}
-
-func monthEndOf(m string) string {
-	y := atoi(m[:4])
-	mo := atoi(m[5:7])
-	nextY, nextM := y, mo+1
-	if nextM > 12 {
-		nextM = 1
-		nextY++
-	}
-	end := fmt.Sprintf("%04d-%02d-01", nextY, nextM)
-	t, _ := time.Parse("2006-01-02", end)
-	t = t.AddDate(0, 0, -1)
-	return t.Format("2006-01-02")
-}
-
-func atoi(s string) int {
-	n := 0
-	for i := 0; i < len(s) && i < 4; i++ {
-		n = n*10 + int(s[i]-'0')
-	}
-	return n
 }
 
 func jsonSlice(items []string) string {
@@ -1236,30 +1203,4 @@ func abs64(v int64) int64 {
 		return -v
 	}
 	return v
-}
-
-func moneyFmt(minor int64, cc string) string { return money.Format(minor, cc) }
-
-func monthRange(from, to string) []string {
-	if len(from) < 7 || len(to) < 7 {
-		return nil
-	}
-	fy, fm := atoi(from[:4]), atoi(from[5:7])
-	ty, tm := atoi(to[:4]), atoi(to[5:7])
-	if fy == 0 || fm < 1 || fm > 12 || ty == 0 || tm < 1 || tm > 12 {
-		return nil
-	}
-	var out []string
-	for y, m := fy, fm; y < ty || (y == ty && m <= tm); {
-		out = append(out, fmt.Sprintf("%04d-%02d", y, m))
-		m++
-		if m > 12 {
-			m = 1
-			y++
-		}
-		if len(out) >= 600 {
-			break
-		}
-	}
-	return out
 }

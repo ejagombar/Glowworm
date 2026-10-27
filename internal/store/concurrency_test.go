@@ -15,7 +15,7 @@ func TestConcurrentWritersQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`INSERT INTO accounts (id, name, type, color, currency, created_at, updated_at)
 		VALUES ('a1','Main','debit','#000','GBP','t','t')`); err != nil {
 		t.Fatal(err)

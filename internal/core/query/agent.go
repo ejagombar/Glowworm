@@ -215,10 +215,10 @@ a.type <> 'savings', and transactions with
 t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings').
 
 `)
-	b.WriteString(fmt.Sprintf("USER'S CATEGORIES: %s\n", joinOrNone(cats)))
-	b.WriteString(fmt.Sprintf("USER'S ACCOUNTS: %s\n", joinOrNone(accounts)))
-	b.WriteString(fmt.Sprintf("TOP MERCHANTS: %s\n", joinOrNone(merchants)))
-	b.WriteString(fmt.Sprintf("Today is %s. Currency is %s.\n\n", s.Clock.Today(), s.currency()))
+	fmt.Fprintf(&b, "USER'S CATEGORIES: %s\n", joinOrNone(cats))
+	fmt.Fprintf(&b, "USER'S ACCOUNTS: %s\n", joinOrNone(accounts))
+	fmt.Fprintf(&b, "TOP MERCHANTS: %s\n", joinOrNone(merchants))
+	fmt.Fprintf(&b, "Today is %s. Currency is %s.\n\n", s.Clock.Today(), s.currency())
 	if win != nil && (win.From != "" || win.To != "") {
 		rangeDesc := win.From + " to " + win.To
 		if win.From == "" {
@@ -226,7 +226,7 @@ t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings').
 		} else if win.To == "" {
 			rangeDesc = "from " + win.From
 		}
-		b.WriteString(fmt.Sprintf("CURRENT VIEW PERIOD: the user is browsing %s (%s). Unless the\nquestion names a different date range (\"this month\", \"last year\", a date,\netc.), restrict every query and widget to this period and mention the period\nin the text.\n\n", win.Label, rangeDesc))
+		fmt.Fprintf(&b, "CURRENT VIEW PERIOD: the user is browsing %s (%s). Unless the\nquestion names a different date range (\"this month\", \"last year\", a date,\netc.), restrict every query and widget to this period and mention the period\nin the text.\n\n", win.Label, rangeDesc)
 	} else {
 		b.WriteString("CURRENT VIEW PERIOD: all time.\n\n")
 	}

@@ -21,7 +21,7 @@ func seededInstance(t *testing.T) (dir string, secret *crypto.Secret) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	for _, q := range []string{
 		`INSERT INTO users (id, username, password_hash, created_at, updated_at) VALUES ('u1','owner','x','t','t')`,
 		`INSERT INTO accounts (id, name, type, color, currency, created_at, updated_at) VALUES ('a1','Main','debit','#000','GBP','t','t')`,
@@ -41,7 +41,7 @@ func writeBackup(t *testing.T, dir string, secret *crypto.Secret) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	path := filepath.Join(t.TempDir(), "b.zip")
 	f, err := os.Create(path)
 	if err != nil {
@@ -50,7 +50,9 @@ func writeBackup(t *testing.T, dir string, secret *crypto.Secret) string {
 	if err := Write(f, db, secret, "test"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return path
 }
 
@@ -84,7 +86,7 @@ func TestRestoreRoundTrip(t *testing.T) {
 	if err := db.QueryRow(`SELECT description FROM transactions WHERE id = 't1'`).Scan(&desc); err != nil || desc != "TESCO" {
 		t.Errorf("restored data missing: %q %v", desc, err)
 	}
-	db.Close()
+	_ = db.Close()
 }
 
 func TestRestoreSafety(t *testing.T) {
@@ -113,7 +115,9 @@ func TestRestoreSafety(t *testing.T) {
 	}
 
 	bogus := filepath.Join(t.TempDir(), "bogus.zip")
-	os.WriteFile(bogus, []byte("not a zip"), 0o600)
+	if err := os.WriteFile(bogus, []byte("not a zip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Restore(bogus, t.TempDir(), filepath.Join(t.TempDir(), "x.db"), false); err == nil {
 		t.Error("a non-backup file must be rejected")
 	}

@@ -44,9 +44,7 @@ func stripSuffixes(s string) string {
 	for _, suf := range suffixes {
 		p := " " + suf + " "
 		s = strings.ReplaceAll(s, p, " ")
-		if strings.HasPrefix(s, suf+" ") {
-			s = s[len(suf)+1:]
-		}
+		s = strings.TrimPrefix(s, suf+" ")
 		if strings.HasPrefix(s, suf) {
 			s = s[len(suf):]
 		}

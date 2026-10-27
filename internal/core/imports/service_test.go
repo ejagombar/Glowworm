@@ -21,7 +21,7 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	w := &audit.Writer{DB: db}
 	txs := &repos.Transactions{DB: db}
 	cat := &categoriser.Service{DB: db, Txs: txs, Categories: &repos.Categories{DB: db},
@@ -85,7 +85,7 @@ func stagedByDesc(t *testing.T, s *Service, batchID string) map[string][]stagedS
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string][]stagedState{}
 	for rows.Next() {
 		var key string
@@ -279,7 +279,7 @@ func TestCategoriseGroupsReviewAndRememberSchema(t *testing.T) {
 		t.Fatalf("saved schema must be the mapping the user applied: %s", mapping)
 	}
 
-	next := strings.Replace(statementCSV, "2026-06-0", "2026-07-0", -1)
+	next := strings.ReplaceAll(statementCSV, "2026-06-0", "2026-07-0")
 	joint := "acc-joint"
 	b2, err := s.Upload("july.csv", []byte(next), &joint)
 	if err != nil {
@@ -294,7 +294,7 @@ func TestCategoriseGroupsReviewAndRememberSchema(t *testing.T) {
 
 	// The same export saved with a byte-order mark (as Excel does) is the
 	// same schema, not a new one.
-	withBOM := "\ufeff" + strings.Replace(statementCSV, "2026-06-0", "2026-08-0", -1)
+	withBOM := "\ufeff" + strings.ReplaceAll(statementCSV, "2026-06-0", "2026-08-0")
 	b3, err := s.Upload("august.csv", []byte(withBOM), &joint)
 	if err != nil {
 		t.Fatal(err)
@@ -451,7 +451,7 @@ func TestImportDecodesHTMLEntities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var got []string
 	for rows.Next() {
 		var d, dest, dup string

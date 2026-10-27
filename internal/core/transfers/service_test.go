@@ -15,7 +15,7 @@ func newService(t *testing.T) (*Service, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	s := &Service{
 		DB: db, Txs: &repos.Transactions{DB: db}, Accounts: &repos.Accounts{DB: db},
 		Audit: &audit.Writer{DB: db}, Settings: &repos.Settings{DB: db},

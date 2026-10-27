@@ -289,7 +289,7 @@ func (a *App) Router() http.Handler {
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	mux.HandleFunc("GET /{$}", a.page(a.handleDashboard))
@@ -313,7 +313,7 @@ func (a *App) Router() http.Handler {
 		writeJSON(w, map[string]string{"version": a.version.String()})
 	})
 
-	var handler http.Handler = a.version.middleware(mux)
+	handler := a.version.middleware(mux)
 	if a.Cfg.AuthMode == "password" {
 		handler = a.withAuth(handler)
 	}
@@ -455,7 +455,7 @@ func serviceWorkerHandler(fsys fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Write(body)
+		_, _ = w.Write(body)
 	})
 }
 
@@ -509,7 +509,7 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		case strings.HasSuffix(path, ".webmanifest"):
 			w.Header().Set("Content-Type", "application/manifest+json")
 		}
-		w.Write(data)
+		_, _ = w.Write(data)
 	})
 }
 

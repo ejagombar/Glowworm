@@ -7,7 +7,7 @@ func TestResetMatchesFreshInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	count := func(q string) int {
 		var n int
 		if err := db.QueryRow(q).Scan(&n); err != nil {

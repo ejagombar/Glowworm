@@ -172,7 +172,7 @@ func TestOllamaTranscript(t *testing.T) {
 	if sysIdx < 0 || userIdx < 0 || asstIdx < 0 {
 		t.Fatalf("transcript missing pieces:\n%s", captured)
 	}
-	if !(sysIdx < userIdx && userIdx < asstIdx) {
+	if sysIdx >= userIdx || userIdx >= asstIdx {
 		t.Errorf("transcript out of order:\n%s", captured)
 	}
 }

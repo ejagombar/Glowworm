@@ -40,7 +40,7 @@ func Write(w io.Writer, db *store.DB, secret *crypto.Secret, appVersion string) 
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	snap := filepath.Join(dir, dbName)
 	if err := db.SnapshotTo(snap); err != nil {
 		return fmt.Errorf("snapshot: %w", err)
@@ -55,7 +55,7 @@ func Write(w io.Writer, db *store.DB, secret *crypto.Secret, appVersion string) 
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	dw, err := zw.Create(dbName)
 	if err != nil {
 		return err
@@ -92,7 +92,7 @@ func Restore(zipPath, dataDir, dbPath string, force bool) (*Summary, error) {
 	}
 	release, err := store.LockDataDir(dataDir)
 	if errors.Is(err, store.ErrLocked) {
-		return nil, errors.New("Glowworm is running on this data directory — stop it first")
+		return nil, errors.New("this data directory is in use by a running Glowworm: stop it first")
 	}
 	if err != nil {
 		return nil, err
@@ -174,7 +174,7 @@ func verify(path string, sum *Summary) error {
 	}
 	var check string
 	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&check); err != nil || check != "ok" {
-		db.Close()
+		_ = db.Close()
 		return fmt.Errorf("backup database failed its integrity check: %s %v", check, err)
 	}
 	var owner sql.NullString
@@ -191,7 +191,7 @@ func verify(path string, sum *Summary) error {
 	if err != nil {
 		return err
 	}
-	defer plain.Close()
+	defer func() { _ = plain.Close() }()
 	plain.SetMaxOpenConns(1)
 	var mode string
 	if err := plain.QueryRow(`PRAGMA journal_mode=DELETE`).Scan(&mode); err != nil {
@@ -231,7 +231,7 @@ func extract(files map[string]*zip.File, name, dst string) error {
 		return err
 	}
 	if _, err := io.Copy(out, rc); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	return out.Close()

@@ -51,7 +51,7 @@ func withLogging(log *slog.Logger, next http.Handler) http.Handler {
 				if sw.status == 200 {
 					sw.Header().Set("Content-Type", "application/json")
 					sw.WriteHeader(http.StatusInternalServerError)
-					json.NewEncoder(sw).Encode(map[string]any{
+					_ = json.NewEncoder(sw).Encode(map[string]any{
 						"error": map[string]any{"code": "internal",
 							"message": "Something went wrong on the server (the log has the details)."},
 					})

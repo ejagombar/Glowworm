@@ -110,7 +110,7 @@ func tokenizeSQL(sql string) (toks []string, ok bool) {
 			}
 		case c == '/' && i+1 < n && sql[i+1] == '*':
 			i += 2
-			for i+1 < n && !(sql[i] == '*' && sql[i+1] == '/') {
+			for i+1 < n && (sql[i] != '*' || sql[i+1] != '/') {
 				i++
 			}
 			i += 2

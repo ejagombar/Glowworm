@@ -52,7 +52,7 @@ func (fixedClock) Today() string { return "2024-06-15" }
 
 func TestSandboxRejectsWrites(t *testing.T) {
 	db := newAgentTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	bad := []string{
 		"INSERT INTO transactions VALUES (1)",
 		"UPDATE transactions SET amount_minor = 0",
@@ -76,7 +76,7 @@ func TestSandboxRejectsWrites(t *testing.T) {
 
 func TestSandboxAcceptsSelects(t *testing.T) {
 	db := newAgentTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	good := []string{
 		"SELECT 1",
 		"  SELECT COUNT(*) FROM transactions  ",
@@ -93,7 +93,7 @@ func TestSandboxAcceptsSelects(t *testing.T) {
 
 func TestSandboxRowCapAndTruncation(t *testing.T) {
 	db := newAgentTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	q := `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x < 300) SELECT x FROM n`
 	res, err := RunReadonlyQuery(db, q)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestAgentLoopRunsQueryThenAnswers(t *testing.T) {
 		`{"action":"final","text":"You spent **£7,000** on Transport across 5 trips.","widgets":[{"type":"bar","title":"Spend by category","sql":"SELECT c.name, SUM(-t.amount_minor) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE t.type = 'expense' GROUP BY 1","columns":{"spend":{"label":"Spend","format":"money"}}}]}`,
 	}}
 	svc := newAgentService(t, provider)
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 
 	var steps []string
 	ans, err := svc.AskStream("how much did I spend on transport?", func(step string) { steps = append(steps, step) })
@@ -147,7 +147,7 @@ func TestAgentLoopFeedsResultBack(t *testing.T) {
 		`{"action":"final","text":"done","widgets":[]}`,
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawResult})
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	if _, err := svc.Ask("count my transactions"); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func (c *captureAgent) CompleteStructured(req *ai.StructuredRequest) (string, *a
 
 func TestAgentFallsBackToLegacyPipeline(t *testing.T) {
 	svc := newAgentService(t, &brokenAgentProvider{})
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	ans, err := svc.Ask("How much have I spent on Transport over the past year?")
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func raw(s string) json.RawMessage { return json.RawMessage(s) }
 
 func TestExampleQueriesRun(t *testing.T) {
 	db := newAgentTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	must := func(q string, args ...any) {
 		t.Helper()
 		if _, err := db.Exec(q, args...); err != nil {
@@ -300,7 +300,7 @@ func TestExampleQueriesRun(t *testing.T) {
 
 func TestDayEntriesAndSummaries(t *testing.T) {
 	svc := newAgentService(t, &ai.Mock{})
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	db := svc.DB
 	must := func(q string, args ...any) {
 		t.Helper()
@@ -352,7 +352,7 @@ func TestDayEntriesAndSummaries(t *testing.T) {
 	}
 
 	svc2 := newAgentService(t, nil)
-	defer svc2.DB.Close()
+	defer func() { _ = svc2.DB.Close() }()
 	svc2.CatchUpSummaries()
 }
 
@@ -360,7 +360,7 @@ func TestDayEntriesAndSummaries(t *testing.T) {
 // alone made "Virgin Trains" return no expenses.
 func TestMerchantDescriptionFallback(t *testing.T) {
 	db := newAgentTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	must := func(q string, args ...any) {
 		t.Helper()
 		if _, err := db.Exec(q, args...); err != nil {
@@ -394,7 +394,7 @@ func TestMerchantDescriptionFallback(t *testing.T) {
 
 func TestAgentPromptIncludesViewWindow(t *testing.T) {
 	svc := newAgentService(t, &ai.Mock{})
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	plain := svc.agentSystemPrompt(nil)
 	if !strings.Contains(plain, "CURRENT VIEW PERIOD: all time") {
 		t.Error("no window → the period should read all time")
@@ -417,7 +417,7 @@ func TestListAnswerEmptyTextWithTransactionsWidget(t *testing.T) {
 		`{"action":"final","text":"","widgets":[{"type":"transactions","title":"Recent transactions","sql":"SELECT t.date, t.description, c.name AS category, t.amount_minor, t.type FROM transactions t LEFT JOIN categories c ON c.id = t.category_id ORDER BY t.date DESC LIMIT 1"}]}`,
 	}}
 	svc := newAgentService(t, provider)
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	ans, err := svc.Ask("list my recent transactions")
 	if err != nil {
 		t.Fatal(err)
@@ -461,7 +461,7 @@ func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
 		`{"action":"final","text":"","widgets":[{"type":"transactions","title":"Recent","sql":"SELECT date, description, amount_minor, type FROM transactions LIMIT 5"}]}`,
 	}}
 	svc := newAgentService(t, provider)
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	ans, err := svc.Ask("list my recent transactions")
 	if err != nil {
 		t.Fatal(err)
@@ -471,7 +471,7 @@ func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
 	}
 
 	svc2 := newAgentService(t, &emptyThenBroken{})
-	defer svc2.DB.Close()
+	defer func() { _ = svc2.DB.Close() }()
 	ans2, err := svc2.Ask("list my recent transactions")
 	if err != nil {
 		t.Fatal(err)
@@ -504,7 +504,7 @@ func TestAgentWidgetCheckFeedsErrorsBack(t *testing.T) {
 		`{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","sql":"SELECT SUM(-amount_minor) AS spend FROM transactions","columns":{"spend":"money"}}]}`,
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	ans, err := svc.Ask("how much have I spent?")
 	if err != nil {
 		t.Fatal(err)
@@ -525,7 +525,7 @@ func TestAgentWidgetCheckGivesUp(t *testing.T) {
 	snapshot := `{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","data":{"value":"£60.00"}}]}`
 	provider := &ai.MockAgent{Replies: []string{snapshot, snapshot, snapshot}}
 	svc := newAgentService(t, provider)
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	ans, err := svc.Ask("how much have I spent?")
 	if err != nil {
 		t.Fatal(err)
@@ -537,7 +537,7 @@ func TestAgentWidgetCheckGivesUp(t *testing.T) {
 
 func TestRunSpecDatesAndFormats(t *testing.T) {
 	svc := newAgentService(t, nil)
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	sp := ParseSpec(`{"v":2,"sql":"SELECT COUNT(*) AS n, SUM(-amount_minor) AS spend, SUM(-amount_minor) * 1.0 / 24000 AS share FROM transactions WHERE date BETWEEN :from AND :to","columns":{"n":"number","spend":"money","share":{"label":"Share","format":"percent"}},"caption":"on buses"}`)
 	if sp == nil || !sp.UsesDates() {
 		t.Fatalf("spec = %+v", sp)
@@ -592,7 +592,7 @@ func TestAgentDraftsGroupRule(t *testing.T) {
 		`{"action":"final","text":"Press Create rule to group them.","widgets":[{"type":"group_rule","group":"Buses","rules":[{"match":"is","text":"Bus"}]}]}`,
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	ans, err := svc.Ask("group my bus trips")
 	if err != nil {
 		t.Fatal(err)
@@ -619,7 +619,7 @@ func TestAgentDraftsChange(t *testing.T) {
 		`{"action":"final","text":"Press Apply to delete them.","widgets":[{"type":"change","action":"delete","sql":"SELECT id FROM transactions WHERE description = 'Bus'"}]}`,
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
-	defer svc.DB.Close()
+	defer func() { _ = svc.DB.Close() }()
 	var before int
 	_ = svc.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL`).Scan(&before)
 	ans, err := svc.Ask("delete my bus trips")

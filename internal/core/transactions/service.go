@@ -372,14 +372,6 @@ func (s *Service) snapshot(t *core.Transaction) TxSnapshot {
 	}
 }
 
-func (s *Service) mustReload(id string) *core.Transaction {
-	t, err := s.Repos.GetTx(id)
-	if err != nil {
-		return nil
-	}
-	return t
-}
-
 func (s *Service) fieldDiffs(before, after TxSnapshot) []audit.DiffLine {
 	var out []audit.DiffLine
 	pair := func(label string, b, a any) {

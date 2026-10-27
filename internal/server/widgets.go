@@ -363,13 +363,6 @@ func (a *App) WidgetUnpin(id string) error {
 	return err
 }
 
-func trim2(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
 // seedPlanThisMonth covers the calendar month to date, rolling over with it,
 // as the "— this month" titles say.
 func seedPlanThisMonth(metric, breakdown string) string {

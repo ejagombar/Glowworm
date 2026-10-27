@@ -1,7 +1,7 @@
 BINARY := glowworm
 VERSION ?= $(shell git describe --tags 2>/dev/null || echo dev)
 
-.PHONY: build test vet fmt run release clean
+.PHONY: build test vet lint fmt run release clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(BINARY) ./cmd/glowworm
@@ -11,6 +11,9 @@ test:
 
 vet:
 	go vet ./...
+
+lint:
+	golangci-lint run ./...
 
 fmt:
 	gofmt -l -w cmd internal web

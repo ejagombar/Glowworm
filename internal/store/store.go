@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -176,7 +177,13 @@ func (s *DB) Reset() error {
 	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 		return err
 	}
-	defer conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA foreign_keys = %d`, fk))
+	defer func() {
+		// The connection goes back to the pool: if foreign keys can't be
+		// switched back on, throw it away rather than leave one unchecked.
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA foreign_keys = %d`, fk)); err != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
