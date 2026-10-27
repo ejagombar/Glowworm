@@ -40,14 +40,15 @@ func verifyPassword(password, hash string) bool {
 func apiError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
+	// An encode error means the client has gone; there's no one to tell.
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{"code": code, "message": message},
 	})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // maxJSONBody caps a JSON request; uploads go through their own limit.
@@ -681,7 +682,12 @@ func (a *App) apiDashboardSummary(w http.ResponseWriter, r *http.Request) error 
 func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
 	r.Body = http.MaxBytesReader(w, r.Body, int64(a.Cfg.UploadMaxMB)<<20)
 	if err := r.ParseMultipartForm(int64(a.Cfg.UploadMaxMB) << 20); err != nil {
-		apiError(w, http.StatusBadRequest, "file_too_large", fmt.Sprintf("That file is larger than %d MB.", a.Cfg.UploadMaxMB))
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			apiError(w, http.StatusRequestEntityTooLarge, "file_too_large", fmt.Sprintf("That file is larger than %d MB.", a.Cfg.UploadMaxMB))
+		} else {
+			apiError(w, http.StatusBadRequest, "upload_incomplete", "The file didn't arrive complete (the connection may have dropped). Try uploading it again.")
+		}
 		return nil
 	}
 	file, header, err := r.FormFile("file")
@@ -689,7 +695,7 @@ func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
 		apiError(w, http.StatusBadRequest, "validation_failed", "No file provided")
 		return nil
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(file)
 	if err != nil {
 		return err

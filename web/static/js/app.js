@@ -642,43 +642,61 @@ function sendChat(text) {
     body: JSON.stringify({ text, conversation_id: conversationID, ...currentViewPeriod() }),
   }).then(async (resp) => {
     if (!resp.ok || !resp.body) {
-      finishAssistant(pending, { text: "Sorry - the query engine is unavailable right now.", isError: true });
+      finishAssistant(pending, { text: await apiErrorText(resp, "Sorry - the query engine is unavailable right now."), isError: true });
       return;
     }
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
     let buf = "", out = { text: "", steps: [], widgets: [], isError: false, suggestions: [] };
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx).trim();
-        buf = buf.slice(idx + 1);
-        if (!line) continue;
-        let ev;
-        try { ev = JSON.parse(line); } catch (e) { continue; }
-        if (ev.event === "steps") {
-          out.steps = out.steps.concat(ev.items || []);
-          renderSteps(pending, out.steps);
-        }
-        else if (ev.event === "text") { out.text = ev.text || out.text; }
-        else if (ev.event === "widget" && ev.widget) { out.widgets.push(ev.widget); }
-        else if (ev.event === "done" && ev.conversation_id) {
-          adoptConversation(ev.conversation_id, text);
-        }
-        else if (ev.event === "error") {
-          out.text = ev.message || "Query failed.";
-          out.isError = true;
-          out.steps = [];
-          out.suggestions = ev.suggestions || [];
+    let finished = false;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line); } catch (e) { continue; }
+          if (ev.event === "steps") {
+            out.steps = out.steps.concat(ev.items || []);
+            renderSteps(pending, out.steps);
+          }
+          else if (ev.event === "text") { out.text = ev.text || out.text; }
+          else if (ev.event === "widget" && ev.widget) { out.widgets.push(ev.widget); }
+          else if (ev.event === "done") {
+            finished = true;
+            if (ev.conversation_id) adoptConversation(ev.conversation_id, text);
+          }
+          else if (ev.event === "error") {
+            out.text = ev.message || "Query failed.";
+            out.isError = true;
+            out.steps = [];
+            out.suggestions = ev.suggestions || [];
+          }
         }
       }
+    } catch (e) {
+      // The connection dropped part way; reading further is pointless.
+    }
+    if (!finished) {
+      // The server carries on and saves the answer whether or not anyone is
+      // still listening, so it'll be there after a reload.
+      finishAssistant(pending, {
+        text: "The connection dropped before the answer arrived. Glowworm carries on with it: reload this page in a moment to see it.",
+        isError: true,
+      });
+      return;
     }
     finishAssistant(pending, out);
   }).catch(() => {
-    finishAssistant(pending, { text: "Sorry - the query engine is unavailable right now.", isError: true });
+    finishAssistant(pending, {
+      text: "Couldn't reach Glowworm. Check your connection and ask again; if the question did get through, its answer appears after a reload.",
+      isError: true,
+    });
   });
 }
 
