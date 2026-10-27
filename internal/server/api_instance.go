@@ -19,7 +19,7 @@ func (a *App) confirmOwner(r *http.Request, password string) error {
 	if a.Cfg.AuthMode != "password" {
 		return nil
 	}
-	sess, ok := readSession(r, a.Secret)
+	sess, ok := a.session(r)
 	if !ok {
 		return &acctValidationError{Message: "Not signed in"}
 	}

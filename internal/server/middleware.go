@@ -85,22 +85,54 @@ func newLimiter(limit int, window time.Duration) *limiter {
 	return &limiter{hits: map[string][]time.Time{}, limit: limit, window: window}
 }
 
-func (l *limiter) Allow(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
+// recent drops hits older than the window, and forgets keys with none left
+// so the map doesn't grow with every address that ever connected.
+func (l *limiter) recent(key string, now time.Time) []time.Time {
 	hits := l.hits[key][:0]
 	for _, t := range l.hits[key] {
 		if now.Sub(t) < l.window {
 			hits = append(hits, t)
 		}
 	}
+	if len(hits) == 0 {
+		delete(l.hits, key)
+		return nil
+	}
 	l.hits[key] = hits
-	if len(hits) >= l.limit {
+	return hits
+}
+
+// Allow records a hit and reports whether it's within the limit.
+func (l *limiter) Allow(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if len(l.recent(key, now)) >= l.limit {
 		return false
 	}
 	l.hits[key] = append(l.hits[key], now)
 	return true
+}
+
+// Blocked reports whether key has used up its limit, without recording a hit.
+func (l *limiter) Blocked(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.recent(key, time.Now())) >= l.limit
+}
+
+// Fail records a failed attempt.
+func (l *limiter) Fail(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.hits[key] = append(l.recent(key, time.Now()), time.Now())
+}
+
+// Reset forgets key's attempts, after one succeeds.
+func (l *limiter) Reset(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.hits, key)
 }
 
 func clientIP(r *http.Request, trustedProxies string) string {

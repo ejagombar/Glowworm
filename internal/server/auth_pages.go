@@ -19,7 +19,7 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Audit.HasUser() {
-		if _, ok := readSession(r, a.Secret); ok {
+		if _, ok := a.session(r); ok {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
@@ -28,8 +28,11 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	errMsg := ""
-	if r.URL.Query().Get("e") == "1" {
+	switch r.URL.Query().Get("e") {
+	case "1":
 		errMsg = "Incorrect username or password."
+	case "2":
+		errMsg = "Too many failed sign-ins from this device. Wait 15 minutes and try again."
 	}
 	base, err := a.base(w, r, "login", "Sign in")
 	if err != nil {
@@ -56,9 +59,11 @@ func (a *App) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?e=1", http.StatusFound)
 		return
 	}
-	ip := clientIP(r, a.Cfg.TrustedProxies)
-	if !a.loginLimiter.Allow("login:" + ip) {
-		http.Error(w, "Too many attempts. Try again later.", http.StatusTooManyRequests)
+	// Only failures count, so signing in on several devices never locks
+	// the owner out.
+	key := "login:" + clientIP(r, a.Cfg.TrustedProxies)
+	if a.loginLimiter.Blocked(key) {
+		http.Redirect(w, r, "/login?e=2", http.StatusFound)
 		return
 	}
 	username := r.PostFormValue("username")
@@ -66,14 +71,17 @@ func (a *App) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	user, err := a.Repos.Users.ByUsername(username)
 	if err != nil {
 		_ = verifyPassword(password, "$2a$12$C6UzMDM.H6dfI/f/IKcEe.6uGRJpDg196n4z1S3z3WBGWl7LuOYeK")
+		a.loginLimiter.Fail(key)
 		http.Redirect(w, r, "/login?e=1", http.StatusFound)
 		return
 	}
 	if !verifyPassword(password, user.PasswordHash) {
+		a.loginLimiter.Fail(key)
 		http.Redirect(w, r, "/login?e=1", http.StatusFound)
 		return
 	}
-	issueSession(w, r, a.Secret, user.ID)
+	a.loginLimiter.Reset(key)
+	issueSession(w, r, a.Secret, user)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -120,7 +128,13 @@ func (a *App) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	issueSession(w, r, a.Secret, u.ID)
+	owner, err := a.Repos.Users.Get(u.ID)
+	if err != nil {
+		a.Log.Error("setup", "err", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	issueSession(w, r, a.Secret, owner)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -358,6 +359,24 @@ func truncate(s string, n int) string {
 	return s
 }
 
+// session reads the signed-in session, checking its user still exists and
+// hasn't changed password since it signed in.
+func (a *App) session(r *http.Request) (*Session, bool) {
+	sess, ok := readSession(r, a.Secret)
+	if !ok {
+		return nil, false
+	}
+	u, err := a.Repos.Users.Get(sess.UserID)
+	if err != nil {
+		return nil, false
+	}
+	fp := passwordFingerprint(u.PasswordHash)
+	if subtle.ConstantTimeCompare([]byte(fp), []byte(sess.Fingerprint)) != 1 {
+		return nil, false
+	}
+	return sess, true
+}
+
 func (a *App) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -377,7 +396,7 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
-		if _, ok := readSession(r, a.Secret); !ok {
+		if _, ok := a.session(r); !ok {
 			if strings.HasPrefix(path, "/api/") {
 				http.Error(w, `{"error":{"code":"auth_required","message":"Login required"}}`, http.StatusUnauthorized)
 				return
