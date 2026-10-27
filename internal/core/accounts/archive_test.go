@@ -24,7 +24,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	f := &fixture{s: &Service{DB: db, Repos: &repos.Accounts{DB: db}, Txs: &repos.Transactions{DB: db}, Audit: &audit.Writer{DB: db}}}
 	must := func(err error) {
 		t.Helper()

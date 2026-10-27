@@ -19,6 +19,8 @@ import (
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/categories"
+	"glowworm/internal/core/changes"
+	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/setup"
 	"glowworm/internal/core/transactions"
@@ -38,19 +40,40 @@ func verifyPassword(password, hash string) bool {
 func apiError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
+	// An encode error means the client has gone; there's no one to tell.
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{"code": code, "message": message},
 	})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
+// maxJSONBody caps a JSON request; uploads go through their own limit.
+const maxJSONBody = 2 << 20
+
+// badRequest is a request body the server couldn't read: the client's
+// fault, so it's a 400 that says what was wrong, not an internal error.
+type badRequest struct{ msg string }
+
+func (e *badRequest) Error() string { return e.msg }
+
 func decodeBody(r *http.Request, v any) error {
-	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	defer func() { _ = r.Body.Close() }()
+	err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxJSONBody)).Decode(v)
+	var tooBig *http.MaxBytesError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, io.EOF):
+		return &badRequest{"The request was empty"}
+	case errors.As(err, &tooBig):
+		return &badRequest{"The request is too large"}
+	default:
+		return &badRequest{"The request couldn't be read: " + err.Error()}
+	}
 }
 
 func serviceError(w http.ResponseWriter, err error) bool {
@@ -79,13 +102,34 @@ func serviceError(w http.ResponseWriter, err error) bool {
 		apiError(w, http.StatusBadRequest, "validation_failed", ae.Message)
 		return true
 	}
+	var che *changes.ValidationError
+	if errors.As(err, &che) {
+		apiError(w, http.StatusBadRequest, "validation_failed", che.Message)
+		return true
+	}
+	var ge *grouping.ValidationError
+	if errors.As(err, &ge) {
+		apiError(w, http.StatusBadRequest, "validation_failed", ge.Message)
+		return true
+	}
 	var ie *imports.ValidationError
 	if errors.As(err, &ie) {
 		apiError(w, http.StatusBadRequest, "validation_failed", ie.Message)
 		return true
 	}
-	if errors.Is(err, transactions.ErrNotFound) {
-		apiError(w, http.StatusNotFound, "not_found", "Not found")
+	var br *badRequest
+	if errors.As(err, &br) {
+		apiError(w, http.StatusBadRequest, "bad_request", br.msg)
+		return true
+	}
+	var conflict *transactions.ConflictError
+	if errors.As(err, &conflict) {
+		apiError(w, http.StatusConflict, "conflict", conflict.Error())
+		return true
+	}
+	if errors.Is(err, transactions.ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+		apiError(w, http.StatusNotFound, "not_found",
+			"That no longer exists: it may have been deleted on another device. Reload to see the latest.")
 		return true
 	}
 	return false
@@ -99,7 +143,8 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 					return
 				}
 				a.Log.Error("api", "path", r.URL.Path, "err", err)
-				apiError(w, http.StatusInternalServerError, "internal", "Internal server error")
+				apiError(w, http.StatusInternalServerError, "internal",
+					"Something went wrong on the server. Try again; if it keeps happening, the server log has the details.")
 			}
 		}
 	}
@@ -167,6 +212,13 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/transactions/{id}/unlink", j(a.apiTransferUnlink))
 	mux.HandleFunc("GET /api/v1/transactions/{id}/transfer-suggestions", j(a.apiTransferSuggestions))
 	mux.HandleFunc("POST /api/v1/transfers/detect", j(a.apiTransferDetect))
+
+	mux.HandleFunc("GET /api/v1/group-rules", j(a.apiGroupRulesList))
+	mux.HandleFunc("POST /api/v1/group-rules/preview", j(a.apiGroupRulesPreview))
+	mux.HandleFunc("POST /api/v1/group-rules", j(a.apiGroupRulesCreate))
+	mux.HandleFunc("DELETE /api/v1/group-rules/{id}", j(a.apiGroupRuleDelete))
+	mux.HandleFunc("POST /api/v1/changes/preview", j(a.apiChangePreview))
+	mux.HandleFunc("POST /api/v1/changes/apply", j(a.apiChangeApply))
 
 	mux.HandleFunc("GET /api/v1/recurring", j(a.apiRecurringList))
 	mux.HandleFunc("GET /api/v1/recurring/{key}/transactions", j(a.apiRecurringSeries))
@@ -358,6 +410,7 @@ func (a *App) apiTransactionCreate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
+	a.regroup()
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, t)
 	return nil
@@ -372,6 +425,7 @@ func (a *App) apiTransactionUpdate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
+	a.regroup()
 	writeJSON(w, t)
 	return nil
 }
@@ -510,12 +564,13 @@ func (a *App) apiAuditRevert(w http.ResponseWriter, r *http.Request) error {
 		apiError(w, http.StatusBadRequest, "validation_failed", "Bad id")
 		return nil
 	}
-	if err := a.Audit.Undo(id, a.applyEntry); err != nil {
+	notes, err := a.Audit.Undo(id, a.applyEntry)
+	if err != nil {
 		apiError(w, http.StatusConflict, "conflict", err.Error())
 		return nil
 	}
 	a.afterHistoryChange()
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "notes": notes})
 	return nil
 }
 
@@ -526,12 +581,13 @@ func (a *App) apiAuditRedo(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	if err := a.Audit.Redo(in.IDs, a.applyEntry); err != nil {
+	notes, err := a.Audit.Redo(in.IDs, a.applyEntry)
+	if err != nil {
 		apiError(w, http.StatusConflict, "conflict", err.Error())
 		return nil
 	}
 	a.afterHistoryChange()
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "notes": notes})
 	return nil
 }
 
@@ -626,7 +682,12 @@ func (a *App) apiDashboardSummary(w http.ResponseWriter, r *http.Request) error 
 func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
 	r.Body = http.MaxBytesReader(w, r.Body, int64(a.Cfg.UploadMaxMB)<<20)
 	if err := r.ParseMultipartForm(int64(a.Cfg.UploadMaxMB) << 20); err != nil {
-		apiError(w, http.StatusBadRequest, "file_too_large", fmt.Sprintf("That file is larger than %d MB.", a.Cfg.UploadMaxMB))
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			apiError(w, http.StatusRequestEntityTooLarge, "file_too_large", fmt.Sprintf("That file is larger than %d MB.", a.Cfg.UploadMaxMB))
+		} else {
+			apiError(w, http.StatusBadRequest, "upload_incomplete", "The file didn't arrive complete (the connection may have dropped). Try uploading it again.")
+		}
 		return nil
 	}
 	file, header, err := r.FormFile("file")
@@ -634,7 +695,7 @@ func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
 		apiError(w, http.StatusBadRequest, "validation_failed", "No file provided")
 		return nil
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(file)
 	if err != nil {
 		return err
@@ -1261,5 +1322,79 @@ func balancesAll(db *store.DB, date string) (map[string]int64, error) {
 func (a *App) apiReconcileStatus(w http.ResponseWriter, r *http.Request) error {
 	status, label, hint := a.reconcileSummary()
 	writeJSON(w, map[string]any{"status": status, "label": label, "hint": hint})
+	return nil
+}
+
+func (a *App) apiGroupRulesList(w http.ResponseWriter, r *http.Request) error {
+	rules, err := a.Grouping.List()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"items": rules})
+	return nil
+}
+
+func (a *App) apiGroupRulesPreview(w http.ResponseWriter, r *http.Request) error {
+	var d grouping.Draft
+	if err := decodeBody(r, &d); err != nil {
+		return err
+	}
+	p, err := a.Grouping.Preview(d)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, p)
+	return nil
+}
+
+func (a *App) apiGroupRulesCreate(w http.ResponseWriter, r *http.Request) error {
+	var d grouping.Draft
+	if err := decodeBody(r, &d); err != nil {
+		return err
+	}
+	created, err := a.Grouping.Create(d)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"created": created})
+	return nil
+}
+
+func (a *App) apiGroupRuleDelete(w http.ResponseWriter, r *http.Request) error {
+	if err := a.Grouping.Delete(r.PathValue("id")); err != nil {
+		return err
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+// apiChangePreview lists what a change drafted in Queries would do.
+func (a *App) apiChangePreview(w http.ResponseWriter, r *http.Request) error {
+	var p changes.Proposal
+	if err := decodeBody(r, &p); err != nil {
+		return err
+	}
+	pv, err := a.Changes.Preview(p)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, pv)
+	return nil
+}
+
+// apiChangeApply makes a change drafted in Queries, once the user presses
+// Apply on its preview.
+func (a *App) apiChangeApply(w http.ResponseWriter, r *http.Request) error {
+	var p changes.Proposal
+	if err := decodeBody(r, &p); err != nil {
+		return err
+	}
+	pv, err := a.Changes.Apply(p)
+	if err != nil {
+		return err
+	}
+	// Deletions can end a recurring series; edits can change what's grouped.
+	a.afterHistoryChange()
+	writeJSON(w, pv)
 	return nil
 }

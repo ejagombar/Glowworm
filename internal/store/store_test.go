@@ -1,13 +1,16 @@
 package store
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+)
 
 func TestResetMatchesFreshInstall(t *testing.T) {
 	db, err := Open("sqlite", t.TempDir()+"/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	count := func(q string) int {
 		var n int
 		if err := db.QueryRow(q).Scan(&n); err != nil {
@@ -47,5 +50,54 @@ func TestResetMatchesFreshInstall(t *testing.T) {
 	_ = db.QueryRow(`SELECT value FROM settings WHERE key = 'currency'`).Scan(&cur)
 	if cur != `"GBP"` {
 		t.Errorf("settings not back to defaults: currency = %s", cur)
+	}
+}
+
+// A database made by the main build that numbered the category description
+// migration 5 opens, gets the migrations it missed, and keeps its column.
+func TestAdoptsMainsCategoryDescriptionMigration(t *testing.T) {
+	path := t.TempDir() + "/t.db"
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(createMigrationsTable); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range all {
+		if m.version > 4 && m.name != "category_description" {
+			continue
+		}
+		if _, err := raw.Exec(m.up); err != nil {
+			t.Fatal(err)
+		}
+		v := m.version
+		if v == 10 {
+			v = 5
+		}
+		if _, err := raw.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, 't')`, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = raw.Close()
+
+	db, err := Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("opening: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var n, max int
+	if err := db.QueryRow(`SELECT COUNT(*), MAX(version) FROM schema_migrations`).Scan(&n, &max); err != nil {
+		t.Fatal(err)
+	}
+	if n != 10 || max != 10 {
+		t.Errorf("migrations recorded = %d up to %d, want 10 up to 10", n, max)
+	}
+	if _, err := db.Exec(`SELECT description FROM categories; SELECT id FROM group_rules`); err != nil {
+		t.Errorf("schema incomplete: %v", err)
 	}
 }

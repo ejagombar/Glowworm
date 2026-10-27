@@ -39,7 +39,7 @@ func runUser(args []string) {
 	if err != nil {
 		fail("store: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	svc := &setup.Service{DB: db, Users: &repos.Users{DB: db}, Settings: &repos.Settings{DB: db}, Audit: &audit.Writer{DB: db}}
 	if n, _ := svc.Users.Count(); n > 0 {
 		fail("an account already exists for this Glowworm")

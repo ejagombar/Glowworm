@@ -2,12 +2,16 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"glowworm/internal/core"
 	"glowworm/internal/crypto"
 )
 
@@ -15,12 +19,21 @@ const (
 	sessionCookie = "glowworm_session"
 	csrfCookie    = "glowworm_csrf"
 	privacyCookie = "glowworm_privacy"
+	periodCookie  = "glowworm_period"
 	sessionTTL    = 30 * 24 * time.Hour
 )
 
 type Session struct {
 	UserID  string
 	Expires time.Time
+	// Fingerprint ties the session to the password it was signed in with,
+	// so changing the password signs out every other session.
+	Fingerprint string
+}
+
+func passwordFingerprint(passwordHash string) string {
+	sum := sha256.Sum256([]byte(passwordHash))
+	return hex.EncodeToString(sum[:8])
 }
 
 func encodeToken(secret *crypto.Secret, payload string) string {
@@ -43,9 +56,10 @@ func decodeToken(secret *crypto.Secret, token string) (string, bool) {
 	return string(raw), true
 }
 
-func issueSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret, userID string) {
+func issueSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret, u *core.User) {
 	secure := isTLS(r)
-	payload := fmt.Sprintf("%s|%d|%s", userID, time.Now().Add(sessionTTL).Unix(), randomHex(8))
+	payload := fmt.Sprintf("%s|%d|%s|%s", u.ID, time.Now().Add(sessionTTL).Unix(), randomHex(8),
+		passwordFingerprint(u.PasswordHash))
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: encodeToken(secret, payload), Path: "/",
 		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
@@ -77,8 +91,8 @@ func readSession(r *http.Request, secret *crypto.Secret) (*Session, bool) {
 	if !ok {
 		return nil, false
 	}
-	parts := strings.SplitN(payload, "|", 3)
-	if len(parts) != 3 {
+	parts := strings.Split(payload, "|")
+	if len(parts) != 4 {
 		return nil, false
 	}
 	var exp int64
@@ -88,7 +102,7 @@ func readSession(r *http.Request, secret *crypto.Secret) (*Session, bool) {
 	if time.Now().Unix() > exp {
 		return nil, false
 	}
-	return &Session{UserID: parts[0], Expires: time.Unix(exp, 0)}, true
+	return &Session{UserID: parts[0], Expires: time.Unix(exp, 0), Fingerprint: parts[3]}, true
 }
 
 func CSRFToken(w http.ResponseWriter, r *http.Request, secret *crypto.Secret) string {
@@ -117,7 +131,7 @@ func checkCSRF(r *http.Request) bool {
 			h = r.PostFormValue("csrf_token")
 		}
 	}
-	return h != "" && h == c.Value
+	return h != "" && subtle.ConstantTimeCompare([]byte(h), []byte(c.Value)) == 1
 }
 
 func isTLS(r *http.Request) bool {

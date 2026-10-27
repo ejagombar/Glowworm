@@ -19,7 +19,7 @@ func TestDescriptionKeptClearedAndUndone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	w := &audit.Writer{DB: db}
 	cats := &repos.Categories{DB: db}
 	s := &categories.Service{DB: db, Repos: cats, Txs: &repos.Transactions{DB: db}, Audit: w}
@@ -65,7 +65,7 @@ func TestDescriptionKeptClearedAndUndone(t *testing.T) {
 		t.Fatal(err)
 	}
 	x := &auditexec.Executor{DB: db, Categories: cats, InternalCat: func(*sql.Tx) (string, error) { return "", nil }}
-	if err := audit.NewEngine(db, w).Undo(entry, x.Apply); err != nil {
+	if _, err := audit.NewEngine(db, w).Undo(entry, x.Apply); err != nil {
 		t.Fatal(err)
 	}
 	if got := description(c.ID); got != "Supermarkets, not restaurants" {

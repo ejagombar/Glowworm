@@ -1,6 +1,7 @@
 package query
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"glowworm/internal/ai"
+	"glowworm/internal/core/changes"
+	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/util"
 )
@@ -19,12 +22,28 @@ const (
 	agentMaxWidgets    = 3
 	agentMaxTranscript = 8000
 	agentCallTimeout   = 90 * time.Second
+	// agentWidgetRetries is how many times a final answer whose widgets fail
+	// to run goes back to the model to be fixed.
+	agentWidgetRetries = 2
 )
 
+// agentWidgetSpec is a widget in the model's final answer: normally a query
+// with how to show it (SQL, Columns, Caption), which becomes a Spec. Data is
+// the older form, a finished snapshot, kept only as a last resort.
 type agentWidgetSpec struct {
-	Type  string          `json:"type"`
-	Title string          `json:"title"`
-	Data  json.RawMessage `json:"data"`
+	Type    string                `json:"type"`
+	Title   string                `json:"title"`
+	SQL     string                `json:"sql"`
+	Columns map[string]SpecColumn `json:"columns"`
+	Caption string                `json:"caption"`
+	Data    json.RawMessage       `json:"data"`
+	// A group_rule widget: grouping rules drafted for the user to create.
+	Group string               `json:"group"`
+	Rules []grouping.DraftRule `json:"rules"`
+	// A change widget: an edit drafted for the user to apply. SQL selects
+	// the transactions' ids.
+	Action   string `json:"action"`
+	Category string `json:"category"`
 }
 
 type agentAction struct {
@@ -63,7 +82,31 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	if json.Unmarshal(raw, &m) != nil {
 		return agentWidgetSpec{Type: "?"}
 	}
-	sp := agentWidgetSpec{Type: rawStr(m["type"]), Title: rawStr(m["title"])}
+	sp := agentWidgetSpec{Type: rawStr(m["type"]), Title: rawStr(m["title"]),
+		SQL: rawStr(m["sql"]), Caption: rawStr(m["caption"])}
+	if c, ok := m["columns"]; ok && sp.SQL != "" {
+		_ = json.Unmarshal(c, &sp.Columns)
+	}
+	if strings.EqualFold(sp.Type, "group_rule") {
+		src := m
+		if d, ok := m["data"]; ok {
+			var dm map[string]json.RawMessage
+			if json.Unmarshal(d, &dm) == nil && dm["rules"] != nil {
+				src = dm
+			}
+		}
+		sp.Group = rawStr(src["group"])
+		_ = json.Unmarshal(src["rules"], &sp.Rules)
+		return sp
+	}
+	if strings.EqualFold(sp.Type, "change") {
+		sp.Action = strings.ToLower(rawStr(m["action"]))
+		sp.Category = rawStr(m["category"])
+		return sp
+	}
+	if sp.SQL != "" {
+		return sp
+	}
 	if d, ok := m["data"]; ok {
 		sp.Data = d
 	}
@@ -152,11 +195,14 @@ DATABASE (SQLite). Tables you may query:
 - transactions(id, date TEXT 'YYYY-MM-DD', description, merchant, amount_minor INTEGER
   [negative = expense, positive = income, in minor units e.g. pence], type TEXT
   'expense'|'income'|'transfer', category_id, account_id, currency, deleted_at)
-  IMPORTANT: merchant is frequently empty — the payee is usually in
-  description. When the user names a merchant/payee/shop, match
-  COALESCE(NULLIF(merchant,''), description), never merchant alone.
+  IMPORTANT: merchant is the GROUP the transaction belongs to by one of the
+  user's grouping rules (see GROUPING), and is NULL for most transactions —
+  the payee is in description. Group and label payees by
+  COALESCE(NULLIF(merchant,''), description); when the user names a
+  merchant/payee/shop, match that expression, never merchant alone.
 - categories(id, name)
 - accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date)
+- group_rules(id, group_name, match TEXT 'is'|'contains', text, created_at, deleted_at)
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
@@ -169,10 +215,10 @@ a.type <> 'savings', and transactions with
 t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings').
 
 `)
-	b.WriteString(fmt.Sprintf("USER'S CATEGORIES: %s\n", joinOrNone(cats)))
-	b.WriteString(fmt.Sprintf("USER'S ACCOUNTS: %s\n", joinOrNone(accounts)))
-	b.WriteString(fmt.Sprintf("TOP MERCHANTS: %s\n", joinOrNone(merchants)))
-	b.WriteString(fmt.Sprintf("Today is %s. Currency is %s.\n\n", s.Clock.Today(), s.currency()))
+	fmt.Fprintf(&b, "USER'S CATEGORIES: %s\n", joinOrNone(cats))
+	fmt.Fprintf(&b, "USER'S ACCOUNTS: %s\n", joinOrNone(accounts))
+	fmt.Fprintf(&b, "TOP MERCHANTS: %s\n", joinOrNone(merchants))
+	fmt.Fprintf(&b, "Today is %s. Currency is %s.\n\n", s.Clock.Today(), s.currency())
 	if win != nil && (win.From != "" || win.To != "") {
 		rangeDesc := win.From + " to " + win.To
 		if win.From == "" {
@@ -180,8 +226,15 @@ t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings').
 		} else if win.To == "" {
 			rangeDesc = "from " + win.From
 		}
-		b.WriteString(fmt.Sprintf("CURRENT VIEW PERIOD: the user is browsing %s (%s). Unless the\nquestion names a different date range (\"this month\", \"last year\", a date,\netc.), restrict every query and widget to this period and mention the period\nin the text.\n\n", win.Label, rangeDesc))
+		fmt.Fprintf(&b, "CURRENT VIEW PERIOD: the user is browsing %s (%s). Unless the\nquestion names a different date range (\"this month\", \"last year\", a date,\netc.), restrict every query and widget to this period and mention the period\nin the text.\n\n", win.Label, rangeDesc)
+	} else {
+		b.WriteString("CURRENT VIEW PERIOD: all time.\n\n")
 	}
+	b.WriteString(`DATE PARAMETERS: :from and :to are bound to the current view period as
+'YYYY-MM-DD' strings (all time binds 0000-01-01 and 9999-12-31), in run_query
+and in widget sql. Filter with t.date BETWEEN :from AND :to.
+
+`)
 
 	b.WriteString(`WIDGET POLICY (default ON): embed one widget that visualises the answer
 unless the question is purely conversational. Choose by question shape:
@@ -200,13 +253,51 @@ unless the question is purely conversational. Choose by question shape:
   and no widgets is always wrong.
 The text is 1-3 short factual sentences citing the key figures; the widget
 carries the detail.
+
+WIDGETS ARE LIVE QUERIES. A widget is not a snapshot of numbers: it is ONE
+read-only SELECT that the app re-runs every time the widget is shown (the
+user can pin it to their dashboard, where it must keep working with no AI).
+Do all arithmetic in SQL — ratios, differences, percentages, running totals,
+comparisons — combining as many sub-queries or CTEs as needed in one
+statement. Each widget is:
+  {"type": ..., "title": ..., "sql": "SELECT ...",
+   "columns": {"<result column>": {"label": "...", "format": "money|percent|number|text"}},
+   "caption": "..."}
+- format is REQUIRED for every numeric column: money = integer minor units
+  (pence), percent = a ratio (0.25 shows as 25%), number = a plain count or
+  quantity. label is optional (defaults to the column name).
+- Dates: to follow the period the user is viewing (the default, and what a
+  pinned widget should do), filter with :from/:to. Only when the question names
+  its own period ("this month", "in 2025", "last 6 months") write that range
+  in SQL relative to date('now'), e.g. t.date >= date('now','start of month'),
+  so it stays correct over time. Never hard-code today's dates.
+- Guard divisions: CASE WHEN x > 0 THEN y * 1.0 / x END (NULL shows as "—").
+- Result shape by type:
+    number: one row; the first column is the value. caption is a short
+            description WITHOUT dates (the app adds the period).
+    bar/line: first column = x labels (chronological for time, e.g.
+            strftime('%Y-%m', t.date)); every further column is a series.
+    pie:    first column = label, second = value (>= 0); at most 12 rows.
+    table:  every column is shown, in order; at most 50 rows.
+    transactions: columns date, description, category, amount_minor (signed),
+            type; newest first; at most 50 rows.
+    text:   {"type":"text","title":...,"data":{"body":"..."}} (no sql).
+- The app runs each widget before showing the answer; if one fails you get
+  WIDGET CHECK FAILED with the error — fix it and resend the whole final.
 EXAMPLE FINAL (single total — number widget is mandatory):
-  {"action":"final","text":"£25.50 at Virgin Trains across 2 transactions, Jun 22-30.",
-   "widgets":[{"type":"number","title":"Virgin Trains spend","data":{"value":"£25.50","caption":"2 transactions · Jun 2026"}}]}
+  {"action":"final","text":"£25.50 at Virgin Trains across 2 transactions.",
+   "widgets":[{"type":"number","title":"Virgin Trains spend",
+    "sql":"SELECT COALESCE(SUM(-t.amount_minor),0) AS spend FROM transactions t WHERE t.deleted_at IS NULL AND t.type = 'expense' AND COALESCE(NULLIF(t.merchant,''), t.description) LIKE '%Virgin Trains%' AND t.date BETWEEN :from AND :to",
+    "columns":{"spend":{"format":"money"}},"caption":"at Virgin Trains"}]}
+EXAMPLE FINAL (a calculation — savings rate):
+  {"action":"final","text":"18% of income was left unspent.",
+   "widgets":[{"type":"number","title":"Savings rate",
+    "sql":"SELECT CASE WHEN inc > 0 THEN (inc - spend) * 1.0 / inc END AS rate FROM (SELECT COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount_minor END),0) AS inc, COALESCE(SUM(CASE WHEN t.type = 'expense' THEN -t.amount_minor END),0) AS spend FROM transactions t WHERE t.deleted_at IS NULL AND t.date BETWEEN :from AND :to)",
+    "columns":{"rate":{"format":"percent"}},"caption":"of income not spent"}]}
 EXAMPLE FINAL (list question — transactions widget, empty text):
   {"action":"final","text":"",
    "widgets":[{"type":"transactions","title":"Recent transactions",
-    "data":{"transactions":[{"date":"2024-06-30","description":"Rent","category":"Bills & Utilities","amount_minor":-106266,"currency":"GBP","type":"expense"}]}}]}
+    "sql":"SELECT t.date, t.description, c.name AS category, t.amount_minor, t.type FROM transactions t LEFT JOIN categories c ON c.id = t.category_id WHERE t.deleted_at IS NULL AND t.type <> 'transfer' AND t.date BETWEEN :from AND :to ORDER BY t.date DESC LIMIT 20"}]}
 
 EXAMPLE QUERIES (verified against this schema — prefer these patterns):
 - Current balance per account:
@@ -234,6 +325,53 @@ EXAMPLE QUERIES (verified against this schema — prefer these patterns):
     WHERE t.deleted_at IS NULL AND t.type = 'expense'
     AND COALESCE(NULLIF(t.merchant,''), t.description) LIKE '%Virgin Trains%'
 
+GROUPING: the same payee or purpose can appear under slightly different
+descriptions ("To Jaeren Rodrigues - rent and water", "Jaeren Rodrigues -
+Rent and water"), so it shows up as separate merchants. The user fixes this
+with grouping rules: each rule puts transactions whose description IS, or
+CONTAINS, some text into a named group (comparison ignores case and
+punctuation; "contains" matches whole words). A group exists only through
+its rules. You never create or delete rules yourself — you DRAFT them and
+the user presses a button:
+- When the user wants transactions grouped, first query the descriptions
+  involved (SELECT description, COUNT(*) ... GROUP BY description), then
+  answer with a group_rule widget:
+    {"type":"group_rule","group":"Rent and water",
+     "rules":[{"match":"contains","text":"rent and water"}]}
+  Prefer the fewest, most specific rules that catch exactly the intended
+  descriptions: "is" with the full description for one-offs, "contains"
+  with a distinctive phrase for variants. Never draft text so general it
+  would pull in unrelated payees (a single common word, a person's name
+  when only one purpose was meant). The widget shows the user which
+  descriptions it would catch. Say in the text that pressing Create rule
+  applies it — never claim it is done.
+- To show, review or remove rules: {"type":"group_rules","title":"Grouping rules"}
+  — a live list where each rule can be deleted. Removing a group means
+  deleting its rules from that list.
+
+CHANGES: you can't change data yourself, but you can PROPOSE a change to
+transactions with a change widget. The user sees every transaction it would
+touch and nothing happens until they press Apply. It can be undone from History.
+  {"type":"change","action":"set_category","category":"Groceries",
+   "sql":"SELECT t.id FROM transactions t WHERE t.deleted_at IS NULL AND t.description LIKE '%TESCO%'"}
+- "sql" selects the ids (first column, t.id) of exactly the transactions to
+  change, at most 500. Always include t.deleted_at IS NULL. Check the
+  selection with run_query first (description, date, amount, category), and
+  narrow it until it holds only what the user meant.
+- Actions:
+  - set_category, with "category" (an existing spend or income category by
+    name). Expenses take spend categories and income takes income
+    categories; transfers are skipped.
+  - delete: deletes the selected transactions.
+  - link_transfer: links exactly two transactions — money out of one account
+    and the same money into another — as an internal transfer. Use this
+    (not a category) to make transactions internal transfers.
+  - unlink_transfer: breaks the transfer link on the selected transactions.
+- Recurring series are detected automatically from the data and can't be
+  set by hand; say so if asked. Account settings, categories, imports and
+  anything else can't be changed from here: say where in the app to do it.
+- Say in the text what pressing Apply would do — never claim it is done.
+
 PROTOCOL — every reply is ONE JSON object, no prose outside it:
 1. To fetch data: {"action":"run_query","sql":"SELECT ..."}
    - If a query errors, fix it and retry; if it returns 0 rows, do not conclude
@@ -246,19 +384,13 @@ PROTOCOL — every reply is ONE JSON object, no prose outside it:
    - Always aggregate/filter in SQL, add a LIMIT (<= 200), never dump raw rows.
    - You receive the result as a JSON object {columns, rows, row_count, truncated}.
 2. When you can answer: {"action":"final","text":"...","widgets":[...]}
-   - "text": short, factual, impersonal. Quote amounts in major units
-     (e.g. £128.40). Reference the numbers you actually found; never invent figures.
-   - "widgets": 0-3 charts/tables that visualise the answer. Each is
-     {"type": ..., "title": ..., "data": {...}} with type one of:
-       bar/line: {"labels":["2024-01",...], "series":[{"name":"Spend","values":[12840, 9900]}]}
-                 (labels in chronological order; values are integer MINOR units)
-       pie:      {"labels":["Food",...], "values":[12000,...]} (integer minor units, all >= 0)
-       number:   {"value":"£128.40","caption":"on Transport this year"} (display strings)
-       table:    {"columns":["Month","Total"], "rows":[["2024-01","£128.40"]]} (display strings)
-       transactions: {"transactions":[{"date":"2024-06-30","description":"Rent",
-                     "category":"Bills & Utilities","amount_minor":-106266,
-                     "currency":"GBP","type":"expense"}]} (newest first; type
-                     is expense|income|transfer; amount_minor is signed)
+   - "text": short, factual, impersonal. Quote amounts in major units:
+     amount_minor / 100, so 11200 is £112.00 and 12840 is £128.40. Reference the numbers you actually found; never invent figures.
+   - "widgets": 0-3 live query widgets as described under WIDGETS ARE LIVE
+     QUERIES, type one of number, bar, line, pie, table, transactions, text;
+     or the group_rule / group_rules widgets under GROUPING (these have no sql),
+     or a change widget under CHANGES.
+     Test a widget's sql with run_query first when unsure.
    - Use at most one widget unless the question clearly needs more.
 3. If the user names something that isn't in their categories/accounts/merchants,
    say which of their categories/accounts come closest — as a plain statement,
@@ -298,6 +430,7 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 	invalidFeedback := `Invalid reply. Respond with ONE JSON object only: {"action":"run_query","sql":"SELECT ..."} to run a query, or {"action":"final","text":"...","widgets":[]} to answer.`
 	emptyFinalFeedback := `Your final action had no content: "text" must be non-empty, or at least one valid widget must be present. Reply with the final JSON again.`
 	emptyFinalRetried := false
+	widgetRetries := 0
 
 	for round := 0; round < agentMaxRounds; round++ {
 		callStart = time.Now()
@@ -328,7 +461,7 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 				msgs = append(msgs, ai.ChatMessage{Role: "user", Content: "TOOL RESULT: " + invalidFeedback})
 				continue
 			}
-			res, qerr := RunReadonlyQuery(s.DB, sql)
+			res, qerr := RunReadonlyQuery(s.DB, sql, dateArgs(sql, win)...)
 			if qerr != nil {
 				// A step is a heading line, then the full SQL (shown as code).
 				emit(fmt.Sprintf("Query failed: %s\n%s", truncateChars(oneLine(qerr.Error(), 200), 200), strings.TrimSpace(sql)))
@@ -340,7 +473,19 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 			resultJSON, _ = json.Marshal(res)
 			msgs = append(msgs, ai.ChatMessage{Role: "user", Content: "TOOL RESULT: " + truncateChars(string(resultJSON), agentMaxTranscript)})
 		case "final":
-			ans, ferr := s.finishAgent(act, steps, emit)
+			lenient := widgetRetries >= agentWidgetRetries
+			ans, problems, ferr := s.finishAgent(act, steps, emit, win, lenient)
+			if len(problems) > 0 {
+				widgetRetries++
+				for _, p := range problems {
+					emit("Widget check failed: " + truncateChars(p, 200))
+				}
+				msgs = append(msgs,
+					ai.ChatMessage{Role: "assistant", Content: resp},
+					ai.ChatMessage{Role: "user", Content: "WIDGET CHECK FAILED: " + truncateChars(strings.Join(problems, "; "), 1200) +
+						". Fix the widgets and reply with the whole final JSON again."})
+				continue
+			}
 			if ferr == nil {
 				return ans, nil
 			}
@@ -372,11 +517,12 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 	if err != nil {
 		return nil, err
 	}
-	var act agentAction
-	if jerr := json.Unmarshal([]byte(resp), &act); jerr != nil {
+	act, perr := parseAction(resp)
+	if perr != nil {
 		return nil, fmt.Errorf("agent: no valid final answer")
 	}
-	return s.finishAgent(act, steps, emit)
+	ans, _, ferr := s.finishAgent(act, steps, emit, win, true)
+	return ans, ferr
 }
 
 func stripFences(s string) string {
@@ -392,11 +538,17 @@ func stripFences(s string) string {
 	return s
 }
 
-func (s *Service) finishAgent(act agentAction, steps []string, emit func(string)) (*Answer, error) {
-	widgetsList := sanitizeWidgets(act.Widgets)
+// finishAgent runs the answer's widget queries. Problems with them come back
+// for the model to fix, unless lenient: then widgets that fail are dropped
+// and snapshot-only ones are kept as they are.
+func (s *Service) finishAgent(act agentAction, steps []string, emit func(string), win *TimeWindow, lenient bool) (*Answer, []string, error) {
+	widgetsList, problems := s.buildWidgets(act.Widgets, win, lenient)
+	if len(problems) > 0 && !lenient {
+		return nil, problems, nil
+	}
 	text := strings.TrimSpace(act.Text)
 	if text == "" && len(widgetsList) == 0 {
-		return nil, errNoContent
+		return nil, nil, errNoContent
 	}
 	if len(widgetsList) > 0 {
 		step := fmt.Sprintf("Built %d widget%s for the answer", len(widgetsList), plural(len(widgetsList)))
@@ -405,7 +557,152 @@ func (s *Service) finishAgent(act agentAction, steps []string, emit func(string)
 			emit(step)
 		}
 	}
-	return &Answer{Text: text, Steps: steps, Widgets: widgetsList}, nil
+	return &Answer{Text: text, Steps: steps, Widgets: widgetsList}, nil, nil
+}
+
+// buildWidgets turns the answer's widgets into live ones by running their
+// queries, so what the answer shows is what a pinned copy will show.
+func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient bool) ([]*widgets.Widget, []string) {
+	out := make([]*widgets.Widget, 0, len(specs))
+	var problems []string
+	for i, sp := range specs {
+		if len(out) >= agentMaxWidgets {
+			break
+		}
+		typ := strings.ToLower(strings.TrimSpace(sp.Type))
+		title := truncateChars(strings.TrimSpace(sp.Title), 120)
+		name := fmt.Sprintf("widget %d (%q)", i+1, title)
+		switch typ {
+		case "group_rules":
+			if title == "" {
+				title = "Grouping rules"
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: map[string]any{}})
+			continue
+		case "group_rule":
+			draft := grouping.Draft{Group: sp.Group, Rules: sp.Rules}
+			p, err := (&grouping.Service{DB: s.DB}).Preview(draft)
+			if err == nil && len(p.Matched) == 0 {
+				err = fmt.Errorf("these rules match no transactions; check the text against real descriptions")
+			}
+			if err != nil {
+				if !lenient {
+					problems = append(problems, name+": "+err.Error())
+				}
+				continue
+			}
+			if title == "" {
+				title = "Group as “" + p.Group + "”"
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: p.Draft})
+			continue
+		case "change":
+			pv, err := s.draftChange(sp, win)
+			if err != nil {
+				if !lenient {
+					problems = append(problems, name+": "+err.Error())
+				}
+				continue
+			}
+			if title == "" {
+				title = "Proposed change"
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: pv.Proposal})
+			continue
+		}
+		if strings.TrimSpace(sp.SQL) == "" {
+			if typ == "text" || lenient {
+				if w := sanitizeWidget(sp); w != nil {
+					out = append(out, w)
+				}
+				continue
+			}
+			problems = append(problems, name+` has no "sql": every widget except text is a query the app runs`)
+			continue
+		}
+		spec := &Spec{V: SpecVersion, SQL: stripFences(sp.SQL), Columns: sp.Columns,
+			Caption: truncateChars(strings.TrimSpace(sp.Caption), 120)}
+		w, res, err := s.runSpec(spec, typ, win)
+		if err == nil {
+			err = checkSpec(spec, typ, res)
+		}
+		if err != nil {
+			problems = append(problems, name+": "+err.Error())
+			continue
+		}
+		w.Title = title
+		out = append(out, w)
+	}
+	return out, problems
+}
+
+// draftChange resolves a change widget's query to the transactions it would
+// touch and checks the change makes sense. Nothing is changed.
+func (s *Service) draftChange(sp agentWidgetSpec, win *TimeWindow) (*changes.Preview, error) {
+	query := stripFences(sp.SQL)
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf(`a change needs "sql" selecting the transactions' ids`)
+	}
+	ids, err := s.selectIDs(query, win)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("the sql selects no transactions; check it with run_query")
+	}
+	svc := &changes.Service{DB: s.DB}
+	p := changes.Proposal{Action: sp.Action, IDs: ids}
+	if sp.Action == changes.SetCategory {
+		if p.CategoryID, err = svc.CategoryByName(sp.Category); err != nil {
+			return nil, err
+		}
+	}
+	pv, err := svc.Draft(p)
+	if err != nil {
+		return nil, err
+	}
+	if len(pv.Rows) < len(ids) {
+		return nil, fmt.Errorf("%d of the %d selected ids aren't transactions: select t.id from transactions",
+			len(ids)-len(pv.Rows), len(ids))
+	}
+	if pv.Ready == 0 {
+		return nil, fmt.Errorf("it would change nothing: every selected transaction is skipped (%s)", pv.Rows[0].Skip)
+	}
+	return pv, nil
+}
+
+// selectIDs runs a change's read-only query and returns its first column.
+func (s *Service) selectIDs(query string, win *TimeWindow) ([]string, error) {
+	var ids []string
+	err := WithReadonlyRows(s.DB, query, changes.MaxTransactions+1, dateArgs(query, win), func(rows *sql.Rows) error {
+		cols, err := rows.Columns()
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			vals := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				return err
+			}
+			id := vals[0]
+			if b, ok := id.([]byte); ok {
+				id = string(b)
+			}
+			ids = append(ids, cellText(id))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) > changes.MaxTransactions {
+		return nil, fmt.Errorf("it selects more than %d transactions; narrow it down", changes.MaxTransactions)
+	}
+	return ids, nil
 }
 
 func plural(n int) string {

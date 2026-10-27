@@ -49,10 +49,10 @@ func TestUndoRedoDiscardTakeDependantsAlong(t *testing.T) {
 	}
 	later := write("user", "category.created")
 
-	if err := e.Undo(retrain, apply); err == nil {
+	if _, err := e.Undo(retrain, apply); err == nil {
 		t.Fatal("a derived entry must not be undoable on its own")
 	}
-	if err := e.Undo(imp, apply); err != nil {
+	if _, err := e.Undo(imp, apply); err != nil {
 		t.Fatal(err)
 	}
 	if state(imp) != "inactive" || state(retrain) != "inactive" || state(later) != "active" {
@@ -63,7 +63,7 @@ func TestUndoRedoDiscardTakeDependantsAlong(t *testing.T) {
 	}
 
 	applied = nil
-	if err := e.Redo([]int64{imp}, apply); err != nil {
+	if _, err := e.Redo([]int64{imp}, apply); err != nil {
 		t.Fatal(err)
 	}
 	if state(imp) != "active" || state(retrain) != "active" {
@@ -73,7 +73,7 @@ func TestUndoRedoDiscardTakeDependantsAlong(t *testing.T) {
 		t.Fatalf("redo order: %v", applied)
 	}
 
-	if err := e.Undo(imp, apply); err != nil {
+	if _, err := e.Undo(imp, apply); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := e.Discard([]int64{imp}); err != nil || n != 2 {

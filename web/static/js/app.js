@@ -17,22 +17,172 @@ function initTheme() {
 }
 
 let toastTimer;
-function toast(msg) {
+// A message that reports a failure gets the alert icon, not a tick.
+const FAILURE_RE = /^(could ?n[o']t|can['’]?t|cannot|failed|not |no longer|nothing |too many|invalid|something went wrong)|\b(required|is incorrect|must be|doesn't exist|out of date|isn't answering|was changed somewhere else)\b/i;
+function toast(msg, kind) {
   const el = document.getElementById("toast");
   if (!el) return;
+  const failed = kind === "error" || (kind !== "ok" && FAILURE_RE.test(String(msg)));
   el.hidden = false;
-  el.innerHTML = `<svg class="icon"><use href="#i-check"/></svg> ${esc(msg)}`;
+  el.classList.toggle("toast-error", failed);
+  el.innerHTML = `<svg class="icon"><use href="#i-${failed ? "alert" : "check"}"/></svg> ${esc(msg)}`;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), 2600);
+  toastTimer = setTimeout(() => (el.hidden = true), Math.max(2600, String(msg).length * 70));
 }
 function reloadWithToast(msg) {
   try { sessionStorage.setItem("glowworm-toast", msg); } catch (e) {}
   location.reload();
 }
 async function apiErrorText(r, fallback) {
-  const b = await r.json().catch(() => ({}));
-  return (b.error && b.error.message) || fallback;
+  return apiErrorFrom(r, await r.json().catch(() => ({})), fallback);
 }
+// jsonOk reads a response's JSON, or throws the server's explanation when
+// the request failed, so a failure never renders as an empty result.
+async function jsonOk(r, fallback) {
+  if (!r.ok) throw new Error(await apiErrorText(r, fallback || "The server couldn't do that"));
+  return r.json();
+}
+// apiErrorFrom is apiErrorText for a body that has already been read.
+function apiErrorFrom(r, b, fallback) {
+  const err = (b && b.error) || {};
+  if (r.status === 401) return "You've been signed out. Sign in again to carry on.";
+  if (r.status >= 502 && r.status <= 504) return "Glowworm isn't answering right now (it may be restarting). Try again in a moment.";
+  if (r.status === 403 && err.code === "csrf") return "This page is out of date. Reload it and try again.";
+  return err.message || fallback;
+}
+
+// ---- Connection. Every request to the server goes through this fetch: it
+// gives up on one that hasn't started answering after 30s, shows a banner
+// while the server can't be reached (and checks until it can), says so when
+// the session has ended, and notes the data version each response carries.
+const nativeFetch = window.fetch.bind(window);
+const FETCH_TIMEOUT_MS = 30000;
+// These wait on the AI, a file or a long job, so they get no time limit.
+const SLOW_PATH_RE = /^\/api\/v1\/(query|imports|instance\/backup|settings\/ai|categoriser|transactions\/[^/]+\/categorise|transfers\/detect|accounts\/archives)/;
+window.fetch = function (input, init) {
+  init = init || {};
+  const url = new URL(typeof input === "string" ? input : input.url, location.href);
+  if (url.origin !== location.origin) return nativeFetch(input, init);
+  const method = (init.method || (input && input.method) || "GET").toUpperCase();
+  let ctrl = null, timer = null;
+  if (!init.signal && !SLOW_PATH_RE.test(url.pathname)) {
+    ctrl = new AbortController();
+    init = Object.assign({}, init, { signal: ctrl.signal });
+    timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  }
+  return nativeFetch(input, init).then((r) => {
+    clearTimeout(timer);
+    if (r.status >= 502 && r.status <= 504) connection.lost("server");
+    else connection.ok();
+    if (r.status === 401 && url.pathname.startsWith("/api/")) connection.signedOut();
+    const v = r.headers.get("X-Glowworm-Version");
+    if (v && method !== "GET" && method !== "HEAD") dataVersion.ownChange(v);
+    return r;
+  }, (err) => {
+    clearTimeout(timer);
+    const timedOut = ctrl && ctrl.signal.aborted;
+    if (err && err.name === "AbortError" && !timedOut) throw err; // the caller cancelled it
+    connection.lost(timedOut ? "timeout" : "network");
+    throw new Error(timedOut ? "Glowworm took too long to answer." : "Can't reach Glowworm.");
+  });
+};
+
+const connection = (() => {
+  let banner = null, state = "ok", poll = null;
+  const show = (html, cls) => {
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.className = "conn-banner";
+      banner.setAttribute("role", "status");
+      document.body.prepend(banner);
+    }
+    banner.className = "conn-banner " + (cls || "");
+    banner.innerHTML = html;
+    banner.hidden = false;
+  };
+  const hide = () => { if (banner) banner.hidden = true; };
+  const check = () => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    nativeFetch("/healthz", { cache: "no-store", signal: ctrl.signal })
+      .then((r) => { if (r.ok) api.ok(); })
+      .catch(() => {})
+      .finally(() => clearTimeout(t));
+  };
+  const api = {
+    lost(why) {
+      if (state === "signedOut") return;
+      state = "lost";
+      show(`<svg class="icon"><use href="#i-alert"/></svg> ${why === "server"
+        ? "Glowworm isn't answering (it may be restarting)."
+        : why === "timeout" ? "Glowworm is taking too long to answer." : "Can't reach Glowworm: check your connection."}
+        Changes won't save until it's back. <button class="btn btn-ghost btn-xs" type="button" data-conn-retry>Try now</button>`, "conn-lost");
+      if (!poll) poll = setInterval(check, 5000);
+    },
+    ok() {
+      if (state !== "lost") return;
+      state = "ok";
+      clearInterval(poll);
+      poll = null;
+      hide();
+      toast("Connected again", "ok");
+      dataVersion.check();
+    },
+    signedOut() {
+      if (state === "signedOut") return;
+      state = "signedOut";
+      clearInterval(poll);
+      poll = null;
+      show(`<svg class="icon"><use href="#i-alert"/></svg> You've been signed out (perhaps the password was changed on another device).
+        <a class="btn btn-primary btn-xs" href="/login">Sign in</a>`, "conn-lost");
+    },
+    check,
+  };
+  window.addEventListener("offline", () => api.lost("network"));
+  window.addEventListener("online", check);
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-conn-retry]")) check(); });
+  return api;
+})();
+
+// ---- Other devices. The server's data version changes whenever anything is
+// saved. When this page comes back into view (and every minute while it's
+// open) it compares the version it was built from; if another device or tab
+// has saved something since, it offers a reload instead of showing old data.
+const dataVersion = (() => {
+  const meta = document.querySelector('meta[name="glowworm-version"]');
+  let known = meta ? meta.content : "";
+  let offered = false;
+  const offer = () => {
+    if (offered) return;
+    offered = true;
+    const bar = document.createElement("div");
+    bar.className = "conn-banner conn-stale";
+    bar.setAttribute("role", "status");
+    bar.innerHTML = `Something was changed on another device or tab.
+      <button class="btn btn-primary btn-xs" type="button" data-stale-reload>Reload</button>
+      <button class="btn btn-ghost btn-xs" type="button" data-stale-dismiss>Not now</button>`;
+    document.body.prepend(bar);
+    bar.addEventListener("click", (e) => {
+      if (e.target.closest("[data-stale-reload]")) location.reload();
+      if (e.target.closest("[data-stale-dismiss]")) bar.remove();
+    });
+  };
+  const api = {
+    // A save made by this page: its new version isn't news.
+    ownChange(v) { known = v; },
+    check() {
+      if (!known || offered || document.hidden) return;
+      nativeFetch("/api/v1/version", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => { if (b && b.version && b.version !== known) offer(); })
+        .catch(() => {});
+    },
+  };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) api.check(); });
+  window.addEventListener("pageshow", (e) => { if (e.persisted) api.check(); });
+  setInterval(api.check, 60000);
+  return api;
+})();
 function restoredMessage(res) {
   const n = res.transactions || 0;
   let msg = `Restored “${res.name}” · ${n} transaction${n === 1 ? "" : "s"}`;
@@ -492,43 +642,61 @@ function sendChat(text) {
     body: JSON.stringify({ text, conversation_id: conversationID, ...currentViewPeriod() }),
   }).then(async (resp) => {
     if (!resp.ok || !resp.body) {
-      finishAssistant(pending, { text: "Sorry - the query engine is unavailable right now.", isError: true });
+      finishAssistant(pending, { text: await apiErrorText(resp, "Sorry - the query engine is unavailable right now."), isError: true });
       return;
     }
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
     let buf = "", out = { text: "", steps: [], widgets: [], isError: false, suggestions: [] };
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx).trim();
-        buf = buf.slice(idx + 1);
-        if (!line) continue;
-        let ev;
-        try { ev = JSON.parse(line); } catch (e) { continue; }
-        if (ev.event === "steps") {
-          out.steps = out.steps.concat(ev.items || []);
-          renderSteps(pending, out.steps);
-        }
-        else if (ev.event === "text") { out.text = ev.text || out.text; }
-        else if (ev.event === "widget" && ev.widget) { out.widgets.push(ev.widget); }
-        else if (ev.event === "done" && ev.conversation_id) {
-          adoptConversation(ev.conversation_id, text);
-        }
-        else if (ev.event === "error") {
-          out.text = ev.message || "Query failed.";
-          out.isError = true;
-          out.steps = [];
-          out.suggestions = ev.suggestions || [];
+    let finished = false;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line); } catch (e) { continue; }
+          if (ev.event === "steps") {
+            out.steps = out.steps.concat(ev.items || []);
+            renderSteps(pending, out.steps);
+          }
+          else if (ev.event === "text") { out.text = ev.text || out.text; }
+          else if (ev.event === "widget" && ev.widget) { out.widgets.push(ev.widget); }
+          else if (ev.event === "done") {
+            finished = true;
+            if (ev.conversation_id) adoptConversation(ev.conversation_id, text);
+          }
+          else if (ev.event === "error") {
+            out.text = ev.message || "Query failed.";
+            out.isError = true;
+            out.steps = [];
+            out.suggestions = ev.suggestions || [];
+          }
         }
       }
+    } catch (e) {
+      // The connection dropped part way; reading further is pointless.
+    }
+    if (!finished) {
+      // The server carries on and saves the answer whether or not anyone is
+      // still listening, so it'll be there after a reload.
+      finishAssistant(pending, {
+        text: "The connection dropped before the answer arrived. Glowworm carries on with it: reload this page in a moment to see it.",
+        isError: true,
+      });
+      return;
     }
     finishAssistant(pending, out);
   }).catch(() => {
-    finishAssistant(pending, { text: "Sorry - the query engine is unavailable right now.", isError: true });
+    finishAssistant(pending, {
+      text: "Couldn't reach Glowworm. Check your connection and ask again; if the question did get through, its answer appears after a reload.",
+      isError: true,
+    });
   });
 }
 
@@ -544,13 +712,13 @@ function pinWidget(card, btn) {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
     body: JSON.stringify(payload),
-  }).then((r) => r.json()).then((out) => {
+  }).then((r) => jsonOk(r)).then((out) => {
     if (!out || !out.id) { toast("Could not pin widget"); return; }
     card.dataset.pinnedId = out.id;
     btn.classList.add("pinned-on");
     btn.title = "Unpin from dashboard";
     toast("Pinned to dashboard");
-  }).catch(() => toast("Could not pin widget"));
+  }).catch((e) => toast(e.message || "Could not pin widget"));
 }
 
 function unpinWidget(card, btn) {
@@ -687,16 +855,19 @@ function widgetCardHTML(widget) {
   el.innerHTML = `
     <div class="widget-head">
       <div class="widget-title">${esc(widget.title || "Widget")}</div>
-      <div class="widget-actions">
+      ${isRulesWidget(widget.type) ? "" : `<div class="widget-actions">
         <button class="widget-btn${widget.pinned ? " pinned-on" : ""}" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
         <button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
-      </div>
+      </div>`}
     </div>
     <div class="widget-body">${widgetBodyHTML(widget)}</div>`;
   return el.outerHTML;
 }
 function widgetBodyHTML(widget) {
   const data = widget.data || {};
+  if (widget.type === "group_rules") return `<div class="rules-host" data-rules-kind="list"></div>`;
+  if (widget.type === "group_rule") return `<div class="rules-host" data-rules-kind="draft" data-draft="${esc(JSON.stringify(data))}"></div>`;
+  if (widget.type === "change") return `<div class="rules-host" data-rules-kind="change" data-draft="${esc(JSON.stringify(data))}"></div>`;
   if (data.transactions) {
     data.transactions = data.transactions.map((tx) => {
       const v = tx.amount_minor ?? tx.amount ?? 0;
@@ -1195,7 +1366,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }).then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
-          toast((b.error && b.error.message) || "Could not add transaction");
+          toast(apiErrorFrom(r, b, "Could not add transaction"));
           return;
         }
         toast("Transaction added");
@@ -1280,23 +1451,192 @@ function modelPicker(root) {
 
 function openRecurring(key) {
   fetch(`/api/v1/recurring/${encodeURIComponent(key)}/transactions`)
-    .then((r) => r.json())
+    .then((r) => jsonOk(r))
     .then((body) => {
       const txs = body.transactions || [];
       const list = document.getElementById("recurringTxList");
       list.innerHTML = txs.map((t) => recurringRowHTML(t)).join("");
-      document.getElementById("recurringTitle").textContent = key;
+      document.getElementById("recurringTitle").textContent = (body.series && body.series.label) || "Recurring series";
       document.getElementById("recurringSub").textContent =
         txs.length + (txs.length === 1 ? " transaction" : " transactions") + " · auto-detected series";
       let total = 0;
       txs.forEach((t) => { total += t.amount_minor || 0; });
       document.getElementById("recurringTotal").textContent =
-        (total < 0 ? "\\u2212" : total > 0 ? "+" : "") + fmtMoneyMinor(total, body.currency || "GBP");
+        (total < 0 ? "\u2212" : total > 0 ? "+" : "") + fmtMoneyMinor(total, body.currency || "GBP");
       document.getElementById("recurringTotalLabel").textContent = total < 0 ? "Total spent" : total > 0 ? "Total received" : "Total";
+      document.getElementById("recurringSearch").href = recurringSearchHref(txs);
       openModal("recurringModal");
     })
     .catch(() => toast("Could not load the series"));
 }
+// A Transactions search for the series, like Top merchants' links: the text
+// its descriptions share ("Pure Gym Ltd - 02410…0002" and "…0003" share
+// "Pure Gym Ltd"), cut back to a whole word, plus their type when they agree.
+function recurringSearchHref(txs) {
+  const descs = txs.map((t) => t.description || "");
+  let common = descs[0] || "";
+  for (const d of descs) {
+    let i = 0;
+    while (i < common.length && i < d.length && common[i].toLowerCase() === d[i].toLowerCase()) i++;
+    common = common.slice(0, i);
+  }
+  if (descs.some((d) => d.length > common.length && /[\p{L}\p{N}]/u.test(d[common.length]))) {
+    common = common.replace(/[\p{L}\p{N}]+$/u, "");
+  }
+  common = common.replace(/[^\p{L}\p{N})]+$/u, "").trim();
+  const params = new URLSearchParams();
+  if (common) params.set("q", common);
+  const types = new Set(txs.map((t) => t.type));
+  if (types.size === 1 && (types.has("expense") || types.has("income"))) params.set("type", [...types][0]);
+  const qs = params.toString();
+  return "/transactions" + (qs ? "?" + qs : "");
+}
+// ---- Grouping rules, shown only in the query window. Both widgets read the
+// rules live, so an old answer still shows what's true now.
+function isRulesWidget(type) { return type === "group_rule" || type === "group_rules" || type === "change"; }
+function ruleText(r) {
+  return `${r.match === "is" ? "is" : "contains"} “${r.text}”`;
+}
+function hydrateRules(root) {
+  (root || document).querySelectorAll(".rules-host").forEach((host) => {
+    if (host.dataset.rulesKind === "list") loadRulesList(host);
+    else if (host.dataset.rulesKind === "change") loadChange(host);
+    else loadRuleDraft(host);
+  });
+}
+function loadRulesList(host) {
+  fetch("/api/v1/group-rules").then((r) => jsonOk(r)).then((body) => {
+    const items = body.items || [];
+    if (!items.length) {
+      host.innerHTML = `<p class="rules-empty">No grouping rules yet. Ask to group transactions that should count as one merchant.</p>`;
+      return;
+    }
+    host.innerHTML = `<div class="table-widget"><table class="rules-table">
+      <thead><tr><th>Group</th><th>Description</th><th class="num">Transactions</th><th></th></tr></thead>
+      <tbody>${items.map((r) => `<tr>
+        <td>${esc(r.group)}</td><td class="cell-sub">${esc(ruleText(r))}</td><td class="num">${r.count}</td>
+        <td class="row-actions"><button class="widget-btn" data-delete-rule="${esc(r.id)}" data-rule-label="${esc(r.group + " · " + ruleText(r))}" title="Delete rule" aria-label="Delete rule"><svg class="icon"><use href="#i-close"/></svg></button></td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not load the rules.")}</p>`; });
+}
+function loadRuleDraft(host) {
+  let draft;
+  try { draft = JSON.parse(host.dataset.draft || "{}"); } catch (e) { draft = {}; }
+  fetch("/api/v1/group-rules/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: JSON.stringify(draft),
+  }).then(async (r) => {
+    const p = await r.json();
+    if (!r.ok) throw new Error((p.error && p.error.message) || "preview failed");
+    const total = (p.matched || []).reduce((n, m) => n + m.count, 0);
+    host.innerHTML = `<div class="rule-draft">
+      <p class="rule-draft-head">Transactions whose description ${(p.rules || []).map((r) => `<strong>${esc(ruleText(r))}</strong>`).join(" or ")}
+        go in the group <strong>${esc(p.group)}</strong>:</p>
+      <div class="table-widget"><table class="rules-table">
+        <thead><tr><th>Description</th><th class="num">Transactions</th></tr></thead>
+        <tbody>${(p.matched || []).map((m) => `<tr><td>${esc(m.description)}${m.current ? ` <span class="cell-sub">· now in ${esc(m.current)}</span>` : ""}</td><td class="num">${m.count}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="rule-draft-foot">
+        <span class="cell-sub">${total} transaction${total === 1 ? "" : "s"}${p.created ? " · rule created" : ""}</span>
+        ${p.created ? "" : `<button class="btn btn-primary btn-xs" data-create-rule>Create rule</button>`}
+      </div></div>`;
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the rule.")}</p>`; });
+}
+// A change the AI proposed: every transaction it would touch, and Apply.
+// The preview is read live, so an old answer shows whether it was applied.
+function loadChange(host) {
+  fetch("/api/v1/changes/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: host.dataset.draft,
+  }).then(async (r) => {
+    const p = await r.json();
+    if (!r.ok) throw new Error((p.error && p.error.message) || "preview failed");
+    const rows = p.rows || [];
+    const skipped = p.applied ? 0 : rows.length - p.ready;
+    host.innerHTML = `<div class="rule-draft">
+      <p class="rule-draft-head">${p.applied ? `<strong>Applied:</strong> ${esc(p.done)}. Now:`
+        : `<strong>${esc(p.summary)}</strong>${skipped ? `, leaving ${skipped} as ${skipped === 1 ? "it is" : "they are"}` : ""}:`}</p>
+      <div class="table-widget change-rows"><table class="rules-table">
+        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
+        <tbody>${rows.map((t) => `<tr class="${t.skip ? "change-skip" : ""}">
+          <td class="cell-sub">${esc(t.date)}</td>
+          <td>${esc(t.description)} <span class="cell-sub">· ${esc(t.account)}</span></td>
+          <td class="cell-sub">${t.skip ? `Skipped: ${esc(t.skip)}` : t.deleted ? "Deleted" : esc(t.category || (t.linked ? "Transfer" : "Uncategorised"))}</td>
+          <td class="num">${fmtMoneySigned(t.amount_minor, t.currency)}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="rule-draft-foot">
+        <span class="cell-sub">${p.applied ? `Applied · <a href="/history?mode=audit">undo in History</a>` : "Nothing changes until you apply it."}</span>
+        ${p.applied || !p.ready ? "" : `<button class="btn btn-primary btn-xs" data-apply-change data-change-action="${esc(p.proposal.action)}" data-count="${p.ready}">Apply</button>`}
+      </div></div>`;
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the change.")}</p>`; });
+}
+function applyChange(btn) {
+  const host = btn.closest(".rules-host");
+  btn.disabled = true;
+  fetch("/api/v1/changes/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: host.dataset.draft,
+  }).then(async (r) => {
+    if (!r.ok) { toast(await apiErrorText(r, "Could not apply the change")); btn.disabled = false; return; }
+    toast("Change applied");
+    loadChange(host);
+  }).catch(() => { toast("Could not apply the change"); btn.disabled = false; });
+}
+document.addEventListener("click", (e) => {
+  const apply = e.target.closest("[data-apply-change]");
+  if (apply) {
+    if (apply.dataset.changeAction === "delete") {
+      const n = apply.dataset.count;
+      showConfirm(`Delete ${n} transaction${n === "1" ? "" : "s"}?`, "You can undo this from History.", "Delete", () => applyChange(apply), "danger");
+    } else applyChange(apply);
+    return;
+  }
+  const create = e.target.closest("[data-create-rule]");
+  if (create) {
+    const host = create.closest(".rules-host");
+    create.disabled = true;
+    fetch("/api/v1/group-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: host.dataset.draft,
+    }).then(async (r) => {
+      if (!r.ok) { toast(await apiErrorText(r, "Could not create the rule")); create.disabled = false; return; }
+      toast("Rule created");
+      hydrateRules();
+    }).catch(() => { toast("Could not create the rule"); create.disabled = false; });
+    return;
+  }
+  const del = e.target.closest("[data-delete-rule]");
+  if (del) {
+    showConfirm("Delete this rule?", `${del.dataset.ruleLabel}. Its transactions leave the group, and a group with no rules left is gone. You can undo this from History.`, "Delete", () => {
+      fetch(`/api/v1/group-rules/${encodeURIComponent(del.dataset.deleteRule)}`, {
+        method: "DELETE",
+        headers: { "X-CSRF-Token": csrfToken() },
+      }).then(async (r) => {
+        if (!r.ok) { toast(await apiErrorText(r, "Could not delete the rule")); return; }
+        toast("Rule deleted");
+        hydrateRules();
+      }).catch(() => toast("Could not delete the rule"));
+    }, "danger");
+  }
+});
+document.addEventListener("DOMContentLoaded", () => {
+  const box = document.getElementById("queryMessages");
+  if (!box) return;
+  hydrateRules(box);
+  // Answers and older pages of the conversation arrive later.
+  new MutationObserver((muts) => {
+    for (const m of muts) m.addedNodes.forEach((n) => {
+      if (n.nodeType !== 1) return;
+      if (n.matches(".rules-host")) hydrateRules(n.parentNode);
+      else if (n.querySelector(".rules-host")) hydrateRules(n);
+    });
+  }).observe(box, { childList: true, subtree: true });
+});
+
 function recurringRowHTML(t) {
   const cat = t.category ? t.category.name : "Uncategorised";
   const amt = fmtMoneySigned(t.amount_minor, t.currency || "GBP");
@@ -1372,7 +1712,7 @@ function openAccountForm(id) {
   document.getElementById("accDeleteBtn").hidden = !id;
   resetValuationFields();
   if (id) {
-    fetch(`/api/v1/accounts/${id}`).then((r) => r.json()).then((a) => {
+    fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
       document.getElementById("accName").value = a.name || "";
       document.getElementById("accType").value = a.type || "debit";
       document.getElementById("accOpening").value = a.opening_balance_minor != null ? (a.opening_balance_minor / 100).toFixed(2) : "";
@@ -1383,7 +1723,7 @@ function openAccountForm(id) {
       document.getElementById("accBic").value = a.bic || "";
       syncValuationBlock();
       loadValuations(id);
-    }).catch(() => toast("Could not load account"));
+    }).catch((e) => toast(e.message || "Could not load account"));
   } else {
     ["accName","accOpening","accNumber","accSortCode","accIban","accBic"].forEach((x) => (document.getElementById(x).value = ""));
     document.getElementById("accValuationList").hidden = document.getElementById("accValuationListLabel").hidden = true;
@@ -1410,7 +1750,7 @@ function loadValuations(accountID) {
   const label = document.getElementById("accValuationListLabel");
   list.innerHTML = "";
   list.hidden = label.hidden = true;
-  fetch(`/api/v1/accounts/${accountID}/valuations`).then((r) => r.json()).then((b) => {
+  fetch(`/api/v1/accounts/${accountID}/valuations`).then((r) => jsonOk(r)).then((b) => {
     const items = (b.items || []).slice().reverse(); // newest first
     if (!items.length) return;
     list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
@@ -1467,7 +1807,7 @@ function saveAccount() {
   }).then(async (r) => {
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));
-      toast((b.error && b.error.message) || "Could not save the account");
+      toast(apiErrorFrom(r, b, "Could not save the account"));
       return null;
     }
     return r.json();
@@ -1481,7 +1821,7 @@ function saveAccount() {
     }).then(async (r) => {
       if (r.ok) return true;
       const b = await r.json().catch(() => ({}));
-      toast((b.error && b.error.message) || "Account saved, but the value couldn't be recorded");
+      toast(apiErrorFrom(r, b, "Account saved, but the value couldn't be recorded"));
       return false;
     });
   }).then((ok) => {
@@ -1657,7 +1997,7 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ current_password: cur, new_password: nw }),
       });
       const b = await r.json().catch(() => ({}));
-      if (!r.ok) { toast((b.error && b.error.message) || "Could not change password"); return; }
+      if (!r.ok) { toast(apiErrorFrom(r, b, "Could not change password")); return; }
       closePasswordModal();
       toast("Password changed");
     });
@@ -1685,7 +2025,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }).then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
-          toast((b.error && b.error.message) || "Could not update name");
+          toast(apiErrorFrom(r, b, "Could not update name"));
           return;
         }
         const shown = document.getElementById("signedInName");
@@ -1756,7 +2096,7 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ provider: aiProviderSel.value, clear_key: true }),
       }).then(async (r) => {
         const b = await r.json().catch(() => ({}));
-        if (!r.ok) { toast((b.error && b.error.message) || "Could not clear key"); return; }
+        if (!r.ok) { toast(apiErrorFrom(r, b, "Could not clear key")); return; }
         aiHasSavedKey = false;
         aiKeyUnlocked = false;
         aiKeyInput.value = "";
@@ -1797,7 +2137,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }),
       });
       const b = await r.json().catch(() => ({}));
-      if (!r.ok || !b.ok) throw new Error((b.error && b.error.message) || "could not list models");
+      if (!r.ok || !b.ok) throw new Error(apiErrorFrom(r, b, "Could not list the models"));
       const models = b.models || [];
       queryPicker.setModels(models);
       catPicker?.setModels(models);
@@ -1844,7 +2184,7 @@ document.addEventListener("DOMContentLoaded", () => {
       body: JSON.stringify({ provider, api_key: key || undefined, base_url: baseUrl || undefined, models }),
     }).then(async (r) => {
       const b = await r.json().catch(() => ({}));
-      if (!r.ok) { toast((b.error && b.error.message) || "Could not save"); return; }
+      if (!r.ok) { toast(apiErrorFrom(r, b, "Could not save")); return; }
       if (key) { aiHasSavedKey = true; aiKeyUnlocked = false; syncAIKeyRow(); }
       toast("AI provider updated");
       if (aiProviderSel.value) loadAIModels();
@@ -1852,9 +2192,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("aiTest")?.addEventListener("click", () => {
     fetch("/api/v1/settings/ai/test", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
-      .then((r) => r.json())
+      .then((r) => jsonOk(r))
       .then((b) => toast(b.ok ? `Connection OK (${b.latency_ms}ms)` : `Failed: ${b.error || "unknown error"}`))
-      .catch(() => toast("Test failed"));
+      .catch((e) => toast(e.message || "Test failed"));
   });
 
   // Add and edit share one modal; cat is the category being edited, if any.
@@ -1899,7 +2239,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }).then(async (r) => {
       if (!r.ok) {
         const b = await r.json().catch(() => ({}));
-        toast((b.error && b.error.message) || "Could not save the category");
+        toast(apiErrorFrom(r, b, "Could not save the category"));
         return;
       }
       reloadWithToast(id ? "Category updated" : "Category added");
@@ -1924,11 +2264,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }).then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
-          toast((b.error && b.error.message) || "That didn't work");
+          toast(apiErrorFrom(r, b, "That didn't work"));
           return;
         }
-        toast(okMsg);
-        location.reload();
+        // Parts changed again later are kept; say which.
+        const out = await r.json().catch(() => ({}));
+        reloadWithToast(out.notes && out.notes.length ? okMsg + ". " + out.notes.join(". ") + "." : okMsg);
       }).catch(() => toast("That didn't work"));
     });
   }
@@ -2092,16 +2433,29 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   function openEditor(tr, id) {
-    fetch(`/api/v1/transactions/${id}`).then((r) => r.json()).then((t) => {
+    fetch(`/api/v1/transactions/${id}`).then(async (r) => {
+      if (!r.ok) throw new Error(await apiErrorText(r, "Could not load the transaction"));
+      return r.json();
+    }).then((t) => {
       const editor = document.createElement("tr");
       editor.id = "txEditorRow";
       editor.dataset.txId = id;
       const linked = !!t.transfer_id;
       const cats = window.__CAT_OPTIONS__ || [];
+      const accounts = window.__ACCOUNT_OPTIONS__ || [];
+      const internalCat = cats.find((c) => c.internal);
+      // The transfer link only applies to a transfer: one already linked, or
+      // one in the Internal transfer category.
+      const isTransfer = () => linked || (!!internalCat && document.getElementById("txeCategory").value === internalCat.id);
       editor.innerHTML = `<td colspan="6">
         <div class="tx-editor">
           <label class="tx-field">Date
             <input class="field" type="date" id="txeDate" value="${esc(t.date)}" />
+          </label>
+          <label class="tx-field">Account
+            <select class="field" id="txeAccount" ${linked ? 'disabled title="Break the transfer link to move it to another account"' : ""}>
+              ${accounts.map((a) => `<option value="${esc(a.id)}"${t.account_id === a.id ? " selected" : ""}>${esc(a.name)}</option>`).join("")}
+            </select>
           </label>
           <label class="tx-field grow">Description
             <input class="field" type="text" id="txeDescription" value="${esc(t.description)}" placeholder="e.g. Tesco Express" />
@@ -2111,7 +2465,7 @@ document.addEventListener("DOMContentLoaded", () => {
               ${linked ? `<option selected>Internal transfer</option>` : `<option value="">Select category…</option>` + cats.map((c) => `<option value="${esc(c.id)}"${t.category && t.category.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
             </select>
           </label>
-          <label class="tx-field grow" id="txeTransferField">Transfer link
+          <label class="tx-field grow" id="txeTransferField" hidden>Transfer link
             ${linked
               ? `<select class="field" id="txeCounterpart" disabled><option selected>Linked: ${esc(t.counterpart_tx ? t.counterpart_tx.description + " · " + (t.counterpart_tx.account_name || "") : "transfer leg")}</option></select>`
               : `<select class="field" id="txeCounterpart"><option value="">Not a transfer</option></select>`}
@@ -2150,23 +2504,22 @@ document.addEventListener("DOMContentLoaded", () => {
           toast("Could not load transfer suggestions");
         }
       };
-      if (!linked) {
-        loadTransferSuggestions();
-        const cpSel = document.getElementById("txeCounterpart");
-        if (cpSel) {
-          cpSel.addEventListener("change", () => {
-            if (cpSel.value) {
-              const internal = (window.__CAT_OPTIONS__ || []).find((c) => c.internal);
-              if (internal) catSel.value = internal.id;
-              catSel.disabled = true;
-            } else {
-              catSel.disabled = false;
-            }
-          });
+      let suggestionsLoaded = false;
+      const syncTransferField = () => {
+        const show = isTransfer();
+        cpField.hidden = !show;
+        if (!show) {
+          const cpSel = document.getElementById("txeCounterpart");
+          if (cpSel && !linked) cpSel.value = "";
+        } else if (!linked && !suggestionsLoaded) {
+          suggestionsLoaded = true;
+          loadTransferSuggestions();
         }
-      }
+      };
+      syncTransferField();
+      catSel.addEventListener("change", syncTransferField);
       document.getElementById("txeCancel").addEventListener("click", closeEditor);
-      const editorState = () => ["txeDate", "txeDescription", "txeCategory", "txeCounterpart", "txeAmount"]
+      const editorState = () => ["txeDate", "txeAccount", "txeDescription", "txeCategory", "txeCounterpart", "txeAmount"]
         .map((x) => document.getElementById(x)?.value ?? "").join("\u0000");
       const initialState = editorState();
       editorSave = () => {
@@ -2182,17 +2535,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!description) { toast("Description is required"); return; }
         if (isNaN(amount)) { toast("Amount is required"); return; }
         const cpSel = document.getElementById("txeCounterpart");
-        if (cpSel && !linked && cpSel.value) {
+        if (cpSel && !linked && isTransfer() && cpSel.value) {
           fetch(`/api/v1/transactions/${id}/link`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
             body: JSON.stringify({ counterpart_id: cpSel.value }),
           }).then(async (r) => {
-            if (!r.ok) {
-              const b = await r.json().catch(() => ({}));
-              toast((b.error && b.error.message) || "Could not link");
-              return;
-            }
+            if (!r.ok) { toast(await apiErrorText(r, "Could not link")); return; }
             toast("Transfer linked");
             location.reload();
           });
@@ -2200,19 +2549,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const body = {
           date, description,
+          account_id: linked ? undefined : document.getElementById("txeAccount").value,
           amount_minor: Math.round(amount * 100),
           category_id: (!linked && document.getElementById("txeCategory").value) || null,
+          // Refused if it was changed on another device since this opened.
+          expected_updated_at: t.updated_at,
         };
         fetch(`/api/v1/transactions/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
           body: JSON.stringify(body),
         }).then(async (r) => {
-          if (!r.ok) {
-            const b = await r.json().catch(() => ({}));
-            toast((b.error && b.error.message) || "Could not save");
-            return;
-          }
+          if (!r.ok) { toast(await apiErrorText(r, "Could not save")); return; }
           toast("Transaction updated");
           location.reload();
         }).catch(() => toast("Could not save"));
@@ -2234,7 +2582,7 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         });
       }
-    }).catch(() => toast("Could not load transaction"));
+    }).catch((e) => toast(e.message || "Could not load the transaction"));
   }
 });
 
@@ -2265,7 +2613,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target.closest("[data-close-flow]")) closeFlow();
   });
   const jsonHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrfToken() });
-  const errMessage = (b, status) => (b && b.error && b.error.message) || `server error ${status}`;
+  const errMessage = (b, status) => apiErrorFrom({ status }, b, `The server couldn't do that (error ${status}). Try again.`);
 
   const upload = (file) => {
     const fd = new FormData();
@@ -2647,7 +2995,7 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify({ sample, format: humanToGoLayout(fmt) }),
-      }).then((r) => r.json()).then((body) => {
+      }).then((r) => jsonOk(r)).then((body) => {
         if (myToken !== previewToken) return;
         if (!body.iso) {
           previewEl.innerHTML = `<span class="date-preview-fail">Couldn't read “${esc(sample)}”${fmt ? ` as ${esc(fmt)}` : ""}. Pick a format from the “i” menu${fmt ? " or clear the field to auto-detect" : ""}.</span>`;
@@ -3234,7 +3582,7 @@ function initHistoryTimeline() {
     chip.textContent = stepsBack === 0 ? "Latest" : stepsBack === 1 ? "1 step back" : stepsBack + " steps back";
     slider.style.setProperty("--fill", (months.length > 1 ? (idx / (months.length - 1)) * 100 : 0) + "%");
     renderChart(end);
-    fetch(`/api/v1/snapshot?date=${end}`).then((r) => r.json()).then((b) => {
+    fetch(`/api/v1/snapshot?date=${end}`).then((r) => jsonOk(r)).then((b) => {
       const bal = document.getElementById("timelineBalance");
       if (bal) bal.textContent = fmtMoneyMinor(b.total_minor, b.currency);
       const count = document.getElementById("timelineTxCount");
@@ -3299,7 +3647,6 @@ function loadHistoryPane(url, push) {
   const u = new URL(url, location.origin);
   const mode = u.searchParams.get("mode") === "audit" ? "audit" : "transactions";
   const filter = u.searchParams.get("filter") || "all";
-  const period = u.searchParams.get("period") || "all";
 
   document.querySelectorAll(".history-mode .segmented-item").forEach((a) => {
     const on = a.dataset.historyMode === mode;
@@ -3309,7 +3656,8 @@ function loadHistoryPane(url, push) {
   host.innerHTML = historySkeletonHTML(mode);
 
   const token = ++historyPaneToken;
-  fetch(`/history/pane?mode=${mode}&filter=${filter}&period=${period}`, { headers: { "X-Requested-With": "fetch" } })
+  // No period: the server uses the selected date range (see selectedPeriod).
+  fetch(`/history/pane?mode=${mode}&filter=${filter}`, { headers: { "X-Requested-With": "fetch" } })
     .then((r) => {
       // A redirect (e.g. to /setup) would otherwise be injected as pane HTML.
       if (!r.ok || r.redirected) throw new Error("pane " + r.status);

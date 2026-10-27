@@ -2,9 +2,9 @@
 {{if eq .Mode "audit"}}
 <div class="history-pane" id="historyAuditPane">
   <div class="filters panel">
-    <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all&period={{.Period}}">All</a>
-    <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you&period={{.Period}}">You</a>
-    <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?mode=audit&filter=system&period={{.Period}}">System</a>
+    <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all">All</a>
+    <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you">You</a>
+    <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?mode=audit&filter=system">System</a>
   </div>
 
   <div class="history-list" id="historyList">
@@ -111,8 +111,8 @@
     </div>
     {{end}}
     {{if .Effects}}
-    <ul class="history-effects" aria-label="What the system did as a result">
-      {{range .Effects}}<li><span class="who system">System</span> {{.Title}}{{if .Sub}} <span class="history-effect-sub">· {{.Sub}}</span>{{end}}</li>{{end}}
+    <ul class="history-effects" aria-label="What was done as a result">
+      {{range .Effects}}<li><span class="who {{.Kind}}">{{.Actor}}</span> {{.Title}}{{if .Sub}} <span class="history-effect-sub">· {{.Sub}}</span>{{end}}</li>{{end}}
     </ul>
     {{end}}
   </div>

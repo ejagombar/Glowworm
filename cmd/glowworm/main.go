@@ -110,7 +110,7 @@ func serve() {
 		log.Error("store", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	app, err := server.New(cfg, db, secret, log)
 	if err != nil {
@@ -155,7 +155,7 @@ func runBackup(args []string) {
 	if err != nil {
 		fail("store: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if out == "" {
 		out = backup.FileName(time.Now())
 	}
@@ -164,8 +164,8 @@ func runBackup(args []string) {
 		fail("%v", err)
 	}
 	if err := backup.Write(f, db, secret, version); err != nil {
-		f.Close()
-		os.Remove(out)
+		_ = f.Close()
+		_ = os.Remove(out)
 		fail("backup: %v", err)
 	}
 	if err := f.Close(); err != nil {
@@ -222,8 +222,8 @@ func healthcheck(args []string) {
 		fmt.Println("unhealthy")
 		os.Exit(1)
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	fmt.Println("ok")
 }
 

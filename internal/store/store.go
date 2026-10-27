@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -30,7 +31,7 @@ func Open(dialect, dsn string) (*DB, error) {
 	var err error
 	switch dialect {
 	case "sqlite":
-		db, err = sql.Open("sqlite", dsn)
+		db, err = sql.Open("sqlite", sqliteDSN(dsn))
 	case "postgres":
 		err = fmt.Errorf("postgres: dsn %q not supported in this build (set GLOWWORM_DB=sqlite)", dsn)
 		db = nil
@@ -45,23 +46,27 @@ func Open(dialect, dsn string) (*DB, error) {
 	db.SetMaxOpenConns(4)
 	s := &DB{DB: db, Dialect: dialect}
 	if dialect == "sqlite" {
-		// These run on one pooled connection only; the others do not enforce
-		// foreign keys, so deletes must not rely on ON DELETE CASCADE.
-		for _, pragma := range []string{
-			"PRAGMA journal_mode=WAL",
-			"PRAGMA busy_timeout=5000",
-			"PRAGMA foreign_keys=ON",
-			"PRAGMA synchronous=NORMAL",
-		} {
-			if _, err := db.Exec(pragma); err != nil {
-				return nil, fmt.Errorf("store: %s: %w", pragma, err)
-			}
+		if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+			return nil, fmt.Errorf("store: %w", err)
 		}
 	}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// sqliteDSN sets the per-connection pragmas on every pooled connection, not
+// just the first: each waits up to 5s for another writer instead of failing
+// with "database is locked", and enforces foreign keys. Transactions take the
+// write lock when they begin, so two clients writing at once queue up rather
+// than one failing when its read turns into a write.
+func sqliteDSN(dsn string) string {
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 }
 
 func (s *DB) WithTx(fn func(tx *sql.Tx) error) error {
@@ -138,8 +143,15 @@ func (s *DB) migrate() error {
 	if latest := all[len(all)-1].version; current > latest {
 		return fmt.Errorf("store: database schema is version %d but this build only knows up to %d — it was created by a newer or pre-release build; start with a fresh data directory", current, latest)
 	}
+	applied, err := s.appliedMigrations()
+	if err != nil {
+		return err
+	}
+	if err := s.adoptCategoryDescription(applied); err != nil {
+		return err
+	}
 	for _, m := range all {
-		if m.version <= current {
+		if applied[m.version] {
 			continue
 		}
 		start := time.Now()
@@ -148,6 +160,43 @@ func (s *DB) migrate() error {
 		}
 		fmt.Printf("store: applied migration %04d_%s (%dms)\n", m.version, m.name, time.Since(start).Milliseconds())
 	}
+	return nil
+}
+
+func (s *DB) appliedMigrations() (map[int]bool, error) {
+	rows, err := s.Query(`SELECT version FROM schema_migrations`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]bool{}
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out[v] = true
+	}
+	return out, rows.Err()
+}
+
+// A build of main briefly shipped the category description column as
+// migration 5, a number the widget date ranges migration already had. Such a
+// database has the column but records it as 5: count it as 10 instead and
+// forget 5, so the widget migration (safe to run again) still applies.
+func (s *DB) adoptCategoryDescription(applied map[int]bool) error {
+	if applied[10] || !applied[5] {
+		return nil
+	}
+	var n int
+	if err := s.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('categories') WHERE name = 'description'`).Scan(&n); err != nil || n == 0 {
+		return err
+	}
+	if _, err := s.Exec(`UPDATE schema_migrations SET version = 10 WHERE version = 5`); err != nil {
+		return err
+	}
+	delete(applied, 5)
+	applied[10] = true
 	return nil
 }
 
@@ -172,7 +221,13 @@ func (s *DB) Reset() error {
 	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 		return err
 	}
-	defer conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA foreign_keys = %d`, fk))
+	defer func() {
+		// The connection goes back to the pool: if foreign keys can't be
+		// switched back on, throw it away rather than leave one unchecked.
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA foreign_keys = %d`, fk)); err != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err

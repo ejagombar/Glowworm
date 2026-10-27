@@ -106,6 +106,9 @@ func (s *Service) Create(in Input) (*core.Category, error) {
 	if typ != core.CategorySpend && typ != core.CategoryIncome {
 		return nil, &ValidationError{Message: "Category type must be spend or income"}
 	}
+	if in.Color != "" && !core.ValidColor(in.Color) {
+		return nil, &ValidationError{Message: "Colour must be a hex code like #2e9d8f"}
+	}
 	desc, err := description(in)
 	if err != nil {
 		return nil, err
@@ -140,6 +143,9 @@ func (s *Service) Update(id string, in Input) (*core.Category, error) {
 		return nil, err
 	}
 	before := map[string]any{"name": c.Name, "color": c.Color, "type": c.Type, "description": c.Description}
+	if in.Color != "" && !core.ValidColor(in.Color) {
+		return nil, &ValidationError{Message: "Colour must be a hex code like #2e9d8f"}
+	}
 	if c.IsSystem {
 		if strings.TrimSpace(in.Name) != "" && !strings.EqualFold(in.Name, c.Name) {
 			return nil, &ValidationError{Message: "System category — its name is fixed."}

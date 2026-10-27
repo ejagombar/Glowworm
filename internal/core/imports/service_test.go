@@ -22,7 +22,7 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	w := &audit.Writer{DB: db}
 	txs := &repos.Transactions{DB: db}
 	cat := &categoriser.Service{DB: db, Txs: txs, Categories: &repos.Categories{DB: db},
@@ -86,7 +86,7 @@ func stagedByDesc(t *testing.T, s *Service, batchID string) map[string][]stagedS
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string][]stagedState{}
 	for rows.Next() {
 		var key string
@@ -327,7 +327,7 @@ func TestCategoriseGroupsReviewAndRememberSchema(t *testing.T) {
 		t.Fatalf("saved schema must be the mapping the user applied: %s", mapping)
 	}
 
-	next := strings.Replace(statementCSV, "2026-06-0", "2026-07-0", -1)
+	next := strings.ReplaceAll(statementCSV, "2026-06-0", "2026-07-0")
 	joint := "acc-joint"
 	b2, err := s.Upload("july.csv", []byte(next), &joint)
 	if err != nil {
@@ -338,6 +338,17 @@ func TestCategoriseGroupsReviewAndRememberSchema(t *testing.T) {
 	}
 	if b2.AccountID == nil || *b2.AccountID != "acc-main" {
 		t.Fatalf("matched schema should preselect its account, got %v", b2.AccountID)
+	}
+
+	// The same export saved with a byte-order mark (as Excel does) is the
+	// same schema, not a new one.
+	withBOM := "\ufeff" + strings.ReplaceAll(statementCSV, "2026-06-0", "2026-08-0")
+	b3, err := s.Upload("august.csv", []byte(withBOM), &joint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b3.Status != "awaiting_review" || b3.SchemaName != "My Bank CSV" {
+		t.Fatalf("schema not matched with a byte-order mark: status=%q schema=%q", b3.Status, b3.SchemaName)
 	}
 }
 
@@ -461,5 +472,44 @@ func TestForeignCurrencyRowsAreConverted(t *testing.T) {
 	}
 	if r := byDesc["Tesco"]; r.OriginalCurrency != "" || r.AmountMinor != -500 {
 		t.Fatalf("home-currency row = %+v", r)
+	}
+}
+
+// HTML-escaped text ("Marks &amp; Spencer") is decoded on import, and a row
+// imported before that, saved escaped with the escaped text's hash, is still
+// recognised as a duplicate.
+func TestImportDecodesHTMLEntities(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	csv := "Date,Description,Payee,Amount\n2026-06-01,Marks &amp; Spencer,B&amp;Q &lt;Ltd&gt;,-10.00\n2026-06-02,Marks &amp; Spencer,,-7.00\n"
+	if _, err := s.DB.Exec(`INSERT INTO transactions (id, account_id, date, description, amount_minor, currency, type, dedupe_hash, created_at, updated_at)
+		VALUES ('old','acc-main','2026-06-02','Marks & Spencer',-700,'GBP','expense',?,'2026-06-03T00:00:00Z','2026-06-03T00:00:00Z')`,
+		repos.DedupeHash("acc-main", "2026-06-02", -700, "Marks &amp; Spencer")); err != nil {
+		t.Fatal(err)
+	}
+	acc := "acc-main"
+	b, err := s.Upload("chase.csv", []byte(csv), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.ApplySchemaPublic(b.ID, userMapping(), []byte(csv)); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.DB.Query(`SELECT description, destination_text, COALESCE(duplicate_of, '') FROM import_staging WHERE batch_id = ? ORDER BY line_no`, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []string
+	for rows.Next() {
+		var d, dest, dup string
+		if err := rows.Scan(&d, &dest, &dup); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, d+"|"+dest+"|"+dup)
+	}
+	want := []string{"Marks & Spencer|B&Q <Ltd>|", "Marks & Spencer||old"}
+	if strings.Join(got, ";") != strings.Join(want, ";") {
+		t.Fatalf("staged = %v, want %v", got, want)
 	}
 }

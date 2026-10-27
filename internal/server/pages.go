@@ -46,6 +46,8 @@ type viewBase struct {
 	SetupDone   bool
 	AuthMode    string
 	Standalone  bool
+	// DataVersion is the data this page was built from; see dataVersion.
+	DataVersion string
 }
 
 // shortDate is "22 Oct 2025", matching the date range button in app.js.
@@ -57,16 +59,48 @@ func shortDate(iso string) string {
 	return t.Format("2 Jan 2006")
 }
 
-func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (*viewBase, error) {
-	s := a.Settings.Get()
-	period := r.URL.Query().Get("period")
-	if period == "" {
-		period = s.DefaultPeriod
-		if period == "" {
-			period = "all"
+// selectedPeriod is the date range chosen in the masthead. Choosing one puts
+// it in the URL (?period=, plus from/to for a custom range), which is
+// remembered in a cookie, so every other page and link keeps it until the
+// user picks another. Without either, it's the default from Settings.
+func (a *App) selectedPeriod(w http.ResponseWriter, r *http.Request) (period, from, to string) {
+	q := r.URL.Query()
+	if p := q.Get("period"); validPeriod(p) {
+		period = p
+		if p == periods.Custom {
+			from, to = q.Get("from"), q.Get("to")
+		}
+		v := url.Values{"period": {period}}
+		if from != "" || to != "" {
+			v.Set("from", from)
+			v.Set("to", to)
+		}
+		http.SetCookie(w, &http.Cookie{Name: periodCookie, Value: v.Encode(), Path: "/",
+			MaxAge: 365 * 24 * 3600, HttpOnly: true, Secure: isTLS(r), SameSite: http.SameSiteLaxMode})
+		return period, from, to
+	}
+	if c, err := r.Cookie(periodCookie); err == nil {
+		if v, err := url.ParseQuery(c.Value); err == nil && validPeriod(v.Get("period")) {
+			return v.Get("period"), v.Get("from"), v.Get("to")
 		}
 	}
-	from, to, label := periods.Resolve(period, r.URL.Query().Get("from"), r.URL.Query().Get("to"), a.Clock.TodayTime())
+	period = a.Settings.Get().DefaultPeriod
+	if !validPeriod(period) {
+		period = periods.All
+	}
+	return period, "", ""
+}
+
+// validPeriod is a choice the date range menu offers.
+func validPeriod(p string) bool {
+	_, ok := periods.Labels[p]
+	return ok && p != periods.ThisMonthPreset
+}
+
+func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (*viewBase, error) {
+	s := a.Settings.Get()
+	period, from, to := a.selectedPeriod(w, r)
+	from, to, label := periods.Resolve(period, from, to, a.Clock.TodayTime())
 	if label == "" {
 		label = periods.Labels[periods.All]
 	}
@@ -84,7 +118,7 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
 		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
-		SetupDone: s.SetupCompleted, AuthMode: a.Cfg.AuthMode,
+		SetupDone: s.SetupCompleted, AuthMode: a.Cfg.AuthMode, DataVersion: a.version.String(),
 	}, nil
 }
 
@@ -161,7 +195,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	seriesAvailable := a.balanceSeriesFor(base, "available")
 	seriesSavings := a.balanceSeriesFor(base, "savings")
 
-	widgetViews, err := a.WidgetsList()
+	widgetViews, err := a.WidgetsList(base.Period, base.PeriodFrom, base.PeriodTo)
 	if err != nil {
 		return err
 	}
@@ -196,17 +230,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		Widgets:       widgetViews,
 	}
 	return a.Render.Render(w, "dashboard", data)
-}
-
-func lowerFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	b := []byte(s)
-	if b[0] >= 'A' && b[0] <= 'Z' {
-		b[0] += 32
-	}
-	return string(b)
 }
 
 func (a *App) monthTotals() (income, spend int64) {
@@ -460,28 +483,6 @@ func accountValuations(a *App, accountID, until string) ([]valuationPoint, error
 		}
 	}
 	return out, rows.Err()
-}
-
-func monthEndOf(m string) string {
-	y := atoi(m[:4])
-	mo := atoi(m[5:7])
-	nextY, nextM := y, mo+1
-	if nextM > 12 {
-		nextM = 1
-		nextY++
-	}
-	end := fmt.Sprintf("%04d-%02d-01", nextY, nextM)
-	t, _ := time.Parse("2006-01-02", end)
-	t = t.AddDate(0, 0, -1)
-	return t.Format("2006-01-02")
-}
-
-func atoi(s string) int {
-	n := 0
-	for i := 0; i < len(s) && i < 4; i++ {
-		n = n*10 + int(s[i]-'0')
-	}
-	return n
 }
 
 func jsonSlice(items []string) string {
@@ -1081,18 +1082,28 @@ func formatAssistantText(text string) string {
 
 func widgetCardHTML(w *widgets.Widget) string {
 	var b strings.Builder
-	b.WriteString(`<article class="widget span-12" data-widget-id="` + w.ID + `" data-widget-type="` + w.Type + `"`)
+	b.WriteString(`<article class="widget span-12" data-widget-id="` + template.HTMLEscapeString(w.ID) + `" data-widget-type="` + template.HTMLEscapeString(w.Type) + `"`)
 	b.WriteString(` data-widget-title="` + template.HTMLEscapeString(w.Title) + `"`)
 	b.WriteString(` data-widget-data="` + template.HTMLEscapeString(w.DataJSON()) + `"`)
 	if w.Dataset != nil {
 		b.WriteString(` data-widget-dataset="` + template.HTMLEscapeString(marshalAny(w.Dataset)) + `"`)
 	}
 	b.WriteString(`><div class="widget-head"><div class="widget-title">` + template.HTMLEscapeString(w.Title) + `</div>`)
-	b.WriteString(`<div class="widget-actions">
+	rules := w.Type == "group_rule" || w.Type == "group_rules" || w.Type == "change"
+	if !rules {
+		b.WriteString(`<div class="widget-actions">
 		<button class="widget-btn" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
 		<button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
-	</div></div><div class="widget-body">`)
+	</div>`)
+	}
+	b.WriteString(`</div><div class="widget-body">`)
 	switch w.Type {
+	case "group_rules":
+		b.WriteString(`<div class="rules-host" data-rules-kind="list"></div>`)
+	case "group_rule":
+		b.WriteString(`<div class="rules-host" data-rules-kind="draft" data-draft="` + template.HTMLEscapeString(w.DataJSON()) + `"></div>`)
+	case "change":
+		b.WriteString(`<div class="rules-host" data-rules-kind="change" data-draft="` + template.HTMLEscapeString(w.DataJSON()) + `"></div>`)
 	case "number":
 		d, _ := w.Data.(map[string]any)
 		b.WriteString(`<div class="num-widget"><div class="num-value">` + template.HTMLEscapeString(str(d["value"])) + `</div>`)
@@ -1187,30 +1198,4 @@ func abs64(v int64) int64 {
 		return -v
 	}
 	return v
-}
-
-func moneyFmt(minor int64, cc string) string { return money.Format(minor, cc) }
-
-func monthRange(from, to string) []string {
-	if len(from) < 7 || len(to) < 7 {
-		return nil
-	}
-	fy, fm := atoi(from[:4]), atoi(from[5:7])
-	ty, tm := atoi(to[:4]), atoi(to[5:7])
-	if fy == 0 || fm < 1 || fm > 12 || ty == 0 || tm < 1 || tm > 12 {
-		return nil
-	}
-	var out []string
-	for y, m := fy, fm; y < ty || (y == ty && m <= tm); {
-		out = append(out, fmt.Sprintf("%04d-%02d", y, m))
-		m++
-		if m > 12 {
-			m = 1
-			y++
-		}
-		if len(out) >= 600 {
-			break
-		}
-	}
-	return out
 }

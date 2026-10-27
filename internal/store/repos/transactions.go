@@ -621,11 +621,9 @@ func (r *Transactions) resolveNames(txs []*core.Transaction) {
 		case core.TypeTransfer:
 			if t.TransferID != nil {
 				if tr, err := r.transferByID(*t.TransferID, false); err == nil {
-					peerID := tr.DestinationTxID
+					peerID := tr.SourceTxID
 					if t.ID == tr.SourceTxID {
 						peerID = tr.DestinationTxID
-					} else {
-						peerID = tr.SourceTxID
 					}
 					if p, ok := peers[peerID]; ok && p != nil {
 						if _, ok := accNames[p.AccountID]; !ok {
@@ -665,23 +663,6 @@ func (r *Transactions) resolveNames(txs []*core.Transaction) {
 			t.Counterparty = "To " + t.DestinationName
 		}
 	}
-}
-
-func (r *Transactions) transferByPeer(txID string) (*core.Transfer, error) {
-	var tr core.Transfer
-	var conf sql.NullFloat64
-	var deletedAt sql.NullString
-	err := r.DB.QueryRow(`SELECT id, source_transaction_id, destination_transaction_id, detected, method, confidence, created_at, deleted_at
-		FROM transfers WHERE (source_transaction_id = ? OR destination_transaction_id = ?) AND deleted_at IS NULL`, txID, txID).
-		Scan(&tr.ID, &tr.SourceTxID, &tr.DestinationTxID, &tr.Detected, &tr.Method, &conf, &tr.CreatedAt, &deletedAt)
-	if err != nil {
-		return nil, err
-	}
-	if conf.Valid {
-		f := conf.Float64
-		tr.Confidence = &f
-	}
-	return &tr, nil
 }
 
 func (r *Transactions) accountName(id string) string {

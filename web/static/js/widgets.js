@@ -19,6 +19,33 @@ function fmtMoneySigned(v) {
   const sign = n < 0 ? "\u2212" : n > 0 ? "+" : "";
   return sign + fmtMoney(n);
 }
+// A chart's values are money in minor units unless its data names another
+// format: percent (a ratio, 0.25 is 25%) or number.
+function fmtPercent(v, dp) {
+  const p = Number(v) * 100;
+  const sign = p < 0 ? "\u2212" : "";
+  const a = Math.abs(p);
+  return sign + (a >= 10 || dp === 0 ? Math.round(a) : (Math.round(a * 10) / 10)) + "%";
+}
+function fmtNumber(v) {
+  return Number(v).toLocaleString("en-GB", { maximumFractionDigits: 2 });
+}
+function fmtValue(v, format) {
+  if (format === "percent") return fmtPercent(v);
+  if (format === "number") return fmtNumber(v);
+  return fmtMoney(v);
+}
+function fmtAxis(v, format) {
+  if (format === "percent") return fmtPercent(v, 0);
+  if (format === "number") return Math.abs(v) >= 1000 ? (Math.round(v / 100) / 10) + "k" : fmtNumber(v);
+  return fmtMoneyAxis(v);
+}
+function fmtTip(v, format) {
+  if (format === "percent") return fmtPercent(v);
+  if (format === "number") return fmtNumber(v);
+  return fmtMoneyTip(v);
+}
+
 function widgetId() {
   return "w-" + (++widgetSeq);
 }
@@ -55,7 +82,7 @@ function convertWidgetData(from, to, data) {
   if (to === "table") {
     const s = toSeries(data);
     const columns = ["Label", ...s.series.map((x) => x.name)];
-    const rows = s.labels.map((label, i) => [label, ...s.series.map((x) => fmtMoney(x.values[i] ?? 0))]);
+    const rows = s.labels.map((label, i) => [label, ...s.series.map((x) => fmtValue(x.values[i] ?? 0, data.format))]);
     return { columns, rows };
   }
 
@@ -67,16 +94,17 @@ function convertWidgetData(from, to, data) {
       labels: s.labels,
       values: first ? first.values : [],
       colors: data.colors || WIDGET_COLORS,
+      format: data.format,
     };
   }
 
-  return { labels: s.labels, series: s.series };
+  return { labels: s.labels, series: s.series, format: data.format };
 }
 
 function axisTicks(max, count = 4) {
   const step = max <= 0 ? 1 : niceStep(max / count);
   const ticks = [];
-  for (let t = 0; t <= max + 0.0001; t += step) ticks.push(Math.round(t * 100) / 100);
+  for (let t = 0; t <= max * (1 + 1e-9); t += step) ticks.push(Math.round(t * 1e6) / 1e6);
   return ticks;
 }
 function niceStep(raw) {
@@ -111,7 +139,7 @@ function barChartSVG(data, width = 640, height = 260) {
   ticks.forEach((t) => {
     const y = padT + innerH - (t / scale) * innerH;
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtMoneyAxis(t)}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
   });
 
   labels.forEach((label, i) => {
@@ -121,7 +149,7 @@ function barChartSVG(data, width = 640, height = 260) {
       const h = (v / scale) * innerH;
       const bx = x - (s.length * barW) / 2 + si * barW + 2;
       const by = padT + innerH - h;
-      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(h, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"><title>${esc(series.name)}: ${fmtMoney(v)}</title></rect>`);
+      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(h, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"><title>${esc(series.name)}: ${fmtValue(v, data.format)}</title></rect>`);
     });
     parts.push(`<text x="${x}" y="${H - 8}" text-anchor="middle" class="chart-tooltip">${esc(label)}</text>`);
   });
@@ -165,7 +193,7 @@ function lineChartSVG(data, width = 640, height = 260, view = null) {
   axisTicks(max, 4).forEach((t) => {
     const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtMoneyAxis(t)}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
   });
 
   const shown = [];
@@ -183,7 +211,7 @@ function lineChartSVG(data, width = 640, height = 260, view = null) {
   parts.push(`<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
   if (shown.length <= 80) {
     shown.forEach((i) => {
-      parts.push(`<circle cx="${px(i)}" cy="${py(vals[i])}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtMoney(vals[i])}</title></circle>`);
+      parts.push(`<circle cx="${px(i)}" cy="${py(vals[i])}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtValue(vals[i], data.format)}</title></circle>`);
     });
   }
   parts.push(`</g>`);
@@ -235,7 +263,7 @@ function nearestLinePoint(host, svg, clientX, clientY) {
     if (d < best) { best = d; idx = i; }
   }
   if (idx < 0) return null;
-  return { label: g.labels[idx], value: g.vals[idx], name: g.series.name || "Value", x: g.px(idx), y: g.py(g.vals[idx]) };
+  return { label: g.labels[idx], value: g.vals[idx], format: data.format, name: g.series.name || "Value", x: g.px(idx), y: g.py(g.vals[idx]) };
 }
 
 const chartDataCache = new WeakMap();
@@ -250,7 +278,7 @@ function chartDataFor(host) {
 }
 function showChartTip(tip, svg, pt) {
   placeChartTip(tip, svg, pt.x, pt.y, `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
-    + `<div class="chart-tip-value">${esc(fmtMoneyTip(pt.value))}</div>`);
+    + `<div class="chart-tip-value">${esc(fmtTip(pt.value, pt.format))}</div>`);
 }
 // Puts the tip above (or below) the point x, y given in the svg's viewBox units.
 function placeChartTip(tip, svg, x, y, html) {
@@ -293,7 +321,7 @@ function ensureChartHover() {
     const d = slice.dataset;
     placeChartTip(tip, slice.ownerSVGElement, Number(d.x), Number(d.y),
       `<div class="chart-tip-label">${esc(d.label)}</div>`
-      + `<div class="chart-tip-value">${esc(fmtMoneyTip(d.value))} <span class="chart-tip-pct">· ${esc(d.pct)}%</span></div>`);
+      + `<div class="chart-tip-value">${esc(fmtTip(d.value, d.format))} <span class="chart-tip-pct">· ${esc(d.pct)}%</span></div>`);
   };
   const sliceAt = (e) => (e.target && e.target.closest ? e.target.closest(".pie-slice") : null);
   document.addEventListener("click", (e) => pickSlice(sliceAt(e)));
@@ -324,7 +352,8 @@ function pieChartSVG(data) {
   const labels = data.labels || [];
   const values = (data.values || []).map(Number);
   const colors = data.colors || WIDGET_COLORS;
-  const total = values.reduce((a, b) => a + b, 0) || 1;
+  const sum = values.reduce((a, b) => a + b, 0);
+  const total = sum || 1; // only to divide by: an empty chart would otherwise divide by zero
   const W = 260, H = 260, cx = 130, cy = 130, r = 92, inner = 56;
   let angle = -Math.PI / 2;
   const parts = [];
@@ -337,12 +366,12 @@ function pieChartSVG(data) {
     // The tooltip sits at the middle of the slice's ring.
     const mid = polar(cx, cy, (r + inner) / 2, angle + sweep / 2);
     parts.push(`<path class="pie-slice" d="M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y} L ${cx} ${cy} Z" fill="${colors[i % colors.length]}"` +
-      ` data-label="${esc(labels[i])}" data-value="${v}" data-pct="${((v / total) * 100).toFixed(0)}" data-x="${mid.x.toFixed(1)}" data-y="${mid.y.toFixed(1)}"/>`);
+      ` data-label="${esc(labels[i])}" data-value="${v}" data-format="${esc(data.format || "")}" data-pct="${((v / total) * 100).toFixed(0)}" data-x="${mid.x.toFixed(1)}" data-y="${mid.y.toFixed(1)}"/>`);
     angle = end;
   });
   parts.push(`<circle cx="${cx}" cy="${cy}" r="${inner}" style="fill:var(--surface)"/>`);
   // Shrink the type if even the short form would reach the ring (~0.6em a glyph).
-  const label = fmtMoneyCompact(total);
+  const label = data.format === "number" ? fmtNumber(sum) : fmtMoneyCompact(sum);
   const size = Math.min(23, Math.floor(((inner - 8) * 2) / (label.length * 0.6)));
   parts.push(`<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };

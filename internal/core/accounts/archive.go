@@ -489,15 +489,15 @@ func mapCategories(tx *sql.Tx, cats []snapCategory) (map[string]string, []string
 		if err == sql.ErrNoRows {
 			err = tx.QueryRow(`SELECT id, deleted_at FROM categories WHERE name = ? COLLATE NOCASE`, c.Name).Scan(&id, &deleted)
 		}
-		switch {
-		case err == nil:
+		switch err {
+		case nil:
 			if deleted.Valid {
 				if _, err := tx.Exec(`UPDATE categories SET deleted_at = NULL, updated_at = ? WHERE id = ?`, now, id); err != nil {
 					return nil, nil, err
 				}
 			}
 			out[c.ID] = id
-		case err == sql.ErrNoRows:
+		case sql.ErrNoRows:
 			if _, err := tx.Exec(`INSERT INTO categories (id, name, color, type, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
 				c.ID, c.Name, c.Color, c.Type, c.Description, now, now); err != nil {
 				return nil, nil, err

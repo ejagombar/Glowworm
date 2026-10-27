@@ -10,12 +10,15 @@ const (
 	LastMonth = "last-month"
 	LastDay   = "last-day"
 	Custom    = "custom"
+	// ThisMonthPreset isn't offered in the date range menu; it's for widgets
+	// that say "this month" and should roll over with the calendar.
+	ThisMonthPreset = "this-month"
 )
 
 var Labels = map[string]string{
 	All: "All time", YTD: "Year to date", Last12M: "Last 12 months",
 	Last3M: "Last 3 months", LastMonth: "Last month", LastDay: "Last day",
-	Custom: "Custom range",
+	Custom: "Custom range", ThisMonthPreset: "This month",
 }
 
 func Resolve(period, from, to string, today time.Time) (string, string, string) {
@@ -39,6 +42,9 @@ func Resolve(period, from, to string, today time.Time) (string, string, string) 
 	case LastDay:
 		start := today.AddDate(0, 0, -1)
 		return iso(start), iso(today), Labels[LastDay]
+	case ThisMonthPreset:
+		f, t := ThisMonth(today)
+		return f, t, Labels[ThisMonthPreset]
 	case Custom:
 		if from != "" && to != "" {
 			return from, to, "Custom range"

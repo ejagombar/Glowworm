@@ -12,7 +12,7 @@
 
   <div class="accounts-grid" id="accountsGrid">
     {{range .Accounts}}
-    <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions?{{if ne .ID $.SelectedAcc}}account={{.ID}}&{{end}}period={{$.Period}}"{{if eq .ID $.SelectedAcc}} title="Show all accounts" aria-current="true"{{end}}>
+    <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions{{if ne .ID $.SelectedAcc}}?account={{.ID}}{{end}}"{{if eq .ID $.SelectedAcc}} title="Show all accounts" aria-current="true"{{end}}>
       <div class="account-card-top">
         <span class="account-dot" style="background:{{.Color}}"></span>
         <span class="account-name">{{.Name}}</span>
@@ -57,6 +57,7 @@
   </div>
 
   <script>window.__CAT_OPTIONS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", internal: {{if eq .Type "internal"}}true{{else}}false{{end}}},{{end}}];</script>
+  <script>window.__ACCOUNT_OPTIONS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];</script>
   <div class="panel table-panel">
     <table class="tx-table{{if .SelectedAcc}} account-view{{end}}" id="transactionsTable"
       data-tx-next-offset="{{.NextOffset}}"{{if .HasMore}} data-tx-has-more="1"{{end}}

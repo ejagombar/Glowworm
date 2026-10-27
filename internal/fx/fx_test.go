@@ -15,7 +15,7 @@ func TestFrankfurterRatesFillWeekendsAndCache(t *testing.T) {
 		if r.URL.Query().Get("base") != "EUR" || r.URL.Query().Get("symbols") != "GBP" {
 			t.Errorf("query = %s", r.URL.RawQuery)
 		}
-		w.Write([]byte(`{"base":"EUR","rates":{"2026-06-05":{"GBP":0.85},"2026-06-08":{"GBP":0.86}}}`))
+		_, _ = w.Write([]byte(`{"base":"EUR","rates":{"2026-06-05":{"GBP":0.85},"2026-06-08":{"GBP":0.86}}}`))
 	}))
 	defer srv.Close()
 	db, err := store.Open("sqlite", t.TempDir()+"/t.db")

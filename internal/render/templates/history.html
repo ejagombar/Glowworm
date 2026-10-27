@@ -8,10 +8,10 @@
   </div>
 
   <div class="segmented history-mode" role="tablist" aria-label="History view">
-    <a class="segmented-item{{if ne .Mode "audit"}} active{{end}}" href="/history?mode=transactions&period={{.Period}}" data-history-mode="transactions" role="tab" aria-selected="{{if ne .Mode "audit"}}true{{else}}false{{end}}">
+    <a class="segmented-item{{if ne .Mode "audit"}} active{{end}}" href="/history?mode=transactions" data-history-mode="transactions" role="tab" aria-selected="{{if ne .Mode "audit"}}true{{else}}false{{end}}">
       <svg class="icon"><use href="#i-transactions"/></svg> Transactions
     </a>
-    <a class="segmented-item{{if eq .Mode "audit"}} active{{end}}" href="/history?mode=audit&period={{.Period}}" data-history-mode="audit" role="tab" aria-selected="{{if eq .Mode "audit"}}true{{else}}false{{end}}">
+    <a class="segmented-item{{if eq .Mode "audit"}} active{{end}}" href="/history?mode=audit" data-history-mode="audit" role="tab" aria-selected="{{if eq .Mode "audit"}}true{{else}}false{{end}}">
       <svg class="icon"><use href="#i-history"/></svg> Audit log
     </a>
   </div>

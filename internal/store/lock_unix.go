@@ -17,7 +17,7 @@ func LockDataDir(dir string) (release func(), err error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
+		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, ErrLocked
 		}
@@ -25,5 +25,5 @@ func LockDataDir(dir string) (release func(), err error) {
 	}
 	// Closing f (including via its GC finalizer) releases the lock, so the
 	// caller must keep this func alive.
-	return func() { f.Close() }, nil
+	return func() { _ = f.Close() }, nil
 }

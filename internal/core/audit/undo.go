@@ -2,9 +2,27 @@ package audit
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// Partial is returned by an ApplyFunc that applied an entry except for the
+// parts changed again by a later entry, which it left alone so that change
+// isn't lost. The entry still counts as applied; Notes say what was kept.
+type Partial struct{ Notes []string }
+
+func (p *Partial) Error() string { return strings.Join(p.Notes, "; ") }
+
+// partialNotes reports whether err is only a Partial, adding its notes.
+func partialNotes(err error, notes *[]string) bool {
+	var p *Partial
+	if errors.As(err, &p) {
+		*notes = append(*notes, p.Notes...)
+		return true
+	}
+	return false
+}
 
 // LinkCause marks the system/AI entries written after causeID (and not yet
 // linked) as caused by it, so they're undone and redone together.
@@ -43,9 +61,11 @@ func idList(ids []int64) (string, []any) {
 }
 
 // Undo reverses one entry, plus the system changes it caused, and leaves
-// them in the log greyed out (inactive) so they can be redone.
-func (e *Engine) Undo(entryID int64, apply ApplyFunc) error {
-	return e.DB.WithTx(func(tx *sql.Tx) error {
+// them in the log greyed out (inactive) so they can be redone. The notes say
+// what was left alone because a later change touched it.
+func (e *Engine) Undo(entryID int64, apply ApplyFunc) ([]string, error) {
+	var notes []string
+	err := e.DB.WithTx(func(tx *sql.Tx) error {
 		ent, err := e.load(tx, entryID)
 		if err != nil {
 			return err
@@ -60,7 +80,7 @@ func (e *Engine) Undo(entryID int64, apply ApplyFunc) error {
 		// Newest first: dependants come off before the change they rest on.
 		for _, r := range append(deps, *ent) {
 			if apply != nil {
-				if err := apply(tx, &r, false); err != nil {
+				if err := apply(tx, &r, false); err != nil && !partialNotes(err, &notes) {
 					if r.ID == entryID || !e.Policy.Evaluate(r.Action, r.State).Derived {
 						return err
 					}
@@ -72,27 +92,29 @@ func (e *Engine) Undo(entryID int64, apply ApplyFunc) error {
 		}
 		return nil
 	})
+	return notes, err
 }
 
 // Redo re-applies undone entries. Entries undone by a rewind live on a path
 // that is no longer active, so redoing them restores that path; entries
 // undone one at a time are re-applied where they are.
-func (e *Engine) Redo(ids []int64, apply ApplyFunc) error {
+func (e *Engine) Redo(ids []int64, apply ApplyFunc) ([]string, error) {
 	if len(ids) == 0 {
-		return fmt.Errorf("audit: nothing to redo")
+		return nil, fmt.Errorf("audit: nothing to redo")
 	}
+	var notes []string
 	var pathID string
 	var pathActive bool
 	err := e.DB.QueryRow(`SELECT p.id, p.is_active FROM audit_entries a JOIN audit_paths p ON p.id = a.path_id
 		WHERE a.id = ?`, ids[0]).Scan(&pathID, &pathActive)
 	if err != nil {
-		return fmt.Errorf("audit: entry %d: %w", ids[0], err)
+		return nil, fmt.Errorf("audit: entry %d: %w", ids[0], err)
 	}
 	if !pathActive {
 		_, err := e.RestorePath(pathID, apply)
-		return err
+		return nil, err
 	}
-	return e.DB.WithTx(func(tx *sql.Tx) error {
+	err = e.DB.WithTx(func(tx *sql.Tx) error {
 		in, args := idList(ids)
 		targets, err := e.loadMany(tx, `state = 'inactive' AND (id IN `+in+` OR caused_by IN `+in+`) ORDER BY id ASC`,
 			append(args, args...)...)
@@ -101,7 +123,7 @@ func (e *Engine) Redo(ids []int64, apply ApplyFunc) error {
 		}
 		for _, r := range targets {
 			if apply != nil {
-				if err := apply(tx, &r, true); err != nil && !e.Policy.Evaluate(r.Action, "active").Derived {
+				if err := apply(tx, &r, true); err != nil && !partialNotes(err, &notes) && !e.Policy.Evaluate(r.Action, "active").Derived {
 					return fmt.Errorf("audit: redo %s: %w", r.Action, err)
 				}
 			}
@@ -111,6 +133,7 @@ func (e *Engine) Redo(ids []int64, apply ApplyFunc) error {
 		}
 		return nil
 	})
+	return notes, err
 }
 
 // Discard permanently removes undone entries (and the undone system changes

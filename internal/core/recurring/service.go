@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"glowworm/internal/core"
@@ -52,7 +53,9 @@ func (s *Service) Detect() (int, error) {
 		dir   string
 		txs   []*core.Transaction
 	}
-	groups := map[string]*group{}
+	// Payments to one payee in one direction, then split into runs of the
+	// same amount: a series repeats an amount, give or take amountTolerance.
+	payees := map[string]*group{}
 	for _, t := range pool {
 		label := normalize.Text(t.Description)
 		if label == "" {
@@ -62,20 +65,42 @@ func (s *Service) Detect() (int, error) {
 		if t.AmountMinor > 0 {
 			dir = "in"
 		}
-		amount := math.Abs(float64(t.AmountMinor))
-		bucket := int64(math.Round(amount / math.Max(amount*0.01, 100)))
-		key := label + "|" + fmt.Sprint(bucket) + "|" + dir
-		g := groups[key]
+		key := label + "|" + dir
+		g := payees[key]
 		if g == nil {
 			g = &group{key: key, label: label, dir: dir}
-			groups[key] = g
+			payees[key] = g
 		}
 		g.txs = append(g.txs, t)
+	}
+	var groups []*group
+	for _, p := range payees {
+		for _, run := range sameAmountRuns(p.txs) {
+			if len(run) < 3 || !dominates(run, p.txs) {
+				continue
+			}
+			groups = append(groups, &group{key: p.key, label: p.label, dir: p.dir, txs: run})
+		}
+	}
+	var previous []string
+	if rows, err := s.DB.Query(`SELECT key FROM recurring_keys`); err == nil {
+		for rows.Next() {
+			var k string
+			if rows.Scan(&k) == nil {
+				previous = append(previous, k)
+			}
+		}
+		rows.Close()
 	}
 
 	now := time.Now().UTC()
 	var keysDetected []string
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
+		// Every series is worked out afresh, so one that no longer holds
+		// loses its tags.
+		if _, err := tx.Exec(`UPDATE transactions SET recurring_key = NULL WHERE recurring_key IS NOT NULL`); err != nil {
+			return err
+		}
 		for _, g := range groups {
 			if len(g.txs) < 3 {
 				continue
@@ -151,14 +176,19 @@ func (s *Service) Detect() (int, error) {
 			}
 			keysDetected = append(keysDetected, key)
 		}
-		if len(keysDetected) > 0 {
+		in, args := keyList(keysDetected)
+		if _, err := tx.Exec(`DELETE FROM recurring_keys WHERE key NOT IN `+in, args...); err != nil {
+			return err
+		}
+		added := newKeys(previous, keysDetected)
+		if len(added) > 0 {
 			if _, err := s.Audit.Write(tx, audit.Input{
 				Actor: core.ActorSystem, Action: "recurring.detected",
 				EntityType: "recurring", EntityID: "sweep",
-				Title:  fmt.Sprintf("Detected %d recurring series", len(keysDetected)),
+				Title:  fmt.Sprintf("Detected %d recurring series", len(added)),
 				Sub:    "Bills, subscriptions and salaries are labelled automatically",
-				After:  map[string]any{"keys": keysDetected},
-				Revert: map[string]any{"keys": keysDetected},
+				After:  map[string]any{"keys": added},
+				Revert: map[string]any{"keys": added},
 			}); err != nil {
 				return err
 			}
@@ -166,6 +196,80 @@ func (s *Service) Detect() (int, error) {
 		return nil
 	})
 	return len(keysDetected), err
+}
+
+// amountTolerance is how far a payment may stray from the run's smallest and
+// still be the same amount: 3%, and at least 5p for small sums.
+func amountTolerance(minor int64) int64 {
+	return max(minor*3/100, 5)
+}
+
+// sameAmountRuns splits one payee's payments into runs of (nearly) the same
+// amount, oldest first within each run.
+func sameAmountRuns(txs []*core.Transaction) [][]*core.Transaction {
+	abs := func(t *core.Transaction) int64 {
+		if t.AmountMinor < 0 {
+			return -t.AmountMinor
+		}
+		return t.AmountMinor
+	}
+	sorted := append([]*core.Transaction{}, txs...)
+	sort.SliceStable(sorted, func(i, j int) bool { return abs(sorted[i]) < abs(sorted[j]) })
+	var runs [][]*core.Transaction
+	var run []*core.Transaction
+	for _, t := range sorted {
+		if len(run) > 0 && abs(t)-abs(run[0]) > amountTolerance(abs(run[0])) {
+			runs = append(runs, run)
+			run = nil
+		}
+		run = append(run, t)
+	}
+	if len(run) > 0 {
+		runs = append(runs, run)
+	}
+	return runs
+}
+
+// dominates reports whether the run makes up at least half the payee's
+// payments over the run's dates. At a shop visited every few days, a few
+// purchases that happen to cost the same about a month apart aren't a bill.
+func dominates(run, payee []*core.Transaction) bool {
+	first, last := run[0].Date, run[0].Date
+	for _, t := range run {
+		first, last = min(first, t.Date), max(last, t.Date)
+	}
+	n := 0
+	for _, t := range payee {
+		if t.Date >= first && t.Date <= last {
+			n++
+		}
+	}
+	return len(run)*2 >= n
+}
+
+func keyList(keys []string) (string, []any) {
+	if len(keys) == 0 {
+		return "('')", nil
+	}
+	args := make([]any, len(keys))
+	for i, k := range keys {
+		args[i] = k
+	}
+	return "(?" + strings.Repeat(",?", len(keys)-1) + ")", args
+}
+
+func newKeys(previous, current []string) []string {
+	seen := map[string]bool{}
+	for _, k := range previous {
+		seen[k] = true
+	}
+	var out []string
+	for _, k := range current {
+		if !seen[k] {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 func medianOf(v []float64) float64 {

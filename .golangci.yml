@@ -1,0 +1,13 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      # Closing something only read from can't lose data: a failed read is
+      # reported by rows.Err() or the read itself, so these are deferred
+      # unchecked. Closes after writing are still checked.
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.Conn).Close
+        - (io.ReadCloser).Close
+        - (*archive/zip.ReadCloser).Close

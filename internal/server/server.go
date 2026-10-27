@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -12,7 +13,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"glowworm/internal/ai"
@@ -24,6 +27,8 @@ import (
 	"glowworm/internal/core/auditexec"
 	"glowworm/internal/core/categories"
 	"glowworm/internal/core/categoriser"
+	"glowworm/internal/core/changes"
+	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/recurring"
@@ -59,12 +64,21 @@ type App struct {
 	Imports      *imports.Service
 	Transfers    *transfers.Service
 	Recurring    *recurring.Service
+	Grouping     *grouping.Service
+	Changes      *changes.Service
 	Query        *query.Service
 
 	AuditWriter  *audit.Writer
 	Exec         *auditexec.Executor
 	loginLimiter *limiter
-	Version      string
+	version      *dataVersion
+	// derivedMu runs the jobs that rebuild data derived from transactions
+	// (groups, transfers, recurring series, the classifier) one at a time:
+	// each reads everything and then rewrites it, so two at once, from two
+	// devices saving together, could write stale results or log a new
+	// series twice.
+	derivedMu sync.Mutex
+	Version   string
 }
 
 type Repos struct {
@@ -97,6 +111,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		AuditWriter:  writer,
 		Audit:        audit.NewEngine(db, writer),
 		loginLimiter: newLimiter(5, 15*time.Minute),
+		version:      newDataVersion(dataVersionPath(cfg.DataDir)),
 	}
 	app.Accounts = &accounts.Service{DB: db, Repos: rp.Accounts, Txs: rp.Transactions, Audit: writer, Clock: clk}
 	app.Categories = &categories.Service{DB: db, Repos: rp.Categories, Txs: rp.Transactions, Audit: writer}
@@ -137,6 +152,8 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		},
 	}
 	app.Recurring = &recurring.Service{DB: db, Txs: rp.Transactions, Audit: writer}
+	app.Grouping = &grouping.Service{DB: db, Audit: writer}
+	app.Changes = &changes.Service{DB: db, Transactions: app.Transactions, Transfers: app.Transfers, Audit: writer}
 	app.Query = &query.Service{
 		DB: db, Provider: queryProvider, Clock: clk,
 		Repo: &query.ConvRepo{DB: db},
@@ -158,6 +175,15 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	if err := app.bootstrapOwner(); err != nil {
 		return nil, err
 	}
+	// Learnt rules and recurring series are derived from transactions;
+	// rebuilding them picks up any change a migration or a fix made.
+	if err := app.Cat.RefreshRules(); err != nil {
+		log.Error("rules refresh", "err", err)
+	}
+	if _, err := app.Recurring.Detect(); err != nil {
+		log.Error("recurring detection", "err", err)
+	}
+	app.regroup()
 	return app, nil
 }
 
@@ -263,7 +289,7 @@ func (a *App) Router() http.Handler {
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	mux.HandleFunc("GET /{$}", a.page(a.handleDashboard))
@@ -283,7 +309,11 @@ func (a *App) Router() http.Handler {
 
 	a.registerAPI(mux)
 
-	var handler http.Handler = mux
+	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"version": a.version.String()})
+	})
+
+	handler := a.version.middleware(mux)
 	if a.Cfg.AuthMode == "password" {
 		handler = a.withAuth(handler)
 	}
@@ -343,6 +373,31 @@ func truncate(s string, n int) string {
 	return s
 }
 
+func dataVersionPath(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, "data-version")
+}
+
+// session reads the signed-in session, checking its user still exists and
+// hasn't changed password since it signed in.
+func (a *App) session(r *http.Request) (*Session, bool) {
+	sess, ok := readSession(r, a.Secret)
+	if !ok {
+		return nil, false
+	}
+	u, err := a.Repos.Users.Get(sess.UserID)
+	if err != nil {
+		return nil, false
+	}
+	fp := passwordFingerprint(u.PasswordHash)
+	if subtle.ConstantTimeCompare([]byte(fp), []byte(sess.Fingerprint)) != 1 {
+		return nil, false
+	}
+	return sess, true
+}
+
 func (a *App) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -362,7 +417,7 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
-		if _, ok := readSession(r, a.Secret); !ok {
+		if _, ok := a.session(r); !ok {
 			if strings.HasPrefix(path, "/api/") {
 				http.Error(w, `{"error":{"code":"auth_required","message":"Login required"}}`, http.StatusUnauthorized)
 				return
@@ -400,7 +455,7 @@ func serviceWorkerHandler(fsys fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Write(body)
+		_, _ = w.Write(body)
 	})
 }
 
@@ -454,7 +509,7 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 		case strings.HasSuffix(path, ".webmanifest"):
 			w.Header().Set("Content-Type", "application/manifest+json")
 		}
-		w.Write(data)
+		_, _ = w.Write(data)
 	})
 }
 
@@ -462,7 +517,11 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 // system entries written since the import
 // to it, so undoing the import undoes them too.
 func (a *App) afterImport(batchID string) {
-	a.refreshDerived()
+	// Held through LinkCause, so only this import's follow-on entries are
+	// tied to it, not another device's written meanwhile.
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
+	a.refreshDerivedLocked()
 	var cause int64
 	_ = a.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM audit_entries WHERE action = 'import.confirmed' AND entity_id = ?`, batchID).Scan(&cause)
 	if err := a.AuditWriter.LinkCause(cause); err != nil {
@@ -474,13 +533,40 @@ func (a *App) afterImport(batchID string) {
 // rewind, redo or discard. It writes no audit entries: the change being
 // undone or redone is already in the log.
 func (a *App) afterHistoryChange() {
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
 	if err := a.Cat.RefreshRules(); err != nil {
 		a.Log.Error("rules refresh", "err", err)
 	}
+	if _, err := a.Recurring.Detect(); err != nil {
+		a.Log.Error("recurring detection", "err", err)
+	}
+	a.regroupLocked()
 	a.Cat.RetrainQuiet()
 }
 
+// regroup puts transactions in their groups by the grouping rules, after
+// anything that adds transactions or changes their descriptions.
+func (a *App) regroup() {
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
+	a.regroupLocked()
+}
+
+func (a *App) regroupLocked() {
+	if err := a.Grouping.Apply(); err != nil {
+		a.Log.Error("grouping", "err", err)
+	}
+}
+
 func (a *App) refreshDerived() {
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
+	a.refreshDerivedLocked()
+}
+
+func (a *App) refreshDerivedLocked() {
+	a.regroupLocked()
 	if n, err := a.Transfers.Detect(); err == nil && n > 0 {
 		a.Log.Info("transfer detection", "linked", n)
 	}

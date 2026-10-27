@@ -111,10 +111,10 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 				"widgets": []map[string]any{{
 					"type":  "bar",
 					"title": "Spending by category",
-					"data": map[string]any{
-						"labels": []string{"Food", "Transport"},
-						"series": []map[string]any{{"name": "Spend", "values": []int64{12000, 3400}}},
-					},
+					"sql": "SELECT COALESCE(c.name, 'Uncategorised') AS category, SUM(-t.amount_minor) AS spend FROM transactions t " +
+						"LEFT JOIN categories c ON c.id = t.category_id WHERE t.type = 'expense' AND t.deleted_at IS NULL " +
+						"AND t.date BETWEEN :from AND :to GROUP BY 1 ORDER BY spend DESC LIMIT 8",
+					"columns": map[string]any{"spend": map[string]any{"label": "Spend", "format": "money"}},
 				}},
 			}), &Usage{Model: "mock"}, nil
 		}

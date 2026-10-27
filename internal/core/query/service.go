@@ -310,11 +310,17 @@ func (s *Service) resolve(p *Plan) error {
 func (s *Service) resolveTime(p *Plan) error {
 	today := s.Clock.Today()
 	tt, _ := time.Parse("2006-01-02", today)
-	from, to, _ := periods.Resolve(pickString(p.TimePreset, "last-12m"), p.From, p.To, tt)
-	if p.From == "" && p.To == "" && from == "" {
-		from, to, _ = periods.Resolve(periods.Last12M, "", "", tt)
+	switch preset := pickString(p.TimePreset, ""); {
+	case preset != "":
+		// A named range, worked out from today (custom uses p.From/p.To; "all"
+		// leaves both empty: no date limit).
+		p.From, p.To, _ = periods.Resolve(preset, p.From, p.To, tt)
+	case p.From != "" || p.To != "":
+		// Explicit dates: keep them. (They used to be replaced by the last
+		// 12 months whenever no preset was named.)
+	default:
+		p.From, p.To, _ = periods.Resolve(periods.Last12M, "", "", tt)
 	}
-	p.From, p.To = from, to
 	return nil
 }
 
@@ -443,8 +449,6 @@ func (s *Service) compileMoney(p *Plan) (*widgets.Dataset, string, error) {
 		v := totalToInt(totalAny)
 		total += v
 		ds.Rows = append(ds.Rows, []any{bucket, float64(v)})
-	}
-	if p.Sort == "value_desc" && (p.Breakdown == "category" || p.Breakdown == "merchant") {
 	}
 	ds.Meta.Currency = s.currency()
 	ds.Meta.EntityLabel = entityLabel(p)
@@ -858,13 +862,13 @@ func (s *Service) presentBody(p *Plan, ds *widgets.Dataset) *widgets.Widget {
 	}
 	kind := p.ChartHint
 	if kind == "" {
-		switch {
-		case p.Breakdown == "month" || p.Breakdown == "week" || p.Breakdown == "day":
+		switch p.Breakdown {
+		case "month", "week", "day":
 			kind = "line"
 			if p.Metric == "spend" || p.Metric == "income" {
 				kind = "bar"
 			}
-		case p.Breakdown == "category" || p.Breakdown == "merchant":
+		case "category", "merchant":
 			if len(ds.Rows) <= 8 {
 				kind = "pie"
 			} else {

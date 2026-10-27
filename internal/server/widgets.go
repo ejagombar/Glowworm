@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"glowworm/internal/core/periods"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/money"
@@ -63,7 +64,10 @@ type WidgetTxRow struct {
 	Class       string
 }
 
-func (a *App) WidgetsList() ([]*WidgetView, error) {
+// WidgetsList renders the pinned widgets. One whose plan names no dates of its
+// own (no preset, no from/to) follows the date range selected in the
+// masthead (period, with from/to for a custom range); one that does keeps it.
+func (a *App) WidgetsList(period, from, to string) ([]*WidgetView, error) {
 	rows, err := a.DB.Query(`SELECT id, position, col, rows, title, type, dataset, plan FROM pinned_widgets ORDER BY position ASC, created_at ASC`)
 	if err != nil {
 		return nil, err
@@ -81,9 +85,24 @@ func (a *App) WidgetsList() ([]*WidgetView, error) {
 			Rows: spanOr(rowsN, typ, defaultSpanRows), DatasetJSON: dataset}
 		data := dataset
 		stale := false
-		if plan.Valid && plan.String != "" && a.Query != nil {
+		if spec := query.ParseSpec(plan.String); spec != nil && a.Query != nil {
+			if w, err := a.Query.RunSpec(spec, typ, a.specWindow(period, from, to)); err == nil {
+				if b, err := json.Marshal(w.Data); err == nil {
+					data = string(b)
+				}
+			} else {
+				stale = true
+			}
+		} else if plan.Valid && plan.String != "" && a.Query != nil {
 			var p query_Plan
 			if json.Unmarshal([]byte(plan.String), &p) == nil {
+				if (p.TimePreset == nil || *p.TimePreset == "") && p.From == "" && p.To == "" {
+					sel := period
+					p.TimePreset = &sel
+					if period == "custom" {
+						p.From, p.To = from, to
+					}
+				}
 				if ds, _, err := a.Query.CompilePublic(&p); err == nil && ds != nil {
 					w := widgets.Derive(typ, ds, title)
 					if m, ok := w.Data.(map[string]any); ok && typ == "table" {
@@ -110,16 +129,26 @@ func (a *App) WidgetsList() ([]*WidgetView, error) {
 	return out, rows.Err()
 }
 
+// specWindow is the selected date range for a widget query's :from and :to;
+// all time leaves both open.
+func (a *App) specWindow(period, from, to string) *query.TimeWindow {
+	f, t, label := periods.Resolve(period, from, to, a.Clock.TodayTime())
+	if period == periods.Custom && f != "" {
+		label = shortDate(f) + " – " + shortDate(t)
+	}
+	return &query.TimeWindow{From: f, To: t, Label: label}
+}
+
 func asSlice(v any) []any {
 	s, _ := v.([]any)
 	return s
 }
 
 // tableRowLinks points each row of a merchant, category or account breakdown
-// at the transactions behind it: the Transactions page filtered to that row,
-// over the widget's own dates and type, so the list adds up to the figure.
-// Rows it can't filter to (Uncategorised, months) get an empty link; other
-// breakdowns get none at all.
+// at the transactions behind it: the Transactions page filtered to that row
+// and the widget's type. It names no dates, so the page keeps the date range
+// the user has selected. Rows it can't filter to (Uncategorised) get an empty
+// link; other breakdowns get none at all.
 func (a *App) tableRowLinks(p *query_Plan, ds *widgets.Dataset) []string {
 	if p.Breakdown != "merchant" && p.Breakdown != "category" && p.Breakdown != "account" {
 		return nil
@@ -140,13 +169,6 @@ func (a *App) tableRowLinks(p *query_Plan, ds *widgets.Dataset) []string {
 		rows.Close()
 	}
 	base := url.Values{}
-	if p.From != "" || p.To != "" {
-		base.Set("period", "custom")
-		base.Set("from", p.From)
-		base.Set("to", p.To)
-	} else {
-		base.Set("period", "all")
-	}
 	switch p.Metric {
 	case "spend":
 		base.Set("type", "expense")
@@ -341,39 +363,37 @@ func (a *App) WidgetUnpin(id string) error {
 	return err
 }
 
-func trim2(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
-func monthRangeToday(c interface{ Today() string }) (string, string, bool) {
-	today := c.Today()
-	from := today[:8] + "01"
-	return from, today, true
-}
-
-func seedPlan(metric, breakdown, from, to string) string {
+// seedPlanThisMonth covers the calendar month to date, rolling over with it,
+// as the "— this month" titles say.
+func seedPlanThisMonth(metric, breakdown string) string {
+	preset := "this-month"
 	b, _ := json.Marshal(query_Plan{
-		V: 1, Metric: metric, Breakdown: breakdown, From: from, To: to,
+		V: 1, Metric: metric, Breakdown: breakdown, TimePreset: &preset,
 		AccountScope: "all", Limit: 8,
 		Title: "Spending by category — this month",
 	})
 	return string(b)
 }
 
-func seedPlanNumber() string {
-	b, _ := json.Marshal(query_Plan{
-		V: 1, Metric: "spend", Breakdown: "none",
-		AccountScope: "all", Limit: 1, ChartHint: "number", Title: "Savings rate",
+// savingsRateSQL is the share of income not spent over the selected range.
+// Transfers between the user's own accounts count as neither.
+const savingsRateSQL = `SELECT CASE WHEN inc > 0 THEN (inc - spend) * 1.0 / inc END AS rate FROM (
+  SELECT COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount_minor END), 0) AS inc,
+         COALESCE(SUM(CASE WHEN t.type = 'expense' THEN -t.amount_minor END), 0) AS spend
+  FROM transactions t WHERE t.deleted_at IS NULL AND t.date BETWEEN :from AND :to)`
+
+func seedSpecSavingsRate() string {
+	b, _ := json.Marshal(query.Spec{
+		V: query.SpecVersion, SQL: savingsRateSQL, Caption: "of income not spent",
+		Columns: map[string]query.SpecColumn{"rate": {Format: "percent"}},
 	})
 	return string(b)
 }
 
-func seedPlanTopMerchants(from, to string) string {
+// seedPlanTopMerchants names no dates, so it follows the selected date range.
+func seedPlanTopMerchants() string {
 	b, _ := json.Marshal(query_Plan{
-		V: 1, Metric: "spend", Breakdown: "merchant", From: from, To: to,
+		V: 1, Metric: "spend", Breakdown: "merchant",
 		AccountScope: "all", Limit: 5, ChartHint: "table", Title: "Top merchants",
 	})
 	return string(b)

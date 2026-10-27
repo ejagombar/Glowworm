@@ -62,15 +62,14 @@ func (a *App) seedExampleWidgets(tx *sql.Tx) error {
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM pinned_widgets`).Scan(&n); err != nil || n > 0 {
 		return err
 	}
-	from, to, _ := monthRangeToday(a.Clock)
 	seeds := []struct {
 		title, typ, plan string
 		col, rows        int
 	}{
-		{"Spending by category — this month", "bar", seedPlan("spend", "category", from, to), 8, 4},
-		{"Savings rate", "number", seedPlanNumber(), 4, 2},
-		{"Spending mix — this month", "pie", seedPlan("spend", "category", from, to), 4, 3},
-		{"Top merchants", "table", seedPlanTopMerchants(from, to), 8, 4},
+		{"Spending by category — this month", "bar", seedPlanThisMonth("spend", "category"), 8, 4},
+		{"Savings rate", "number", seedSpecSavingsRate(), 4, 2},
+		{"Spending mix — this month", "pie", seedPlanThisMonth("spend", "category"), 4, 3},
+		{"Top merchants", "table", seedPlanTopMerchants(), 8, 4},
 	}
 	var diff []audit.DiffLine
 	for i, s := range seeds {

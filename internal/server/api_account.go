@@ -18,7 +18,7 @@ func (a *App) apiChangePassword(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	sess, ok := readSession(r, a.Secret)
+	sess, ok := a.session(r)
 	if !ok {
 		return &acctValidationError{Message: "Not signed in"}
 	}
@@ -39,6 +39,9 @@ func (a *App) apiChangePassword(w http.ResponseWriter, r *http.Request) error {
 	if err := a.Repos.Users.UpdatePassword(u.ID, string(hash)); err != nil {
 		return err
 	}
+	// Other sessions end with the old password; this one carries on.
+	u.PasswordHash = string(hash)
+	issueSession(w, r, a.Secret, u)
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }

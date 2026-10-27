@@ -29,7 +29,7 @@ func TestAIBatchSendsCategoryDescriptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	const ts = "2026-01-01T00:00:00Z"
 	for _, c := range [][3]string{{"c-food", "Food & Dining", "Supermarkets and takeaways"}, {"c-fun", "Entertainment", ""}} {
 		if _, err := db.Exec(`INSERT INTO categories (id, name, color, type, description, created_at, updated_at)

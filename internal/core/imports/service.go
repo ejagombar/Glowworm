@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"math"
 	"sort"
@@ -514,7 +515,17 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 		}
 		for _, r := range rows {
 			stagingID := util.NewID()
+			// Some banks (Chase) export text HTML-escaped: "Marks &amp; Spencer".
+			r.Description = html.UnescapeString(r.Description)
+			r.SourceText = html.UnescapeString(r.SourceText)
+			r.DestinationText = html.UnescapeString(r.DestinationText)
 			hash := repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, r.Description)
+			// Transactions imported before that keep the hash of their escaped
+			// description, so a re-import must match that too.
+			hashes := []any{hash}
+			if escaped := strings.ReplaceAll(r.Description, "&", "&amp;"); escaped != r.Description {
+				hashes = append(hashes, repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, escaped))
+			}
 			if r.FitID != "" {
 				hash = "fitid:" + r.FitID
 			}
@@ -527,8 +538,8 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 				}
 			} else {
 				var existing string
-				err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash = ? AND deleted_at IS NULL LIMIT 1`,
-					deref(s.batchAccountID(tx, batchID)), hash).Scan(&existing)
+				err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash IN (?`+strings.Repeat(",?", len(hashes)-1)+`)
+					AND deleted_at IS NULL LIMIT 1`, append([]any{deref(s.batchAccountID(tx, batchID))}, hashes...)...).Scan(&existing)
 				if err == nil {
 					dup = existing
 				}
@@ -751,7 +762,7 @@ func schemaHash(kind importer.Kind, header []string) string {
 func normHeaders(header []string) []string {
 	out := make([]string, len(header))
 	for i, h := range header {
-		out[i] = strings.ToLower(strings.TrimSpace(h))
+		out[i] = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(h, "\ufeff")))
 	}
 	return out
 }
@@ -980,6 +991,16 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 		return nil, &ValidationError{Message: "Import is not ready for review"}
 	}
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
+		// Checked again inside the transaction, which holds the write lock:
+		// confirming twice at once (a double tap, or two devices) would
+		// otherwise import every row twice.
+		var status string
+		if err := tx.QueryRow(`SELECT status FROM import_batches WHERE id = ?`, batchID).Scan(&status); err != nil {
+			return err
+		}
+		if status != "awaiting_review" {
+			return &ValidationError{Message: "This import has already been confirmed or cancelled, perhaps on another device."}
+		}
 		rows, err := tx.Query(`SELECT id, line_no, date, description, amount_minor, currency, source_text, destination_text, proposed_category_id, duplicate_of, raw,
 			original_amount_minor, COALESCE(original_currency, '')
 			FROM import_staging WHERE batch_id = ? ORDER BY line_no ASC`, batchID)
@@ -1257,10 +1278,17 @@ func (s *Service) Cancel(batchID string) error {
 		return err
 	}
 	return s.DB.WithTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`UPDATE import_batches SET status='cancelled' WHERE id=?`, batchID); err != nil {
+		// Only an import still being set up: one confirmed on another
+		// device meanwhile is undone from History, not cancelled.
+		res, err := tx.Exec(`UPDATE import_batches SET status='cancelled'
+			WHERE id=? AND status NOT IN ('confirmed', 'cancelled')`, batchID)
+		if err != nil {
 			return err
 		}
-		_, err := s.Audit.Write(tx, audit.Input{
+		if n, _ := res.RowsAffected(); n == 0 {
+			return &ValidationError{Message: "This import has already been confirmed or cancelled, perhaps on another device. To remove a confirmed import, undo it from History."}
+		}
+		_, err = s.Audit.Write(tx, audit.Input{
 			Actor: core.ActorUser, Action: "import.cancelled",
 			EntityType: "import_batch", EntityID: batchID,
 			Title: "Cancelled import", Sub: batch.Filename,

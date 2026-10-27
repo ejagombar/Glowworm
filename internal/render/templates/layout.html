@@ -11,6 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Glowworm" />
+  <meta name="glowworm-version" content="{{.DataVersion}}" />
   <link rel="stylesheet" href="{{asset "css/styles.css"}}" />
   <script>
     (function () {
@@ -204,6 +205,7 @@
 
   <div class="toast" id="toast" hidden></div>
 
+  {{template "recurring-modal"}}
   <script>window.__CSRF__ = {{.CSRFToken}};</script>
   <script src="{{asset "js/widgets.js"}}"></script>
   <script src="{{asset "js/app.js"}}"></script>

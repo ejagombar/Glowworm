@@ -120,7 +120,7 @@ func (c *Config) loadFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	scan := bufio.NewScanner(f)
 	get := func(key string) string {
 		env := "GLOWWORM_" + strings.ToUpper(strings.NewReplacer("-", "_").Replace(key))
@@ -161,7 +161,9 @@ func (c *Config) loadFile(path string) error {
 		case "log_level":
 			c.LogLevel = val
 		case "upload_max_mb":
-			fmt.Sscanf(val, "%d", &c.UploadMaxMB)
+			if _, err := fmt.Sscanf(val, "%d", &c.UploadMaxMB); err != nil || c.UploadMaxMB <= 0 {
+				return fmt.Errorf("config: upload_max_mb must be a whole number of megabytes, not %q", val)
+			}
 		case "trusted_proxies":
 			c.TrustedProxies = val
 		case "exchange_rates":

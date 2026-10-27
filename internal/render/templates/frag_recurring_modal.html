@@ -1,0 +1,26 @@
+{{define "recurring-modal"}}
+<div class="modal-backdrop" id="recurringModal" hidden>
+  <div class="modal recurring-modal" role="dialog" aria-modal="true" aria-labelledby="recurringTitle">
+    <button class="icon-btn modal-close" data-action="close-recurring" aria-label="Close">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+    <div class="modal-head">
+      <div class="modal-head-text">
+        <h3 id="recurringTitle">Recurring series</h3>
+        <p class="muted" id="recurringSub"></p>
+      </div>
+      <div class="recurring-total">
+        <span class="muted" id="recurringTotalLabel">Total</span>
+        <strong id="recurringTotal"></strong>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="tx-list" id="recurringTxList"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <a class="btn btn-ghost" id="recurringSearch" href="/transactions" title="Search Transactions for this series">Show in Transactions</a>
+    </div>
+  </div>
+</div>
+{{end}}
