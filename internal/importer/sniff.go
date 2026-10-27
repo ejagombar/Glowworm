@@ -34,6 +34,34 @@ func Sniff(name string, data []byte) Kind {
 	}
 }
 
+// Unsupported says why a file can't be imported, or "" when it can be read.
+// Anything not recognised is read as CSV, so binary files are caught here
+// rather than shown to the user as garbled columns.
+func Unsupported(kind Kind, data []byte) string {
+	const formats = "Download your statement from your bank as CSV, Excel (.xlsx), OFX or QIF instead."
+	switch {
+	case kind == KindPDF:
+		return "Glowworm can't read PDF statements. " + formats
+	case kind != KindCSV:
+		return ""
+	case bytes.HasPrefix(data, []byte("\xD0\xCF\x11\xE0")):
+		return "That's an old-style Excel file (.xls). Open it in Excel or Numbers and save it as .xlsx or CSV, then import that."
+	}
+	head := data
+	if len(head) > 8192 {
+		head = head[:8192]
+	}
+	if bytes.IndexByte(head, 0) >= 0 && !isUTF16(head) {
+		return "That doesn't look like a bank statement export. " + formats
+	}
+	return ""
+}
+
+// A UTF-16 CSV (some Excel exports) has NULs between its ASCII characters.
+func isUTF16(data []byte) bool {
+	return bytes.HasPrefix(data, []byte{0xFF, 0xFE}) || bytes.HasPrefix(data, []byte{0xFE, 0xFF})
+}
+
 func isZip(data []byte) bool {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {

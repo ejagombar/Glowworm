@@ -79,6 +79,9 @@ func (s *Service) Upload(filename string, data []byte, accountID *string) (*Batc
 		return nil, &ValidationError{Message: "That file is empty."}
 	}
 	kind := importer.Sniff(filename, data)
+	if why := importer.Unsupported(kind, data); why != "" {
+		return nil, &ValidationError{Message: why}
+	}
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
 
@@ -185,16 +188,6 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			return s.markFailed(batchID, err.Error())
 		}
 		rows = rr
-	case importer.KindPDF:
-		text, err := importer.ExtractPDFText(data)
-		if err != nil {
-			return s.markFailed(batchID, "No text layer in that PDF (scanned PDFs need the optional vision path).")
-		}
-		det.Sample = sampleLines(strings.Split(text, "\n"), detectionSampleLines)
-		if err := s.markAwaitingSchema(batchID, det); err != nil {
-			return nil, err
-		}
-		return s.Get(batchID)
 	}
 
 	if kind == importer.KindQIF || kind == importer.KindOFX {
@@ -700,17 +693,6 @@ func sampleTable(table [][]string, n int) [][]string {
 		return table[:n]
 	}
 	return table
-}
-
-func sampleLines(lines []string, n int) [][]string {
-	out := [][]string{}
-	for i, l := range lines {
-		if i >= n {
-			break
-		}
-		out = append(out, strings.Split(l, ","))
-	}
-	return out
 }
 
 func (s *Service) auditSchemaDetected(batchID, filename string, det *Detection) {

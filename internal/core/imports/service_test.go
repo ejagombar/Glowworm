@@ -2,6 +2,7 @@ package imports
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -511,5 +512,22 @@ func TestImportDecodesHTMLEntities(t *testing.T) {
 	want := []string{"Marks & Spencer|B&Q <Ltd>|", "Marks & Spencer||old"}
 	if strings.Join(got, ";") != strings.Join(want, ";") {
 		t.Fatalf("staged = %v, want %v", got, want)
+	}
+}
+
+// A PDF is refused up front: no batch is created and it never reaches the
+// CSV parser's column mapping.
+func TestPDFIsRefused(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	acc := "acc-main"
+	_, err := s.Upload("statement.pdf", []byte("%PDF-1.7\n1 0 obj\n"), &acc)
+	var ve *ValidationError
+	if !errors.As(err, &ve) || !strings.Contains(ve.Message, "PDF") {
+		t.Fatalf("err = %v, want a validation error about PDFs", err)
+	}
+	var n int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM import_batches`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("batches = %d (%v), want none", n, err)
 	}
 }

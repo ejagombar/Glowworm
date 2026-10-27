@@ -2869,15 +2869,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const renderBatch = (b, prev) => {
     if (b.status === "failed") {
       const why = b.parse_error || "The file could not be read.";
-      const kind = (b.mime || "").toLowerCase();
-      const pdfHint = kind.includes("pdf")
-        ? '<p class="login-error" style="margin-top:8px">Scanned PDFs have no text layer - the optional AI vision path (Settings → AI) can read them, or export a CSV from your bank.</p>'
-        : "";
       openFlow(`
         <div class="panel category-form">
           <h3 class="category-form-title">Import failed</h3>
           <p class="login-error">${esc(why)}</p>
-          ${pdfHint}
           <p class="login-error" style="color:var(--muted)">Nothing was imported, and this attempt does not appear in your history.</p>
           <button class="btn btn-primary" type="button" data-close-flow>Try another file</button>
         </div>`);

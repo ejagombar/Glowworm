@@ -322,10 +322,6 @@ func ReadOFX(data []byte, currency string) ([]Row, error) {
 	return rows, nil
 }
 
-func ExtractPDFText(data []byte) (string, error) {
-	return extractPDFText(data)
-}
-
 func atoi(s string) int {
 	n := 0
 	for i := 0; i < len(s); i++ {

@@ -2,6 +2,7 @@ package importer
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -288,5 +289,24 @@ func TestParseRowsOriginalCurrency(t *testing.T) {
 	auto := AutoMapping("csv", []string{"Date", "Amount", "Local amount", "Local currency"}, nil)
 	if auto.Columns[2].Role != RoleOrigAmount || auto.Columns[3].Role != RoleOrigCurrency {
 		t.Fatalf("auto mapping = %+v", auto.Columns)
+	}
+}
+
+func TestUnsupported(t *testing.T) {
+	cases := []struct {
+		name, data, want string
+	}{
+		{"statement.pdf", "%PDF-1.4\n", "PDF"},
+		{"scan.png", "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", "doesn't look like"},
+		{"old.xls", "\xD0\xCF\x11\xE0\xA1\xB1\x1a\xe1\x00", ".xls"},
+		{"monzo.csv", "Date,Amount\n01/06/2026,-1.00\n", ""},
+		{"excel.csv", "\xFF\xFED\x00a\x00t\x00e\x00", ""},
+		{"barclays.ofx", "<OFX>\x00", ""},
+	}
+	for _, c := range cases {
+		got := Unsupported(Sniff(c.name, []byte(c.data)), []byte(c.data))
+		if (c.want == "") != (got == "") || !strings.Contains(got, c.want) {
+			t.Errorf("Unsupported(%s) = %q, want it to mention %q", c.name, got, c.want)
+		}
 	}
 }
