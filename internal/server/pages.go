@@ -1118,7 +1118,7 @@ func formatAssistantText(text string) string {
 
 func widgetCardHTML(w *widgets.Widget) string {
 	var b strings.Builder
-	b.WriteString(`<article class="widget span-12" data-widget-id="` + w.ID + `" data-widget-type="` + w.Type + `"`)
+	b.WriteString(`<article class="widget span-12" data-widget-id="` + template.HTMLEscapeString(w.ID) + `" data-widget-type="` + template.HTMLEscapeString(w.Type) + `"`)
 	b.WriteString(` data-widget-title="` + template.HTMLEscapeString(w.Title) + `"`)
 	b.WriteString(` data-widget-data="` + template.HTMLEscapeString(w.DataJSON()) + `"`)
 	if w.Dataset != nil {
