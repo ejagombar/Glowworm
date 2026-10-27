@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -69,6 +70,7 @@ type App struct {
 	AuditWriter  *audit.Writer
 	Exec         *auditexec.Executor
 	loginLimiter *limiter
+	version      *dataVersion
 	Version      string
 }
 
@@ -102,6 +104,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		AuditWriter:  writer,
 		Audit:        audit.NewEngine(db, writer),
 		loginLimiter: newLimiter(5, 15*time.Minute),
+		version:      newDataVersion(dataVersionPath(cfg.DataDir)),
 	}
 	app.Accounts = &accounts.Service{DB: db, Repos: rp.Accounts, Txs: rp.Transactions, Audit: writer, Clock: clk}
 	app.Categories = &categories.Service{DB: db, Repos: rp.Categories, Txs: rp.Transactions, Audit: writer}
@@ -299,7 +302,11 @@ func (a *App) Router() http.Handler {
 
 	a.registerAPI(mux)
 
-	var handler http.Handler = mux
+	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"version": a.version.String()})
+	})
+
+	var handler http.Handler = a.version.middleware(mux)
 	if a.Cfg.AuthMode == "password" {
 		handler = a.withAuth(handler)
 	}
@@ -357,6 +364,13 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+func dataVersionPath(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, "data-version")
 }
 
 // session reads the signed-in session, checking its user still exists and

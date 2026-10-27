@@ -26,6 +26,14 @@ type ValidationError struct{ Message string }
 
 func (e *ValidationError) Error() string { return e.Message }
 
+// ConflictError is an edit made to a transaction that has changed since the
+// editor loaded it, on another device or in another tab.
+type ConflictError struct{ Description string }
+
+func (e *ConflictError) Error() string {
+	return "“" + e.Description + "” was changed somewhere else after you opened it. Reload to see the change, then edit again."
+}
+
 func (s *Service) Display(f repos.ListFilter, accountID string) ([]*repos.DisplayRow, error) {
 	return s.Repos.DisplayRows(f, accountID)
 }
@@ -90,6 +98,9 @@ type CreateInput struct {
 	Type        string  `json:"type"`
 	CategoryID  *string `json:"category_id"`
 	Merchant    *string `json:"merchant"`
+	// ExpectedUpdatedAt, when set, is the version of the transaction the
+	// edit was made against; a newer one is a conflict, not overwritten.
+	ExpectedUpdatedAt string `json:"expected_updated_at,omitempty"`
 }
 
 func (in *CreateInput) Validate() error {
@@ -170,6 +181,9 @@ func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.
 	t, err := s.Repos.Get(id)
 	if err != nil {
 		return nil, err
+	}
+	if in.ExpectedUpdatedAt != "" && in.ExpectedUpdatedAt != t.UpdatedAt {
+		return nil, &ConflictError{Description: t.Description}
 	}
 	if t.TransferID != nil {
 		if in.Type != "" && in.Type != core.TypeTransfer {

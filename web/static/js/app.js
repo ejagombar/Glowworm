@@ -17,11 +17,15 @@ function initTheme() {
 }
 
 let toastTimer;
-function toast(msg) {
+// A message that reports a failure gets the alert icon, not a tick.
+const FAILURE_RE = /^(could ?n[o']t|can['’]?t|cannot|failed|not |no longer|nothing |too many|invalid|something went wrong)|\b(required|is incorrect|must be|doesn't exist|out of date|isn't answering|was changed somewhere else)\b/i;
+function toast(msg, kind) {
   const el = document.getElementById("toast");
   if (!el) return;
+  const failed = kind === "error" || (kind !== "ok" && FAILURE_RE.test(String(msg)));
   el.hidden = false;
-  el.innerHTML = `<svg class="icon"><use href="#i-check"/></svg> ${esc(msg)}`;
+  el.classList.toggle("toast-error", failed);
+  el.innerHTML = `<svg class="icon"><use href="#i-${failed ? "alert" : "check"}"/></svg> ${esc(msg)}`;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), Math.max(2600, String(msg).length * 70));
 }
@@ -30,9 +34,155 @@ function reloadWithToast(msg) {
   location.reload();
 }
 async function apiErrorText(r, fallback) {
-  const b = await r.json().catch(() => ({}));
-  return (b.error && b.error.message) || fallback;
+  return apiErrorFrom(r, await r.json().catch(() => ({})), fallback);
 }
+// jsonOk reads a response's JSON, or throws the server's explanation when
+// the request failed, so a failure never renders as an empty result.
+async function jsonOk(r, fallback) {
+  if (!r.ok) throw new Error(await apiErrorText(r, fallback || "The server couldn't do that"));
+  return r.json();
+}
+// apiErrorFrom is apiErrorText for a body that has already been read.
+function apiErrorFrom(r, b, fallback) {
+  const err = (b && b.error) || {};
+  if (r.status === 401) return "You've been signed out. Sign in again to carry on.";
+  if (r.status >= 502 && r.status <= 504) return "Glowworm isn't answering right now (it may be restarting). Try again in a moment.";
+  if (r.status === 403 && err.code === "csrf") return "This page is out of date. Reload it and try again.";
+  return err.message || fallback;
+}
+
+// ---- Connection. Every request to the server goes through this fetch: it
+// gives up on one that hasn't started answering after 30s, shows a banner
+// while the server can't be reached (and checks until it can), says so when
+// the session has ended, and notes the data version each response carries.
+const nativeFetch = window.fetch.bind(window);
+const FETCH_TIMEOUT_MS = 30000;
+// These wait on the AI, a file or a long job, so they get no time limit.
+const SLOW_PATH_RE = /^\/api\/v1\/(query|imports|instance\/backup|settings\/ai|categoriser|transactions\/[^/]+\/categorise|transfers\/detect|accounts\/archives)/;
+window.fetch = function (input, init) {
+  init = init || {};
+  const url = new URL(typeof input === "string" ? input : input.url, location.href);
+  if (url.origin !== location.origin) return nativeFetch(input, init);
+  const method = (init.method || (input && input.method) || "GET").toUpperCase();
+  let ctrl = null, timer = null;
+  if (!init.signal && !SLOW_PATH_RE.test(url.pathname)) {
+    ctrl = new AbortController();
+    init = Object.assign({}, init, { signal: ctrl.signal });
+    timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  }
+  return nativeFetch(input, init).then((r) => {
+    clearTimeout(timer);
+    if (r.status >= 502 && r.status <= 504) connection.lost("server");
+    else connection.ok();
+    if (r.status === 401 && url.pathname.startsWith("/api/")) connection.signedOut();
+    const v = r.headers.get("X-Glowworm-Version");
+    if (v && method !== "GET" && method !== "HEAD") dataVersion.ownChange(v);
+    return r;
+  }, (err) => {
+    clearTimeout(timer);
+    const timedOut = ctrl && ctrl.signal.aborted;
+    if (err && err.name === "AbortError" && !timedOut) throw err; // the caller cancelled it
+    connection.lost(timedOut ? "timeout" : "network");
+    throw new Error(timedOut ? "Glowworm took too long to answer." : "Can't reach Glowworm.");
+  });
+};
+
+const connection = (() => {
+  let banner = null, state = "ok", poll = null;
+  const show = (html, cls) => {
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.className = "conn-banner";
+      banner.setAttribute("role", "status");
+      document.body.prepend(banner);
+    }
+    banner.className = "conn-banner " + (cls || "");
+    banner.innerHTML = html;
+    banner.hidden = false;
+  };
+  const hide = () => { if (banner) banner.hidden = true; };
+  const check = () => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    nativeFetch("/healthz", { cache: "no-store", signal: ctrl.signal })
+      .then((r) => { if (r.ok) api.ok(); })
+      .catch(() => {})
+      .finally(() => clearTimeout(t));
+  };
+  const api = {
+    lost(why) {
+      if (state === "signedOut") return;
+      state = "lost";
+      show(`<svg class="icon"><use href="#i-alert"/></svg> ${why === "server"
+        ? "Glowworm isn't answering (it may be restarting)."
+        : why === "timeout" ? "Glowworm is taking too long to answer." : "Can't reach Glowworm: check your connection."}
+        Changes won't save until it's back. <button class="btn btn-ghost btn-xs" type="button" data-conn-retry>Try now</button>`, "conn-lost");
+      if (!poll) poll = setInterval(check, 5000);
+    },
+    ok() {
+      if (state !== "lost") return;
+      state = "ok";
+      clearInterval(poll);
+      poll = null;
+      hide();
+      toast("Connected again", "ok");
+      dataVersion.check();
+    },
+    signedOut() {
+      if (state === "signedOut") return;
+      state = "signedOut";
+      clearInterval(poll);
+      poll = null;
+      show(`<svg class="icon"><use href="#i-alert"/></svg> You've been signed out (perhaps the password was changed on another device).
+        <a class="btn btn-primary btn-xs" href="/login">Sign in</a>`, "conn-lost");
+    },
+    check,
+  };
+  window.addEventListener("offline", () => api.lost("network"));
+  window.addEventListener("online", check);
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-conn-retry]")) check(); });
+  return api;
+})();
+
+// ---- Other devices. The server's data version changes whenever anything is
+// saved. When this page comes back into view (and every minute while it's
+// open) it compares the version it was built from; if another device or tab
+// has saved something since, it offers a reload instead of showing old data.
+const dataVersion = (() => {
+  const meta = document.querySelector('meta[name="glowworm-version"]');
+  let known = meta ? meta.content : "";
+  let offered = false;
+  const offer = () => {
+    if (offered) return;
+    offered = true;
+    const bar = document.createElement("div");
+    bar.className = "conn-banner conn-stale";
+    bar.setAttribute("role", "status");
+    bar.innerHTML = `Something was changed on another device or tab.
+      <button class="btn btn-primary btn-xs" type="button" data-stale-reload>Reload</button>
+      <button class="btn btn-ghost btn-xs" type="button" data-stale-dismiss>Not now</button>`;
+    document.body.prepend(bar);
+    bar.addEventListener("click", (e) => {
+      if (e.target.closest("[data-stale-reload]")) location.reload();
+      if (e.target.closest("[data-stale-dismiss]")) bar.remove();
+    });
+  };
+  const api = {
+    // A save made by this page: its new version isn't news.
+    ownChange(v) { known = v; },
+    check() {
+      if (!known || offered || document.hidden) return;
+      nativeFetch("/api/v1/version", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => { if (b && b.version && b.version !== known) offer(); })
+        .catch(() => {});
+    },
+  };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) api.check(); });
+  window.addEventListener("pageshow", (e) => { if (e.persisted) api.check(); });
+  setInterval(api.check, 60000);
+  return api;
+})();
 function restoredMessage(res) {
   const n = res.transactions || 0;
   let msg = `Restored “${res.name}” · ${n} transaction${n === 1 ? "" : "s"}`;
@@ -544,13 +694,13 @@ function pinWidget(card, btn) {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
     body: JSON.stringify(payload),
-  }).then((r) => r.json()).then((out) => {
+  }).then((r) => jsonOk(r)).then((out) => {
     if (!out || !out.id) { toast("Could not pin widget"); return; }
     card.dataset.pinnedId = out.id;
     btn.classList.add("pinned-on");
     btn.title = "Unpin from dashboard";
     toast("Pinned to dashboard");
-  }).catch(() => toast("Could not pin widget"));
+  }).catch((e) => toast(e.message || "Could not pin widget"));
 }
 
 function unpinWidget(card, btn) {
@@ -1197,7 +1347,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }).then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
-          toast((b.error && b.error.message) || "Could not add transaction");
+          toast(apiErrorFrom(r, b, "Could not add transaction"));
           return;
         }
         toast("Transaction added");
@@ -1282,7 +1432,7 @@ function modelPicker(root) {
 
 function openRecurring(key) {
   fetch(`/api/v1/recurring/${encodeURIComponent(key)}/transactions`)
-    .then((r) => r.json())
+    .then((r) => jsonOk(r))
     .then((body) => {
       const txs = body.transactions || [];
       const list = document.getElementById("recurringTxList");
@@ -1336,7 +1486,7 @@ function hydrateRules(root) {
   });
 }
 function loadRulesList(host) {
-  fetch("/api/v1/group-rules").then((r) => r.json()).then((body) => {
+  fetch("/api/v1/group-rules").then((r) => jsonOk(r)).then((body) => {
     const items = body.items || [];
     if (!items.length) {
       host.innerHTML = `<p class="rules-empty">No grouping rules yet. Ask to group transactions that should count as one merchant.</p>`;
@@ -1348,7 +1498,7 @@ function loadRulesList(host) {
         <td>${esc(r.group)}</td><td class="cell-sub">${esc(ruleText(r))}</td><td class="num">${r.count}</td>
         <td class="row-actions"><button class="widget-btn" data-delete-rule="${esc(r.id)}" data-rule-label="${esc(r.group + " · " + ruleText(r))}" title="Delete rule" aria-label="Delete rule"><svg class="icon"><use href="#i-close"/></svg></button></td>
       </tr>`).join("")}</tbody></table></div>`;
-  }).catch(() => { host.innerHTML = `<p class="rules-empty">Could not load the rules.</p>`; });
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not load the rules.")}</p>`; });
 }
 function loadRuleDraft(host) {
   let draft;
@@ -1543,7 +1693,7 @@ function openAccountForm(id) {
   document.getElementById("accDeleteBtn").hidden = !id;
   resetValuationFields();
   if (id) {
-    fetch(`/api/v1/accounts/${id}`).then((r) => r.json()).then((a) => {
+    fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
       document.getElementById("accName").value = a.name || "";
       document.getElementById("accType").value = a.type || "debit";
       document.getElementById("accOpening").value = a.opening_balance_minor != null ? (a.opening_balance_minor / 100).toFixed(2) : "";
@@ -1554,7 +1704,7 @@ function openAccountForm(id) {
       document.getElementById("accBic").value = a.bic || "";
       syncValuationBlock();
       loadValuations(id);
-    }).catch(() => toast("Could not load account"));
+    }).catch((e) => toast(e.message || "Could not load account"));
   } else {
     ["accName","accOpening","accNumber","accSortCode","accIban","accBic"].forEach((x) => (document.getElementById(x).value = ""));
     document.getElementById("accValuationList").hidden = document.getElementById("accValuationListLabel").hidden = true;
@@ -1581,7 +1731,7 @@ function loadValuations(accountID) {
   const label = document.getElementById("accValuationListLabel");
   list.innerHTML = "";
   list.hidden = label.hidden = true;
-  fetch(`/api/v1/accounts/${accountID}/valuations`).then((r) => r.json()).then((b) => {
+  fetch(`/api/v1/accounts/${accountID}/valuations`).then((r) => jsonOk(r)).then((b) => {
     const items = (b.items || []).slice().reverse(); // newest first
     if (!items.length) return;
     list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
@@ -1638,7 +1788,7 @@ function saveAccount() {
   }).then(async (r) => {
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));
-      toast((b.error && b.error.message) || "Could not save the account");
+      toast(apiErrorFrom(r, b, "Could not save the account"));
       return null;
     }
     return r.json();
@@ -1652,7 +1802,7 @@ function saveAccount() {
     }).then(async (r) => {
       if (r.ok) return true;
       const b = await r.json().catch(() => ({}));
-      toast((b.error && b.error.message) || "Account saved, but the value couldn't be recorded");
+      toast(apiErrorFrom(r, b, "Account saved, but the value couldn't be recorded"));
       return false;
     });
   }).then((ok) => {
@@ -1828,7 +1978,7 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ current_password: cur, new_password: nw }),
       });
       const b = await r.json().catch(() => ({}));
-      if (!r.ok) { toast((b.error && b.error.message) || "Could not change password"); return; }
+      if (!r.ok) { toast(apiErrorFrom(r, b, "Could not change password")); return; }
       closePasswordModal();
       toast("Password changed");
     });
@@ -1856,7 +2006,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }).then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
-          toast((b.error && b.error.message) || "Could not update name");
+          toast(apiErrorFrom(r, b, "Could not update name"));
           return;
         }
         const shown = document.getElementById("signedInName");
@@ -1927,7 +2077,7 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ provider: aiProviderSel.value, clear_key: true }),
       }).then(async (r) => {
         const b = await r.json().catch(() => ({}));
-        if (!r.ok) { toast((b.error && b.error.message) || "Could not clear key"); return; }
+        if (!r.ok) { toast(apiErrorFrom(r, b, "Could not clear key")); return; }
         aiHasSavedKey = false;
         aiKeyUnlocked = false;
         aiKeyInput.value = "";
@@ -1968,7 +2118,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }),
       });
       const b = await r.json().catch(() => ({}));
-      if (!r.ok || !b.ok) throw new Error((b.error && b.error.message) || "could not list models");
+      if (!r.ok || !b.ok) throw new Error(apiErrorFrom(r, b, "Could not list the models"));
       const models = b.models || [];
       queryPicker.setModels(models);
       catPicker?.setModels(models);
@@ -2015,7 +2165,7 @@ document.addEventListener("DOMContentLoaded", () => {
       body: JSON.stringify({ provider, api_key: key || undefined, base_url: baseUrl || undefined, models }),
     }).then(async (r) => {
       const b = await r.json().catch(() => ({}));
-      if (!r.ok) { toast((b.error && b.error.message) || "Could not save"); return; }
+      if (!r.ok) { toast(apiErrorFrom(r, b, "Could not save")); return; }
       if (key) { aiHasSavedKey = true; aiKeyUnlocked = false; syncAIKeyRow(); }
       toast("AI provider updated");
       if (aiProviderSel.value) loadAIModels();
@@ -2023,9 +2173,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("aiTest")?.addEventListener("click", () => {
     fetch("/api/v1/settings/ai/test", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
-      .then((r) => r.json())
+      .then((r) => jsonOk(r))
       .then((b) => toast(b.ok ? `Connection OK (${b.latency_ms}ms)` : `Failed: ${b.error || "unknown error"}`))
-      .catch(() => toast("Test failed"));
+      .catch((e) => toast(e.message || "Test failed"));
   });
 
   const catForm = document.getElementById("categoryForm");
@@ -2067,7 +2217,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }).then(async (r) => {
       if (!r.ok) {
         const b = await r.json().catch(() => ({}));
-        toast((b.error && b.error.message) || "Could not save the category");
+        toast(apiErrorFrom(r, b, "Could not save the category"));
         return;
       }
       toast(id ? "Category updated" : "Category added");
@@ -2093,7 +2243,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }).then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
-          toast((b.error && b.error.message) || "That didn't work");
+          toast(apiErrorFrom(r, b, "That didn't work"));
           return;
         }
         // Parts changed again later are kept; say which.
@@ -2262,7 +2412,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   function openEditor(tr, id) {
-    fetch(`/api/v1/transactions/${id}`).then((r) => r.json()).then((t) => {
+    fetch(`/api/v1/transactions/${id}`).then(async (r) => {
+      if (!r.ok) throw new Error(await apiErrorText(r, "Could not load the transaction"));
+      return r.json();
+    }).then((t) => {
       const editor = document.createElement("tr");
       editor.id = "txEditorRow";
       editor.dataset.txId = id;
@@ -2367,11 +2520,7 @@ document.addEventListener("DOMContentLoaded", () => {
             headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
             body: JSON.stringify({ counterpart_id: cpSel.value }),
           }).then(async (r) => {
-            if (!r.ok) {
-              const b = await r.json().catch(() => ({}));
-              toast((b.error && b.error.message) || "Could not link");
-              return;
-            }
+            if (!r.ok) { toast(await apiErrorText(r, "Could not link")); return; }
             toast("Transfer linked");
             location.reload();
           });
@@ -2382,17 +2531,15 @@ document.addEventListener("DOMContentLoaded", () => {
           account_id: linked ? undefined : document.getElementById("txeAccount").value,
           amount_minor: Math.round(amount * 100),
           category_id: (!linked && document.getElementById("txeCategory").value) || null,
+          // Refused if it was changed on another device since this opened.
+          expected_updated_at: t.updated_at,
         };
         fetch(`/api/v1/transactions/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
           body: JSON.stringify(body),
         }).then(async (r) => {
-          if (!r.ok) {
-            const b = await r.json().catch(() => ({}));
-            toast((b.error && b.error.message) || "Could not save");
-            return;
-          }
+          if (!r.ok) { toast(await apiErrorText(r, "Could not save")); return; }
           toast("Transaction updated");
           location.reload();
         }).catch(() => toast("Could not save"));
@@ -2414,7 +2561,7 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         });
       }
-    }).catch(() => toast("Could not load transaction"));
+    }).catch((e) => toast(e.message || "Could not load the transaction"));
   }
 });
 
@@ -2445,7 +2592,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target.closest("[data-close-flow]")) closeFlow();
   });
   const jsonHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrfToken() });
-  const errMessage = (b, status) => (b && b.error && b.error.message) || `server error ${status}`;
+  const errMessage = (b, status) => apiErrorFrom({ status }, b, `The server couldn't do that (error ${status}). Try again.`);
 
   const upload = (file) => {
     const fd = new FormData();
@@ -2827,7 +2974,7 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify({ sample, format: humanToGoLayout(fmt) }),
-      }).then((r) => r.json()).then((body) => {
+      }).then((r) => jsonOk(r)).then((body) => {
         if (myToken !== previewToken) return;
         if (!body.iso) {
           previewEl.innerHTML = `<span class="date-preview-fail">Couldn't read “${esc(sample)}”${fmt ? ` as ${esc(fmt)}` : ""}. Pick a format from the “i” menu${fmt ? " or clear the field to auto-detect" : ""}.</span>`;
@@ -3414,7 +3561,7 @@ function initHistoryTimeline() {
     chip.textContent = stepsBack === 0 ? "Latest" : stepsBack === 1 ? "1 step back" : stepsBack + " steps back";
     slider.style.setProperty("--fill", (months.length > 1 ? (idx / (months.length - 1)) * 100 : 0) + "%");
     renderChart(end);
-    fetch(`/api/v1/snapshot?date=${end}`).then((r) => r.json()).then((b) => {
+    fetch(`/api/v1/snapshot?date=${end}`).then((r) => jsonOk(r)).then((b) => {
       const bal = document.getElementById("timelineBalance");
       if (bal) bal.textContent = fmtMoneyMinor(b.total_minor, b.currency);
       const count = document.getElementById("timelineTxCount");

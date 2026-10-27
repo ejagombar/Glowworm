@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -103,5 +104,67 @@ func TestLoginLimitCountsFailuresOnly(t *testing.T) {
 	}
 	if loc := c.login("longpassword1"); loc != "/login?e=2" {
 		t.Errorf("after 5 failures, went to %q", loc)
+	}
+}
+
+// Saves bump the data version other devices compare against; reads and
+// failed saves don't. An edit made against an old copy of a transaction is
+// refused rather than overwriting the newer change.
+func TestDataVersionAndEditConflicts(t *testing.T) {
+	h := newTestApp(t)
+	c := &testClient{t: t, h: h, cookies: map[string]*http.Cookie{}}
+	c.login("longpassword1")
+	version := func() string {
+		rec := c.do("GET", "/api/v1/version", "", "")
+		var b struct{ Version string }
+		if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || b.Version == "" {
+			t.Fatalf("version: %s %v", rec.Body, err)
+		}
+		return b.Version
+	}
+	v0 := version()
+	rec := c.do("POST", "/api/v1/accounts", "application/json", `{"name":"Main","type":"debit"}`)
+	if rec.Code >= 300 {
+		t.Fatalf("create account: %d %s", rec.Code, rec.Body)
+	}
+	v1 := version()
+	if v1 == v0 {
+		t.Error("a save didn't change the version")
+	}
+	if got := rec.Header().Get(versionHeader); got != v1 {
+		t.Errorf("the save's response carried version %q, want %q", got, v1)
+	}
+	var acct struct{ ID string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &acct)
+	c.do("GET", "/api/v1/accounts", "", "")
+	if c.do("POST", "/api/v1/accounts", "application/json", `{"name":""}`).Code != 400 || version() != v1 {
+		t.Error("a read or a refused save changed the version")
+	}
+
+	rec = c.do("POST", "/api/v1/transactions", "application/json",
+		`{"account_id":"`+acct.ID+`","date":"2026-05-01","description":"Lidl","amount_minor":-500}`)
+	if rec.Code >= 300 {
+		t.Fatalf("create transaction: %d %s", rec.Code, rec.Body)
+	}
+	var tx struct {
+		ID        string
+		UpdatedAt string `json:"updated_at"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &tx)
+	if code := c.do("PATCH", "/api/v1/transactions/"+tx.ID, "application/json",
+		`{"description":"Lidl GB","expected_updated_at":"`+tx.UpdatedAt+`"}`).Code; code != 200 {
+		t.Fatalf("edit against the current copy: %d", code)
+	}
+	rec = c.do("PATCH", "/api/v1/transactions/"+tx.ID, "application/json",
+		`{"description":"Lidl UK","expected_updated_at":"2000-01-01T00:00:00Z"}`)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "changed somewhere else") {
+		t.Errorf("edit against an old copy: %d %s", rec.Code, rec.Body)
+	}
+
+	if rec := c.do("PATCH", "/api/v1/transactions/"+tx.ID, "application/json", `{"description":`); rec.Code != 400 {
+		t.Errorf("malformed body: %d %s", rec.Code, rec.Body)
+	}
+	if rec := c.do("GET", "/api/v1/transactions/missing", "", ""); rec.Code != 404 || !strings.Contains(rec.Body.String(), "another device") {
+		t.Errorf("missing transaction: %d %s", rec.Code, rec.Body)
 	}
 }

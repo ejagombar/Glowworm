@@ -161,6 +161,9 @@ func Restore(zipPath, dataDir, dbPath string, force bool) (*Summary, error) {
 	if err := os.WriteFile(filepath.Join(dataDir, keyName), key, 0o600); err != nil {
 		return nil, err
 	}
+	// Pages still open from before compare against this; without it they
+	// see a different version and offer to reload onto the restored data.
+	_ = os.Remove(filepath.Join(dataDir, "data-version"))
 	return sum, nil
 }
 

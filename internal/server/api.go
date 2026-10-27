@@ -50,9 +50,29 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// maxJSONBody caps a JSON request; uploads go through their own limit.
+const maxJSONBody = 2 << 20
+
+// badRequest is a request body the server couldn't read: the client's
+// fault, so it's a 400 that says what was wrong, not an internal error.
+type badRequest struct{ msg string }
+
+func (e *badRequest) Error() string { return e.msg }
+
 func decodeBody(r *http.Request, v any) error {
-	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	defer func() { _ = r.Body.Close() }()
+	err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxJSONBody)).Decode(v)
+	var tooBig *http.MaxBytesError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, io.EOF):
+		return &badRequest{"The request was empty"}
+	case errors.As(err, &tooBig):
+		return &badRequest{"The request is too large"}
+	default:
+		return &badRequest{"The request couldn't be read: " + err.Error()}
+	}
 }
 
 func serviceError(w http.ResponseWriter, err error) bool {
@@ -96,8 +116,19 @@ func serviceError(w http.ResponseWriter, err error) bool {
 		apiError(w, http.StatusBadRequest, "validation_failed", ie.Message)
 		return true
 	}
-	if errors.Is(err, transactions.ErrNotFound) {
-		apiError(w, http.StatusNotFound, "not_found", "Not found")
+	var br *badRequest
+	if errors.As(err, &br) {
+		apiError(w, http.StatusBadRequest, "bad_request", br.msg)
+		return true
+	}
+	var conflict *transactions.ConflictError
+	if errors.As(err, &conflict) {
+		apiError(w, http.StatusConflict, "conflict", conflict.Error())
+		return true
+	}
+	if errors.Is(err, transactions.ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+		apiError(w, http.StatusNotFound, "not_found",
+			"That no longer exists: it may have been deleted on another device. Reload to see the latest.")
 		return true
 	}
 	return false
@@ -111,7 +142,8 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 					return
 				}
 				a.Log.Error("api", "path", r.URL.Path, "err", err)
-				apiError(w, http.StatusInternalServerError, "internal", "Internal server error")
+				apiError(w, http.StatusInternalServerError, "internal",
+					"Something went wrong on the server. Try again; if it keeps happening, the server log has the details.")
 			}
 		}
 	}

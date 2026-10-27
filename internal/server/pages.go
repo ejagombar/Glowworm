@@ -46,6 +46,8 @@ type viewBase struct {
 	SetupDone   bool
 	AuthMode    string
 	Standalone  bool
+	// DataVersion is the data this page was built from; see dataVersion.
+	DataVersion string
 }
 
 // shortDate is "22 Oct 2025", matching the date range button in app.js.
@@ -116,7 +118,7 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
 		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
-		SetupDone: s.SetupCompleted, AuthMode: a.Cfg.AuthMode,
+		SetupDone: s.SetupCompleted, AuthMode: a.Cfg.AuthMode, DataVersion: a.version.String(),
 	}, nil
 }
 
