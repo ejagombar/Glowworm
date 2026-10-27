@@ -1,6 +1,7 @@
 package query
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"glowworm/internal/ai"
+	"glowworm/internal/core/changes"
 	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/util"
@@ -38,6 +40,10 @@ type agentWidgetSpec struct {
 	// A group_rule widget: grouping rules drafted for the user to create.
 	Group string               `json:"group"`
 	Rules []grouping.DraftRule `json:"rules"`
+	// A change widget: an edit drafted for the user to apply. SQL selects
+	// the transactions' ids.
+	Action   string `json:"action"`
+	Category string `json:"category"`
 }
 
 type agentAction struct {
@@ -91,6 +97,11 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 		}
 		sp.Group = rawStr(src["group"])
 		_ = json.Unmarshal(src["rules"], &sp.Rules)
+		return sp
+	}
+	if strings.EqualFold(sp.Type, "change") {
+		sp.Action = strings.ToLower(rawStr(m["action"]))
+		sp.Category = rawStr(m["category"])
 		return sp
 	}
 	if sp.SQL != "" {
@@ -338,6 +349,29 @@ the user presses a button:
   — a live list where each rule can be deleted. Removing a group means
   deleting its rules from that list.
 
+CHANGES: you can't change data yourself, but you can PROPOSE a change to
+transactions with a change widget. The user sees every transaction it would
+touch and nothing happens until they press Apply. It can be undone from History.
+  {"type":"change","action":"set_category","category":"Groceries",
+   "sql":"SELECT t.id FROM transactions t WHERE t.deleted_at IS NULL AND t.description LIKE '%TESCO%'"}
+- "sql" selects the ids (first column, t.id) of exactly the transactions to
+  change, at most 500. Always include t.deleted_at IS NULL. Check the
+  selection with run_query first (description, date, amount, category), and
+  narrow it until it holds only what the user meant.
+- Actions:
+  - set_category, with "category" (an existing spend or income category by
+    name). Expenses take spend categories and income takes income
+    categories; transfers are skipped.
+  - delete: deletes the selected transactions.
+  - link_transfer: links exactly two transactions — money out of one account
+    and the same money into another — as an internal transfer. Use this
+    (not a category) to make transactions internal transfers.
+  - unlink_transfer: breaks the transfer link on the selected transactions.
+- Recurring series are detected automatically from the data and can't be
+  set by hand; say so if asked. Account settings, categories, imports and
+  anything else can't be changed from here: say where in the app to do it.
+- Say in the text what pressing Apply would do — never claim it is done.
+
 PROTOCOL — every reply is ONE JSON object, no prose outside it:
 1. To fetch data: {"action":"run_query","sql":"SELECT ..."}
    - If a query errors, fix it and retry; if it returns 0 rows, do not conclude
@@ -350,11 +384,12 @@ PROTOCOL — every reply is ONE JSON object, no prose outside it:
    - Always aggregate/filter in SQL, add a LIMIT (<= 200), never dump raw rows.
    - You receive the result as a JSON object {columns, rows, row_count, truncated}.
 2. When you can answer: {"action":"final","text":"...","widgets":[...]}
-   - "text": short, factual, impersonal. Quote amounts in major units
-     (e.g. £128.40). Reference the numbers you actually found; never invent figures.
+   - "text": short, factual, impersonal. Quote amounts in major units:
+     amount_minor / 100, so 11200 is £112.00 and 12840 is £128.40. Reference the numbers you actually found; never invent figures.
    - "widgets": 0-3 live query widgets as described under WIDGETS ARE LIVE
      QUERIES, type one of number, bar, line, pie, table, transactions, text;
-     or the group_rule / group_rules widgets under GROUPING (these have no sql).
+     or the group_rule / group_rules widgets under GROUPING (these have no sql),
+     or a change widget under CHANGES.
      Test a widget's sql with run_query first when unsure.
    - Use at most one widget unless the question clearly needs more.
 3. If the user names something that isn't in their categories/accounts/merchants,
@@ -561,6 +596,19 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 			}
 			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: p.Draft})
 			continue
+		case "change":
+			pv, err := s.draftChange(sp, win)
+			if err != nil {
+				if !lenient {
+					problems = append(problems, name+": "+err.Error())
+				}
+				continue
+			}
+			if title == "" {
+				title = "Proposed change"
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: pv.Proposal})
+			continue
 		}
 		if strings.TrimSpace(sp.SQL) == "" {
 			if typ == "text" || lenient {
@@ -586,6 +634,80 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 		out = append(out, w)
 	}
 	return out, problems
+}
+
+// draftChange resolves a change widget's query to the transactions it would
+// touch and checks the change makes sense. Nothing is changed.
+func (s *Service) draftChange(sp agentWidgetSpec, win *TimeWindow) (*changes.Preview, error) {
+	query := stripFences(sp.SQL)
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf(`a change needs "sql" selecting the transactions' ids`)
+	}
+	ids, err := s.selectIDs(query, win)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("the sql selects no transactions; check it with run_query")
+	}
+	svc := &changes.Service{DB: s.DB}
+	p := changes.Proposal{Action: sp.Action, IDs: ids}
+	if sp.Action == changes.SetCategory {
+		if p.CategoryID, err = svc.CategoryByName(sp.Category); err != nil {
+			return nil, err
+		}
+	}
+	pv, err := svc.Draft(p)
+	if err != nil {
+		return nil, err
+	}
+	if len(pv.Rows) < len(ids) {
+		return nil, fmt.Errorf("%d of the %d selected ids aren't transactions: select t.id from transactions",
+			len(ids)-len(pv.Rows), len(ids))
+	}
+	if pv.Ready == 0 {
+		return nil, fmt.Errorf("it would change nothing: every selected transaction is skipped (%s)", pv.Rows[0].Skip)
+	}
+	return pv, nil
+}
+
+// selectIDs runs a change's read-only query and returns its first column.
+func (s *Service) selectIDs(query string, win *TimeWindow) ([]string, error) {
+	if err := validateReadonly(query); err != nil {
+		return nil, fmt.Errorf("query rejected: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout)
+	defer cancel()
+	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf("SELECT * FROM (%s) LIMIT %d",
+		strings.TrimSpace(query), changes.MaxTransactions+1), dateArgs(query, win)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		id := vals[0]
+		if b, ok := id.([]byte); ok {
+			id = string(b)
+		}
+		ids = append(ids, cellText(id))
+	}
+	if len(ids) > changes.MaxTransactions {
+		return nil, fmt.Errorf("it selects more than %d transactions; narrow it down", changes.MaxTransactions)
+	}
+	return ids, rows.Err()
 }
 
 func plural(n int) string {

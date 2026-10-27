@@ -24,6 +24,7 @@ import (
 	"glowworm/internal/core/auditexec"
 	"glowworm/internal/core/categories"
 	"glowworm/internal/core/categoriser"
+	"glowworm/internal/core/changes"
 	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/query"
@@ -61,6 +62,7 @@ type App struct {
 	Transfers    *transfers.Service
 	Recurring    *recurring.Service
 	Grouping     *grouping.Service
+	Changes      *changes.Service
 	Query        *query.Service
 
 	AuditWriter  *audit.Writer
@@ -140,6 +142,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	}
 	app.Recurring = &recurring.Service{DB: db, Txs: rp.Transactions, Audit: writer}
 	app.Grouping = &grouping.Service{DB: db, Audit: writer}
+	app.Changes = &changes.Service{DB: db, Transactions: app.Transactions, Transfers: app.Transfers, Audit: writer}
 	app.Query = &query.Service{
 		DB: db, Provider: queryProvider, Clock: clk,
 		Repo: &query.ConvRepo{DB: db},

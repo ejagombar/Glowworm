@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"glowworm/internal/ai"
+	"glowworm/internal/core/changes"
 	"glowworm/internal/store"
 )
 
@@ -606,5 +607,38 @@ func TestAgentDraftsGroupRule(t *testing.T) {
 	_ = svc.DB.QueryRow(`SELECT COUNT(*) FROM group_rules`).Scan(&n)
 	if n != 0 {
 		t.Errorf("a draft created %d rules", n)
+	}
+}
+
+// A drafted change is resolved to the transactions it would touch; one that
+// selects nothing goes back to the model, and a draft changes nothing.
+func TestAgentDraftsChange(t *testing.T) {
+	var sawCheck string
+	provider := &ai.MockAgent{Replies: []string{
+		`{"action":"final","text":"Press Apply to delete them.","widgets":[{"type":"change","action":"delete","sql":"SELECT id FROM transactions WHERE description = 'Tram'"}]}`,
+		`{"action":"final","text":"Press Apply to delete them.","widgets":[{"type":"change","action":"delete","sql":"SELECT id FROM transactions WHERE description = 'Bus'"}]}`,
+	}}
+	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
+	defer svc.DB.Close()
+	var before int
+	_ = svc.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL`).Scan(&before)
+	ans, err := svc.Ask("delete my bus trips")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sawCheck, "selects no transactions") {
+		t.Errorf("empty selection not fed back: %q", sawCheck)
+	}
+	if len(ans.Widgets) != 1 || ans.Widgets[0].Type != "change" {
+		t.Fatalf("widgets = %+v", ans.Widgets)
+	}
+	p, ok := ans.Widgets[0].Data.(changes.Proposal)
+	if !ok || p.ID == "" || len(p.IDs) == 0 {
+		t.Errorf("proposal = %#v", ans.Widgets[0].Data)
+	}
+	var after int
+	_ = svc.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL`).Scan(&after)
+	if after != before {
+		t.Errorf("a draft deleted %d transactions", before-after)
 	}
 }

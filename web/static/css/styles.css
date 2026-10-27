@@ -1887,4 +1887,6 @@ html:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
 .rules-table td, .rules-table th { padding: 7px 10px; }
 .rules-table .row-actions { width: 1%; white-space: nowrap; text-align: right; }
 .rule-draft-head { font-size: 13px; margin: 0 0 8px; }
+.change-rows { max-height: 320px; overflow-y: auto; }
+.change-skip td { opacity: .55; }
 .rule-draft-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }

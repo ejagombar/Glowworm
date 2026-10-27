@@ -166,6 +166,11 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		_, err := tx.Exec(`UPDATE group_rules SET deleted_at = ? WHERE id = ?`, deletedAt, str(revert["rule_id"]))
 		return err
 
+	case "change.applied":
+		// The edits it made are entries caused by it, undone and redone
+		// along with it; the entry itself only groups them.
+		return nil
+
 	case "transfer.linked", "transfer.unlink":
 		return x.applyTransfer(tx, ent, before, after, revert, reapply)
 

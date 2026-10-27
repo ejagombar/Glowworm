@@ -111,8 +111,8 @@
     </div>
     {{end}}
     {{if .Effects}}
-    <ul class="history-effects" aria-label="What the system did as a result">
-      {{range .Effects}}<li><span class="who system">System</span> {{.Title}}{{if .Sub}} <span class="history-effect-sub">· {{.Sub}}</span>{{end}}</li>{{end}}
+    <ul class="history-effects" aria-label="What was done as a result">
+      {{range .Effects}}<li><span class="who {{.Kind}}">{{.Actor}}</span> {{.Title}}{{if .Sub}} <span class="history-effect-sub">· {{.Sub}}</span>{{end}}</li>{{end}}
     </ul>
     {{end}}
   </div>

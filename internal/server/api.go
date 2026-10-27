@@ -19,6 +19,7 @@ import (
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/categories"
+	"glowworm/internal/core/changes"
 	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/setup"
@@ -78,6 +79,11 @@ func serviceError(w http.ResponseWriter, err error) bool {
 	var ae *acctValidationError
 	if errors.As(err, &ae) {
 		apiError(w, http.StatusBadRequest, "validation_failed", ae.Message)
+		return true
+	}
+	var che *changes.ValidationError
+	if errors.As(err, &che) {
+		apiError(w, http.StatusBadRequest, "validation_failed", che.Message)
 		return true
 	}
 	var ge *grouping.ValidationError
@@ -178,6 +184,8 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/group-rules/preview", j(a.apiGroupRulesPreview))
 	mux.HandleFunc("POST /api/v1/group-rules", j(a.apiGroupRulesCreate))
 	mux.HandleFunc("DELETE /api/v1/group-rules/{id}", j(a.apiGroupRuleDelete))
+	mux.HandleFunc("POST /api/v1/changes/preview", j(a.apiChangePreview))
+	mux.HandleFunc("POST /api/v1/changes/apply", j(a.apiChangeApply))
 
 	mux.HandleFunc("GET /api/v1/recurring", j(a.apiRecurringList))
 	mux.HandleFunc("GET /api/v1/recurring/{key}/transactions", j(a.apiRecurringSeries))
@@ -1319,5 +1327,36 @@ func (a *App) apiGroupRuleDelete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+// apiChangePreview lists what a change drafted in Queries would do.
+func (a *App) apiChangePreview(w http.ResponseWriter, r *http.Request) error {
+	var p changes.Proposal
+	if err := decodeBody(r, &p); err != nil {
+		return err
+	}
+	pv, err := a.Changes.Preview(p)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, pv)
+	return nil
+}
+
+// apiChangeApply makes a change drafted in Queries, once the user presses
+// Apply on its preview.
+func (a *App) apiChangeApply(w http.ResponseWriter, r *http.Request) error {
+	var p changes.Proposal
+	if err := decodeBody(r, &p); err != nil {
+		return err
+	}
+	pv, err := a.Changes.Apply(p)
+	if err != nil {
+		return err
+	}
+	// Deletions can end a recurring series; edits can change what's grouped.
+	a.afterHistoryChange()
+	writeJSON(w, pv)
 	return nil
 }

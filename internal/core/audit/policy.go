@@ -29,6 +29,7 @@ func (p *Policy) Evaluate(action, state string) Capabilities {
 		strings.HasPrefix(action, "transaction."),
 		action == "transfer.linked" || action == "transfer.unlink",
 		strings.HasPrefix(action, "group_rule."),
+		action == "change.applied",
 		action == "categorisation.applied":
 		c.Revert = true
 	case action == "import.confirmed":

@@ -699,6 +699,7 @@ function widgetBodyHTML(widget) {
   const data = widget.data || {};
   if (widget.type === "group_rules") return `<div class="rules-host" data-rules-kind="list"></div>`;
   if (widget.type === "group_rule") return `<div class="rules-host" data-rules-kind="draft" data-draft="${esc(JSON.stringify(data))}"></div>`;
+  if (widget.type === "change") return `<div class="rules-host" data-rules-kind="change" data-draft="${esc(JSON.stringify(data))}"></div>`;
   if (data.transactions) {
     data.transactions = data.transactions.map((tx) => {
       const v = tx.amount_minor ?? tx.amount ?? 0;
@@ -1323,13 +1324,14 @@ function recurringSearchHref(txs) {
 }
 // ---- Grouping rules, shown only in the query window. Both widgets read the
 // rules live, so an old answer still shows what's true now.
-function isRulesWidget(type) { return type === "group_rule" || type === "group_rules"; }
+function isRulesWidget(type) { return type === "group_rule" || type === "group_rules" || type === "change"; }
 function ruleText(r) {
   return `${r.match === "is" ? "is" : "contains"} “${r.text}”`;
 }
 function hydrateRules(root) {
   (root || document).querySelectorAll(".rules-host").forEach((host) => {
     if (host.dataset.rulesKind === "list") loadRulesList(host);
+    else if (host.dataset.rulesKind === "change") loadChange(host);
     else loadRuleDraft(host);
   });
 }
@@ -1372,7 +1374,57 @@ function loadRuleDraft(host) {
       </div></div>`;
   }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the rule.")}</p>`; });
 }
+// A change the AI proposed: every transaction it would touch, and Apply.
+// The preview is read live, so an old answer shows whether it was applied.
+function loadChange(host) {
+  fetch("/api/v1/changes/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: host.dataset.draft,
+  }).then(async (r) => {
+    const p = await r.json();
+    if (!r.ok) throw new Error((p.error && p.error.message) || "preview failed");
+    const rows = p.rows || [];
+    const skipped = p.applied ? 0 : rows.length - p.ready;
+    host.innerHTML = `<div class="rule-draft">
+      <p class="rule-draft-head">${p.applied ? `<strong>Applied:</strong> ${esc(p.done)}. Now:`
+        : `<strong>${esc(p.summary)}</strong>${skipped ? `, leaving ${skipped} as ${skipped === 1 ? "it is" : "they are"}` : ""}:`}</p>
+      <div class="table-widget change-rows"><table class="rules-table">
+        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
+        <tbody>${rows.map((t) => `<tr class="${t.skip ? "change-skip" : ""}">
+          <td class="cell-sub">${esc(t.date)}</td>
+          <td>${esc(t.description)} <span class="cell-sub">· ${esc(t.account)}</span></td>
+          <td class="cell-sub">${t.skip ? `Skipped: ${esc(t.skip)}` : t.deleted ? "Deleted" : esc(t.category || (t.linked ? "Transfer" : "Uncategorised"))}</td>
+          <td class="num">${fmtMoneySigned(t.amount_minor, t.currency)}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="rule-draft-foot">
+        <span class="cell-sub">${p.applied ? `Applied · <a href="/history?mode=audit">undo in History</a>` : "Nothing changes until you apply it."}</span>
+        ${p.applied || !p.ready ? "" : `<button class="btn btn-primary btn-xs" data-apply-change data-change-action="${esc(p.proposal.action)}" data-count="${p.ready}">Apply</button>`}
+      </div></div>`;
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the change.")}</p>`; });
+}
+function applyChange(btn) {
+  const host = btn.closest(".rules-host");
+  btn.disabled = true;
+  fetch("/api/v1/changes/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: host.dataset.draft,
+  }).then(async (r) => {
+    if (!r.ok) { toast(await apiErrorText(r, "Could not apply the change")); btn.disabled = false; return; }
+    toast("Change applied");
+    loadChange(host);
+  }).catch(() => { toast("Could not apply the change"); btn.disabled = false; });
+}
 document.addEventListener("click", (e) => {
+  const apply = e.target.closest("[data-apply-change]");
+  if (apply) {
+    if (apply.dataset.changeAction === "delete") {
+      const n = apply.dataset.count;
+      showConfirm(`Delete ${n} transaction${n === "1" ? "" : "s"}?`, "You can undo this from History.", "Delete", () => applyChange(apply), "danger");
+    } else applyChange(apply);
+    return;
+  }
   const create = e.target.closest("[data-create-rule]");
   if (create) {
     const host = create.closest(".rules-host");
