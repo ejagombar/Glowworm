@@ -1,7 +1,7 @@
 package query
 
 import (
-	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -673,41 +673,36 @@ func (s *Service) draftChange(sp agentWidgetSpec, win *TimeWindow) (*changes.Pre
 
 // selectIDs runs a change's read-only query and returns its first column.
 func (s *Service) selectIDs(query string, win *TimeWindow) ([]string, error) {
-	if err := validateReadonly(query); err != nil {
-		return nil, fmt.Errorf("query rejected: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout)
-	defer cancel()
-	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf("SELECT * FROM (%s) LIMIT %d",
-		strings.TrimSpace(query), changes.MaxTransactions+1), dateArgs(query, win)...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	cols, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
 	var ids []string
-	for rows.Next() {
-		vals := make([]any, len(cols))
-		ptrs := make([]any, len(cols))
-		for i := range vals {
-			ptrs[i] = &vals[i]
+	err := WithReadonlyRows(s.DB, query, changes.MaxTransactions+1, dateArgs(query, win), func(rows *sql.Rows) error {
+		cols, err := rows.Columns()
+		if err != nil {
+			return err
 		}
-		if err := rows.Scan(ptrs...); err != nil {
-			return nil, err
+		for rows.Next() {
+			vals := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				return err
+			}
+			id := vals[0]
+			if b, ok := id.([]byte); ok {
+				id = string(b)
+			}
+			ids = append(ids, cellText(id))
 		}
-		id := vals[0]
-		if b, ok := id.([]byte); ok {
-			id = string(b)
-		}
-		ids = append(ids, cellText(id))
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(ids) > changes.MaxTransactions {
 		return nil, fmt.Errorf("it selects more than %d transactions; narrow it down", changes.MaxTransactions)
 	}
-	return ids, rows.Err()
+	return ids, nil
 }
 
 func plural(n int) string {
