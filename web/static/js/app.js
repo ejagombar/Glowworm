@@ -3140,6 +3140,13 @@ document.addEventListener("DOMContentLoaded", () => {
     return `<span class="tx-orig" title="Amount paid">${esc(fmtForeign(total, cur))}</span>`;
   }
 
+  // Left for the user to categorise: a web search on the description helps
+  // place a merchant they don't recognise.
+  function searchLink(desc) {
+    return `<a class="review-search" href="https://www.google.com/search?q=${encodeURIComponent(desc)}" target="_blank" rel="noopener noreferrer"
+      title="Search the web for “${esc(desc)}”" aria-label="Search the web for ${esc(desc)}"><svg class="icon"><use href="#i-search"/></svg></a>`;
+  }
+
   function groupHTML(g, R) {
     const n = g.rows.length;
     const dates = g.rows.map((r) => r.date).sort();
@@ -3170,7 +3177,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </table></details>` : "";
     return `<div class="review-group" data-group="${g.id}" data-order="${g.order}" data-state="${g.state}">
         <div class="review-group-main">
-          <div class="review-group-desc" title="${esc(g.description)}">${esc(g.description)}${n > 1 ? ` <span class="badge badge-soft">×${n}</span>` : ""}</div>
+          <div class="review-group-desc"><span class="review-group-name" title="${esc(g.description)}">${esc(g.description)}</span>${n > 1 ? `<span class="badge badge-soft">×${n}</span>` : ""}${g.state === "review" ? searchLink(g.description) : ""}</div>
           <div class="review-group-sub">${g.destination ? `→ ${esc(g.destination)} · ` : ""}${esc(when)}</div>
         </div>
         <div class="tx-amount ${g.total >= 0 ? "pos" : "neg"}" title="${n > 1 ? "Total of the group" : ""}">${fmtMoneySigned(g.total, g.currency)}${originalOf(g)}</div>

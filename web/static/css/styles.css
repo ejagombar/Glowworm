@@ -1758,7 +1758,17 @@ html:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
 .review-group[data-state="pending"] { background: var(--surface-2); }
 .review-col-todo .review-group[data-state="review"] { border-left: 3px solid var(--bill); }
 .review-group-main { min-width: 0; }
-.review-group-desc { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-group-desc { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 500; font-size: 13px; }
+.review-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-group-desc .badge { flex: none; }
+.review-search {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: var(--r);
+  color: var(--muted); transition: color 0.12s, background 0.12s;
+}
+.review-search:hover, .review-search:focus-visible { color: var(--primary); background: var(--surface-2); }
+.review-search .icon { width: 14px; height: 14px; }
+@media (pointer: coarse) { .review-search { width: 32px; height: 32px; margin: -4px 0; } }
 .review-group-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-group-cat { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .review-group-cat .field.select { flex: 1 1 170px; min-width: 0; max-width: 260px; }
