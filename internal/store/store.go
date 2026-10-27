@@ -30,7 +30,7 @@ func Open(dialect, dsn string) (*DB, error) {
 	var err error
 	switch dialect {
 	case "sqlite":
-		db, err = sql.Open("sqlite", dsn)
+		db, err = sql.Open("sqlite", sqliteDSN(dsn))
 	case "postgres":
 		err = fmt.Errorf("postgres: dsn %q not supported in this build (set GLOWWORM_DB=sqlite)", dsn)
 		db = nil
@@ -45,23 +45,27 @@ func Open(dialect, dsn string) (*DB, error) {
 	db.SetMaxOpenConns(4)
 	s := &DB{DB: db, Dialect: dialect}
 	if dialect == "sqlite" {
-		// These run on one pooled connection only; the others do not enforce
-		// foreign keys, so deletes must not rely on ON DELETE CASCADE.
-		for _, pragma := range []string{
-			"PRAGMA journal_mode=WAL",
-			"PRAGMA busy_timeout=5000",
-			"PRAGMA foreign_keys=ON",
-			"PRAGMA synchronous=NORMAL",
-		} {
-			if _, err := db.Exec(pragma); err != nil {
-				return nil, fmt.Errorf("store: %s: %w", pragma, err)
-			}
+		if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+			return nil, fmt.Errorf("store: %w", err)
 		}
 	}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// sqliteDSN sets the per-connection pragmas on every pooled connection, not
+// just the first: each waits up to 5s for another writer instead of failing
+// with "database is locked", and enforces foreign keys. Transactions take the
+// write lock when they begin, so two clients writing at once queue up rather
+// than one failing when its read turns into a write.
+func sqliteDSN(dsn string) string {
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 }
 
 func (s *DB) WithTx(fn func(tx *sql.Tx) error) error {
