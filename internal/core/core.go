@@ -1,6 +1,9 @@
 package core
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 const (
 	ActorUser   = "user"
@@ -32,6 +35,12 @@ const (
 	CategorySourceAI    = "ai"
 	CategorySourceNone  = "none"
 )
+
+var colorRE = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
+
+// ValidColor reports whether c is a hex colour like #2e9d8f. Colours end up
+// in style attributes, so nothing else is stored.
+func ValidColor(c string) bool { return colorRE.MatchString(c) }
 
 var Palette = []string{
 	"#0e6f51", "#4f5bc7", "#c9822e", "#c0483f",

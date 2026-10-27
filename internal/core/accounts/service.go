@@ -95,6 +95,9 @@ func (in *Input) Validate() error {
 	if len(in.Name) > 80 {
 		return &ValidationError{Message: "Account name is too long"}
 	}
+	if in.Color != "" && !core.ValidColor(in.Color) {
+		return &ValidationError{Message: "Colour must be a hex code like #2e9d8f"}
+	}
 	return nil
 }
 
