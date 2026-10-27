@@ -3,6 +3,7 @@ package changes_test
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 	"testing"
 
 	"glowworm/internal/core/audit"
@@ -189,5 +190,33 @@ func TestDeleteAndLinkTransfer(t *testing.T) {
 	}
 	if c := f.col(t, types); c != "transfer,transfer," {
 		t.Errorf("after undoing unlink: %s", c)
+	}
+}
+
+// Two devices pressing Apply together apply the change once.
+func TestApplyTwiceAtOnce(t *testing.T) {
+	f := setup(t)
+	pv, err := f.svc.Draft(changes.Proposal{Action: changes.Delete, IDs: []string{"t0", "t1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = f.svc.Apply(pv.Proposal)
+		}(i)
+	}
+	wg.Wait()
+	if (errs[0] == nil) == (errs[1] == nil) {
+		t.Fatalf("want exactly one apply to succeed: %v, %v", errs[0], errs[1])
+	}
+	if c := f.col(t, `SELECT CAST(COUNT(*) AS TEXT) FROM audit_entries WHERE action = 'change.applied'`); c != "1," {
+		t.Errorf("change.applied entries: %s", c)
+	}
+	if c := f.col(t, `SELECT CAST(COUNT(*) AS TEXT) FROM audit_entries WHERE action = 'transaction.deleted' AND caused_by IS NOT NULL`); c != "2," {
+		t.Errorf("deletions tied to the change: %s", c)
 	}
 }

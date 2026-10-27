@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"glowworm/internal/ai"
@@ -71,7 +72,13 @@ type App struct {
 	Exec         *auditexec.Executor
 	loginLimiter *limiter
 	version      *dataVersion
-	Version      string
+	// derivedMu runs the jobs that rebuild data derived from transactions
+	// (groups, transfers, recurring series, the classifier) one at a time:
+	// each reads everything and then rewrites it, so two at once, from two
+	// devices saving together, could write stale results or log a new
+	// series twice.
+	derivedMu sync.Mutex
+	Version   string
 }
 
 type Repos struct {
@@ -510,7 +517,11 @@ func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
 // system entries written since the import
 // to it, so undoing the import undoes them too.
 func (a *App) afterImport(batchID string) {
-	a.refreshDerived()
+	// Held through LinkCause, so only this import's follow-on entries are
+	// tied to it, not another device's written meanwhile.
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
+	a.refreshDerivedLocked()
 	var cause int64
 	_ = a.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM audit_entries WHERE action = 'import.confirmed' AND entity_id = ?`, batchID).Scan(&cause)
 	if err := a.AuditWriter.LinkCause(cause); err != nil {
@@ -522,26 +533,40 @@ func (a *App) afterImport(batchID string) {
 // rewind, redo or discard. It writes no audit entries: the change being
 // undone or redone is already in the log.
 func (a *App) afterHistoryChange() {
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
 	if err := a.Cat.RefreshRules(); err != nil {
 		a.Log.Error("rules refresh", "err", err)
 	}
 	if _, err := a.Recurring.Detect(); err != nil {
 		a.Log.Error("recurring detection", "err", err)
 	}
-	a.regroup()
+	a.regroupLocked()
 	a.Cat.RetrainQuiet()
 }
 
 // regroup puts transactions in their groups by the grouping rules, after
 // anything that adds transactions or changes their descriptions.
 func (a *App) regroup() {
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
+	a.regroupLocked()
+}
+
+func (a *App) regroupLocked() {
 	if err := a.Grouping.Apply(); err != nil {
 		a.Log.Error("grouping", "err", err)
 	}
 }
 
 func (a *App) refreshDerived() {
-	a.regroup()
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
+	a.refreshDerivedLocked()
+}
+
+func (a *App) refreshDerivedLocked() {
+	a.regroupLocked()
 	if n, err := a.Transfers.Detect(); err == nil && n > 0 {
 		a.Log.Info("transfer detection", "linked", n)
 	}

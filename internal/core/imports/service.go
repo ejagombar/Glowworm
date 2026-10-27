@@ -991,6 +991,16 @@ func (s *Service) Confirm(batchID, accountID, schemaName string) (*Batch, error)
 		return nil, &ValidationError{Message: "Import is not ready for review"}
 	}
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
+		// Checked again inside the transaction, which holds the write lock:
+		// confirming twice at once (a double tap, or two devices) would
+		// otherwise import every row twice.
+		var status string
+		if err := tx.QueryRow(`SELECT status FROM import_batches WHERE id = ?`, batchID).Scan(&status); err != nil {
+			return err
+		}
+		if status != "awaiting_review" {
+			return &ValidationError{Message: "This import has already been confirmed or cancelled, perhaps on another device."}
+		}
 		rows, err := tx.Query(`SELECT id, line_no, date, description, amount_minor, currency, source_text, destination_text, proposed_category_id, duplicate_of, raw,
 			original_amount_minor, COALESCE(original_currency, '')
 			FROM import_staging WHERE batch_id = ? ORDER BY line_no ASC`, batchID)
@@ -1268,10 +1278,17 @@ func (s *Service) Cancel(batchID string) error {
 		return err
 	}
 	return s.DB.WithTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`UPDATE import_batches SET status='cancelled' WHERE id=?`, batchID); err != nil {
+		// Only an import still being set up: one confirmed on another
+		// device meanwhile is undone from History, not cancelled.
+		res, err := tx.Exec(`UPDATE import_batches SET status='cancelled'
+			WHERE id=? AND status NOT IN ('confirmed', 'cancelled')`, batchID)
+		if err != nil {
 			return err
 		}
-		_, err := s.Audit.Write(tx, audit.Input{
+		if n, _ := res.RowsAffected(); n == 0 {
+			return &ValidationError{Message: "This import has already been confirmed or cancelled, perhaps on another device. To remove a confirmed import, undo it from History."}
+		}
+		_, err = s.Audit.Write(tx, audit.Input{
 			Actor: core.ActorUser, Action: "import.cancelled",
 			EntityType: "import_batch", EntityID: batchID,
 			Title: "Cancelled import", Sub: batch.Filename,

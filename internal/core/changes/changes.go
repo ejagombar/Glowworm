@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
@@ -70,6 +71,9 @@ type Service struct {
 	Transactions *transactions.Service
 	Transfers    *transfers.Service
 	Audit        *audit.Writer
+	// applyMu makes applying a change one at a time, so a double click or
+	// two devices pressing Apply together can't both apply it.
+	applyMu sync.Mutex
 }
 
 type ValidationError struct{ Message string }
@@ -260,6 +264,8 @@ func (s *Service) Apply(p Proposal) (*Preview, error) {
 	if p.ID == "" {
 		return nil, invalid("this change has no id")
 	}
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	pv, err := s.Preview(p)
 	if err != nil {
 		return nil, err
@@ -285,11 +291,19 @@ func (s *Service) Apply(p Proposal) (*Preview, error) {
 	if err != nil {
 		return nil, err
 	}
-	applyErr := s.apply(p, pv)
+	transferIDs, applyErr := s.apply(p, pv)
 	// Tie what was written to the change, even if it stopped part way, so
-	// undoing it puts back whatever did get changed.
-	if _, err := s.DB.Exec(`UPDATE audit_entries SET caused_by = ? WHERE id > ? AND caused_by IS NULL`,
-		causeID, causeID); err != nil {
+	// undoing it puts back whatever did get changed. Only entries about its
+	// own transactions and transfers: another device may be saving too.
+	ids := append([]string{}, p.IDs...)
+	ids = append(ids, transferIDs...)
+	args := []any{causeID, causeID}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	if _, err := s.DB.Exec(`UPDATE audit_entries SET caused_by = ? WHERE id > ? AND caused_by IS NULL
+		AND entity_type IN ('transaction', 'transfer')
+		AND entity_id IN (?`+strings.Repeat(",?", len(ids)-1)+`)`, args...); err != nil {
 		return nil, err
 	}
 	if applyErr != nil {
@@ -298,11 +312,16 @@ func (s *Service) Apply(p Proposal) (*Preview, error) {
 	return s.Preview(p)
 }
 
-func (s *Service) apply(p Proposal, pv *Preview) error {
+// apply makes the edits, returning the transfers it linked or unlinked.
+func (s *Service) apply(p Proposal, pv *Preview) ([]string, error) {
 	if p.Action == LinkTransfer {
-		_, err := s.Transfers.Link(pv.Rows[0].ID, pv.Rows[1].ID, core.ActorUser)
-		return err
+		tr, err := s.Transfers.Link(pv.Rows[0].ID, pv.Rows[1].ID, core.ActorUser)
+		if err != nil {
+			return nil, err
+		}
+		return []string{tr.ID}, nil
 	}
+	var transferIDs []string
 	unlinked := map[string]bool{}
 	for _, r := range pv.Rows {
 		if r.Skip != "" || unlinked[r.ID] {
@@ -317,16 +336,19 @@ func (s *Service) apply(p Proposal, pv *Preview) error {
 			err = s.Transactions.Delete(r.ID)
 		case UnlinkTransfer:
 			// Unlinking one leg frees the other too.
+			if t, e := s.Transactions.Get(r.ID); e == nil && t.TransferID != nil {
+				transferIDs = append(transferIDs, *t.TransferID)
+			}
 			if other, e := s.Transfers.CounterpartOf(r.ID); e == nil && other != nil {
 				unlinked[other.ID] = true
 			}
 			err = s.Transfers.Unlink(r.ID, core.ActorUser)
 		}
 		if err != nil {
-			return fmt.Errorf("%s (%s): %w", r.Description, r.Date, err)
+			return transferIDs, fmt.Errorf("%s (%s): %w", r.Description, r.Date, err)
 		}
 	}
-	return nil
+	return transferIDs, nil
 }
 
 func unique(ids []string) []string {
