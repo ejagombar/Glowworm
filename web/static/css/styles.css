@@ -351,7 +351,7 @@ body.privacy .pie-total { filter: blur(4px); }
 .link { border: none; background: none; color: var(--primary); font-weight: 500; padding: 0; }
 .link:hover { text-decoration: underline; }
 
-.content { padding: 20px 22px 40px; width: 100%; }
+.content { --content-x: 22px; padding: 20px var(--content-x) 40px; width: 100%; }
 .view { display: none; }
 .view.active { display: block; }
 
@@ -458,10 +458,25 @@ body.privacy .pie-total { filter: blur(4px); }
 
 .queries-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
 .queries-sidebar-expand { position: absolute; top: 12px; left: 8px; z-index: 5; height: 32px; }
+/* The list reaches the edge of the window so its scrollbar sits there, clear
+   of the messages; the padding keeps them in line with the composer. */
 .queries-messages {
+  --bar: 8px;
   flex: 1; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 14px;
-  padding: 16px 4px 12px 2px;
+  margin-right: calc(-1 * var(--content-x));
+  padding: 16px calc(var(--content-x) - var(--bar)) 12px 2px;
+}
+.queries-messages::-webkit-scrollbar { width: var(--bar); }
+.queries-messages::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.queries-messages::-webkit-scrollbar-thumb:hover { background: var(--muted-2); }
+.queries-messages::-webkit-scrollbar-track { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  .queries-messages { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+}
+/* Touch screens draw the scrollbar over the content, taking no width. */
+@media (pointer: coarse) {
+  .queries-messages { padding-right: var(--content-x); }
 }
 .msg-day {
   align-self: center;
@@ -1323,7 +1338,7 @@ html:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
   .masthead { padding: 0 10px; }
   .period-trigger { max-width: 130px; }
   .tabnav-item { padding: 0 9px; }
-  .content { padding: 16px 14px 36px; }
+  .content { --content-x: 14px; padding: 16px var(--content-x) 36px; }
   .stats-grid, .stats-grid.three { grid-template-columns: 1fr 1fr; }
   .view-head { flex-direction: column; align-items: flex-start; }
   .category-grid { grid-template-columns: 1fr; }
