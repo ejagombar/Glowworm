@@ -705,8 +705,6 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 }
 .chart-zoom-reset:hover { background: var(--surface-2); color: var(--text); }
 .chart-tooltip { font-size: 10.5px; fill: var(--muted); font-family: var(--font); }
-.bar-group rect { transition: opacity 0.12s; }
-.bar-hovering .bar-group:not(.active) rect { opacity: 0.45; }
 
 .chart-hover-tip {
   position: fixed; z-index: 1200; pointer-events: none;

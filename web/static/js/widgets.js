@@ -167,13 +167,11 @@ function barChartSVG(data, width = 640, height = 260) {
 
   labels.forEach((label, i) => {
     const x = cx(i);
-    parts.push(`<g class="bar-group" data-i="${i}">`);
     s.forEach((series, si) => {
       const by = py(series.values[i]);
       const bx = x - (s.length * barW) / 2 + si * barW + 2;
       parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(g.padT + g.innerH - by, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"/>`);
     });
-    parts.push(`</g>`);
   });
 
   barTickLabels(labels, groupW).forEach(({ i, text }) => {
@@ -370,15 +368,8 @@ function ensureChartHover() {
       + `<div class="chart-tip-value">${esc(fmtTip(d.value, d.format))} <span class="chart-tip-pct">· ${esc(d.pct)}%</span></div>`);
   };
   // Bars: the whole column under the pointer is picked, so thin bars are easy to hit.
-  let activeBar = null;
   const pickBar = (host, svg, clientX) => {
     const pt = host && svg ? barAt(host, svg, clientX) : null;
-    const el = pt ? svg.querySelector(`.bar-group[data-i="${pt.idx}"]`) : null;
-    if (activeBar !== el) {
-      if (activeBar) { activeBar.classList.remove("active"); activeBar.ownerSVGElement.classList.remove("bar-hovering"); }
-      activeBar = el;
-      if (el) { el.classList.add("active"); svg.classList.add("bar-hovering"); }
-    }
     if (!pt) { if (host) tip.style.display = "none"; return; }
     const one = pt.rows.length === 1;
     placeChartTip(tip, svg, pt.x, pt.y, `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
@@ -402,9 +393,9 @@ function ensureChartHover() {
     if (!pt) { tip.style.display = "none"; return; }
     showChartTip(tip, svg, pt);
   });
-  document.addEventListener("mouseleave", () => { tip.style.display = "none"; pickBar(null); });
+  document.addEventListener("mouseleave", () => { tip.style.display = "none"; });
   // Fixed-position tip would go stale when the page scrolls under the pointer.
-  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); pickBar(null); }, { passive: true });
+  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); }, { passive: true });
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", ensureChartHover);
