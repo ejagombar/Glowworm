@@ -123,38 +123,84 @@ function fmtMoneyAxis(v) {
   return sign + sym + (Number.isInteger(a) ? a : Math.round(a * 10) / 10);
 }
 
-function barChartSVG(data, width = 640, height = 260) {
+// Bar chart geometry, shared by drawing and the hover tooltip.
+function barGeom(data, W, H) {
   const s = data.series || [];
   const labels = data.labels || [];
-  const all = s.flatMap((x) => x.values || []);
-  const max = Math.max(0, ...all);
+  let max = 0;
+  s.forEach((x) => (x.values || []).forEach((v) => { if (Number(v) > max) max = Number(v); }));
   const scale = max || 1; // an empty chart would otherwise divide by zero
-  const W = width, H = height, padL = 46, padB = 30, padT = 14, padR = 10;
+  const padL = 46, padB = 30, padT = 14, padR = 10;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const groupW = innerW / Math.max(labels.length, 1);
   const barW = Math.min(34, (groupW * 0.6) / Math.max(s.length, 1));
+  const cx = (i) => padL + i * groupW + groupW / 2;
+  const py = (v) => padT + innerH - (Math.max(Number(v) || 0, 0) / scale) * innerH;
+  return { series: s, labels, max, padL, padB, padT, padR, innerW, innerH, groupW, barW, cx, py };
+}
+
+// Every step-th label, with step chosen so the widest label fits its slot.
+// Names (not dates) are shortened to fit first, so every bar keeps one if it can.
+function barTickLabels(labels, groupW) {
+  let texts = labels.map(chartAxisLabel);
+  const fits = Math.floor((groupW - 10) / 6); // ~6px a glyph at 10.5px, plus a gap
+  const dates = labels.every((l) => /^\d{4}-\d{2}/.test(String(l ?? "")));
+  if (!dates && fits >= 5) texts = texts.map((t) => (t.length > fits ? t.slice(0, fits - 1) + "…" : t));
+  const widest = texts.reduce((m, t) => Math.max(m, t.length), 0);
+  const step = Math.max(1, Math.ceil((widest * 6 + 10) / Math.max(groupW, 1)));
+  const out = [];
+  for (let i = 0; i < texts.length; i += step) out.push({ i, text: texts[i] });
+  return out;
+}
+
+function barChartSVG(data, width = 640, height = 260) {
+  const W = width, H = height;
+  const g = barGeom(data, W, H);
+  const { series: s, labels, max, padL, padR, innerW, groupW, barW, cx, py } = g;
 
   let parts = [];
-  const ticks = axisTicks(max);
-  ticks.forEach((t) => {
-    const y = padT + innerH - (t / scale) * innerH;
+  axisTicks(max).forEach((t) => {
+    const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
   });
 
   labels.forEach((label, i) => {
-    const x = padL + i * groupW + groupW / 2;
+    const x = cx(i);
+    parts.push(`<g class="bar-group" data-i="${i}">`);
     s.forEach((series, si) => {
-      const v = series.values[i] || 0;
-      const h = (v / scale) * innerH;
+      const by = py(series.values[i]);
       const bx = x - (s.length * barW) / 2 + si * barW + 2;
-      const by = padT + innerH - h;
-      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(h, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"><title>${esc(series.name)}: ${fmtValue(v, data.format)}</title></rect>`);
+      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(g.padT + g.innerH - by, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"/>`);
     });
-    parts.push(`<text x="${x}" y="${H - 8}" text-anchor="middle" class="chart-tooltip">${esc(label)}</text>`);
+    parts.push(`</g>`);
   });
 
+  barTickLabels(labels, groupW).forEach(({ i, text }) => {
+    const x = cx(i);
+    const anchor = labels.length === 1 ? "middle" : x - padL < 30 ? "start" : padL + innerW - x < 30 ? "end" : "middle";
+    parts.push(`<text x="${x}" y="${H - 8}" text-anchor="${anchor}" class="chart-tooltip">${esc(text)}</text>`);
+  });
+  parts.push(`<rect class="chart-hover-layer" x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`);
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="bar chart">${parts.join("")}</svg>`;
+}
+
+// The bar group under the pointer's x, and where its tip goes.
+function barAt(host, svg, clientX) {
+  const data = chartDataFor(host);
+  const vb = svg.viewBox && svg.viewBox.baseVal;
+  const W = vb && vb.width ? vb.width : 640;
+  const H = vb && vb.height ? vb.height : 260;
+  const g = barGeom(data, W, H);
+  const n = g.labels.length;
+  const rect = svg.getBoundingClientRect();
+  if (!n || !rect.width) return null;
+  const x = ((clientX - rect.left) / rect.width) * W;
+  if (x < g.padL || x > g.padL + g.innerW) return null;
+  const idx = Math.min(n - 1, Math.max(0, Math.floor((x - g.padL) / g.groupW)));
+  const rows = g.series.map((x) => ({ name: x.name || "Value", value: (x.values || [])[idx] || 0 }));
+  const top = Math.min(...rows.map((r) => g.py(r.value)));
+  return { idx, label: g.labels[idx], rows, format: data.format, x: g.cx(idx), y: top };
 }
 
 // Line chart geometry, shared by drawing and the hover tooltip. view is an
@@ -323,6 +369,21 @@ function ensureChartHover() {
       `<div class="chart-tip-label">${esc(d.label)}</div>`
       + `<div class="chart-tip-value">${esc(fmtTip(d.value, d.format))} <span class="chart-tip-pct">· ${esc(d.pct)}%</span></div>`);
   };
+  // Bars: the whole column under the pointer is picked, so thin bars are easy to hit.
+  let activeBar = null;
+  const pickBar = (host, svg, clientX) => {
+    const pt = host && svg ? barAt(host, svg, clientX) : null;
+    const el = pt ? svg.querySelector(`.bar-group[data-i="${pt.idx}"]`) : null;
+    if (activeBar !== el) {
+      if (activeBar) { activeBar.classList.remove("active"); activeBar.ownerSVGElement.classList.remove("bar-hovering"); }
+      activeBar = el;
+      if (el) { el.classList.add("active"); svg.classList.add("bar-hovering"); }
+    }
+    if (!pt) { if (host) tip.style.display = "none"; return; }
+    const one = pt.rows.length === 1;
+    placeChartTip(tip, svg, pt.x, pt.y, `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
+      + pt.rows.map((r) => `<div class="chart-tip-value">${one ? "" : esc(r.name) + ": "}${esc(fmtTip(r.value, pt.format))}</div>`).join(""));
+  };
   const sliceAt = (e) => (e.target && e.target.closest ? e.target.closest(".pie-slice") : null);
   document.addEventListener("click", (e) => pickSlice(sliceAt(e)));
   document.addEventListener("mousemove", (e) => {
@@ -330,6 +391,9 @@ function ensureChartHover() {
       pickSlice(sliceAt(e));
       if (activeSlice) return;
     }
+    const bars = e.target && e.target.closest ? e.target.closest('.chart-host[data-chart-type="bar"]') : null;
+    pickBar(bars, bars && bars.querySelector("svg"), e.clientX);
+    if (bars) return;
     const host = e.target && e.target.closest ? e.target.closest('.chart-host[data-chart-type="line"]') : null;
     if (!host || chartGesture) { tip.style.display = "none"; return; }
     const svg = host.querySelector("svg");
@@ -338,9 +402,9 @@ function ensureChartHover() {
     if (!pt) { tip.style.display = "none"; return; }
     showChartTip(tip, svg, pt);
   });
-  document.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+  document.addEventListener("mouseleave", () => { tip.style.display = "none"; pickBar(null); });
   // Fixed-position tip would go stale when the page scrolls under the pointer.
-  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); }, { passive: true });
+  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); pickBar(null); }, { passive: true });
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", ensureChartHover);
