@@ -134,7 +134,6 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 		return nil, err
 	}
 	det := &Detection{Kind: string(kind)}
-	var rows []importer.Row
 
 	switch kind {
 	case importer.KindCSV:
@@ -156,7 +155,6 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			det.HasHeader = true
 			det.Delimiter = delim
 			det.Confidence = 0.5
-			_ = rows
 		}
 	case importer.KindXLSX:
 		sheets, table, err := importer.ReadXLSX(data, "")
@@ -176,13 +174,13 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			det.Columns = m.Columns
 			det.Confidence = 0.5
 		}
-	case importer.KindQIF:
-		table, err := importer.QIFTable(data)
+	case importer.KindQIF, importer.KindOFX:
+		table, err := importer.StructuredTable(kind, data)
 		if err != nil {
 			return s.markFailed(batchID, err.Error())
 		}
-		// Every QIF file has the same columns, so a saved schema would match
-		// them all and skip this step; QIF always stops here for checking.
+		// Every QIF (or OFX) file has the same columns, so a saved schema
+		// would match them all and skip this step; they always stop here.
 		det.HasHeader = true
 		det.Sample = sampleTable(table, detectionSampleLines+1)
 		m := importer.AutoMapping(kind, table[0], nil)
@@ -193,23 +191,8 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			dates = append(dates, r[0])
 		}
 		det.DateFormat = importer.QIFDateLayout(dates)
-	case importer.KindOFX:
-		rr, err := importer.ReadOFX(data, s.DisplayCC)
-		if err != nil {
-			return s.markFailed(batchID, err.Error())
-		}
-		rows = rr
 	}
 
-	if kind == importer.KindOFX {
-		if _, err := s.stageRows(batchID, rows); err != nil {
-			return nil, err
-		}
-		if err := s.setStatus(batchID, "awaiting_review"); err != nil {
-			return nil, err
-		}
-		return s.Get(batchID)
-	}
 	if err := s.markAwaitingSchema(batchID, det); err != nil {
 		return nil, err
 	}
@@ -252,10 +235,10 @@ func (s *Service) AIDetect(batchID string, data []byte, filename string) (*Batch
 		table, _, err = importer.ReadCSV(data)
 	case importer.KindXLSX:
 		_, table, err = importer.ReadXLSX(data, "")
-	case importer.KindQIF:
-		table, err = importer.QIFTable(data)
+	case importer.KindQIF, importer.KindOFX:
+		table, err = importer.StructuredTable(kind, data)
 	default:
-		return nil, &ValidationError{Message: "AI mapping is only supported for CSV, Excel and QIF files"}
+		return nil, &ValidationError{Message: "AI mapping isn't supported for this file type"}
 	}
 	if err != nil {
 		return nil, err
@@ -387,10 +370,10 @@ func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte,
 		_, table, err = importer.ReadXLSX(data, m.Sheet)
 	case importer.KindCSV:
 		table, _, err = importer.ReadCSV(data)
-	case importer.KindQIF:
-		table, err = importer.QIFTable(data)
+	case importer.KindQIF, importer.KindOFX:
+		table, err = importer.StructuredTable(kind, data)
 	default:
-		return nil, &ValidationError{Message: "Mapping applies only to CSV, Excel and QIF files"}
+		return nil, &ValidationError{Message: "Mapping doesn't apply to this file type"}
 	}
 	if err != nil {
 		return nil, err
@@ -534,23 +517,12 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 			if escaped := strings.ReplaceAll(r.Description, "&", "&amp;"); escaped != r.Description {
 				hashes = append(hashes, repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, escaped))
 			}
-			if r.FitID != "" {
-				hash = "fitid:" + r.FitID
-			}
 			var dup any
-			if r.FitID != "" {
-				var existing string
-				err := tx.QueryRow(`SELECT id FROM transactions WHERE dedupe_hash = ? AND deleted_at IS NULL LIMIT 1`, hash).Scan(&existing)
-				if err == nil {
-					dup = existing
-				}
-			} else {
-				var existing string
-				err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash IN (?`+strings.Repeat(",?", len(hashes)-1)+`)
-					AND deleted_at IS NULL LIMIT 1`, append([]any{deref(s.batchAccountID(tx, batchID))}, hashes...)...).Scan(&existing)
-				if err == nil {
-					dup = existing
-				}
+			var existing string
+			err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash IN (?`+strings.Repeat(",?", len(hashes)-1)+`)
+				AND deleted_at IS NULL LIMIT 1`, append([]any{deref(s.batchAccountID(tx, batchID))}, hashes...)...).Scan(&existing)
+			if err == nil {
+				dup = existing
 			}
 			raw, _ := json.Marshal(r.Raw)
 			var origAmount, origCur any
@@ -1119,7 +1091,7 @@ func (s *Service) rememberSchema(batchID string, batch *core.ImportBatch, accoun
 			accountID, name, now, now, *batch.SchemaID)
 		return err
 	}
-	if batch.Detection == nil || batch.Mime == string(importer.KindQIF) {
+	if batch.Detection == nil || batch.Mime == string(importer.KindQIF) || batch.Mime == string(importer.KindOFX) {
 		return nil
 	}
 	var det Detection

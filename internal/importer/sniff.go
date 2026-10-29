@@ -84,7 +84,6 @@ type Row struct {
 	SourceText      string
 	DestinationText string
 	TypeHint        string
-	FitID           string
 	// OrigAmountMinor/OrigCurrency: what was actually paid when it wasn't in
 	// the account's currency (signed like AmountMinor).
 	OrigAmountMinor int64

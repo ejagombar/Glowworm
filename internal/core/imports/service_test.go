@@ -578,6 +578,47 @@ func TestQIFGoesThroughMapping(t *testing.T) {
 	}
 }
 
+// An OFX file stops at the mapping too, and a re-import of it is caught
+// as duplicates.
+func TestOFXGoesThroughMappingAndDedupes(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	acc := "acc-main"
+	ofx := "<OFX><STMTTRN><DTPOSTED>20260601120000[0:GMT]<TRNAMT>-10.00<NAME>Tesco<FITID>A1</STMTTRN>" +
+		"<STMTTRN><DTPOSTED>20260602<TRNAMT>5.00<PAYEE>Refund<MEMO>June<FITID>A2</STMTTRN></OFX>"
+	upload := func(name string) *Batch {
+		ofx += "\n" // not byte-identical, so the per-row check is what catches it
+		b, err := s.Upload(name, []byte(ofx), &acc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b.Status != "awaiting_schema" {
+			t.Fatalf("%s: status = %s", name, b.Status)
+		}
+		m := &importer.Mapping{Kind: importer.KindOFX, HasHeader: true, Columns: b.Detection.Columns}
+		if b, err = s.ApplySchemaPublic(b.ID, m, []byte(ofx)); err != nil {
+			t.Fatal(err)
+		}
+		if b.Status != "awaiting_review" || b.Rows != 2 {
+			t.Fatalf("%s after mapping: %s, %d rows, %v", name, b.Status, b.Rows, b.ParseError)
+		}
+		return b
+	}
+	b := upload("a.ofx")
+	if len(stagedByDesc(t, s, b.ID)["Refund — June|"]) != 1 {
+		t.Fatalf("staged = %v", stagedByDesc(t, s, b.ID))
+	}
+	if _, err := s.Confirm(b.ID, acc, ""); err != nil {
+		t.Fatal(err)
+	}
+	b = upload("b.ofx")
+	var dups int
+	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM import_staging WHERE batch_id = ? AND duplicate_of IS NOT NULL`, b.ID).Scan(&dups)
+	if dups != 2 {
+		t.Fatalf("re-imported OFX: %d duplicates, want 2", dups)
+	}
+}
+
 // Moving a finished import changes its transactions' account; undo puts back
 // only the ones still where the move left them.
 func TestMoveImportToAccountAndUndo(t *testing.T) {

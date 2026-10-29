@@ -138,22 +138,29 @@ func TestQIFTableUSDatesAndMemo(t *testing.T) {
 	}
 }
 
-func TestReadOFX(t *testing.T) {
-	rows, err := ReadOFX(testdata(t, "barclays.ofx"), "GBP")
+func TestOFXTable(t *testing.T) {
+	table, err := OFXTable(testdata(t, "barclays.ofx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(table[1], ","); got != "2024-06-01,Acme Ltd,Salary,2450.00,,OFX-1" {
+		t.Fatalf("row 1 = %s", got)
+	}
+	rows, err := ParseRows(AutoMapping(KindOFX, table[0], nil), table, "GBP")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("got %d rows, want 2", len(rows))
 	}
-	if rows[0].Date != "2024-06-01" {
-		t.Errorf("date = %s", rows[0].Date)
-	}
-	if rows[0].Description == "" || rows[0].FitID != "OFX-1" {
+	if rows[0].Date != "2024-06-01" || rows[0].Description != "Acme Ltd — Salary" || rows[0].AmountMinor != 245000 {
 		t.Errorf("row0 = %+v", rows[0])
 	}
 	if rows[1].AmountMinor != -4235 {
 		t.Errorf("row1 amount = %d", rows[1].AmountMinor)
+	}
+	if _, err := OFXTable([]byte("<OFX></OFX>")); err == nil {
+		t.Error("an OFX file with no transactions should fail")
 	}
 }
 

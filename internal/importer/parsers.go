@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/xuri/excelize/v2"
-
-	"glowworm/internal/money"
 )
 
 // utf8BOM is the byte-order mark some programs (Excel among them) put at the
@@ -324,54 +322,49 @@ var (
 	reDT    = regexp.MustCompile(`^(\d{4})(\d{2})(\d{2})`)
 )
 
-func ReadOFX(data []byte, currency string) ([]Row, error) {
+// OFXTable lays an OFX file's transactions out as a table with a header row,
+// so it can be mapped like a CSV. Name is the NAME tag, else PAYEE.
+func OFXTable(data []byte) ([][]string, error) {
 	text := string(data)
 	// Strip SGML headers (OFX v1 has no XML declaration).
 	if i := strings.Index(text, "<OFX"); i > 0 {
 		text = text[i:]
 	}
-	var rows []Row
-	for i, m := range reBlock.FindAllStringSubmatch(text, -1) {
-		body := m[1]
-		row := Row{Line: i + 1, Currency: currency, Raw: map[string]string{}}
-		for _, tag := range reTag.FindAllStringSubmatch(body, -1) {
-			key, val := tag[1], strings.TrimSpace(tag[2])
-			row.Raw[key] = val
-			switch key {
-			case "DTPOSTED":
-				if mm := reDT.FindStringSubmatch(val); mm != nil {
-					row.Date = mm[1] + "-" + mm[2] + "-" + mm[3]
-				}
-			case "TRNAMT":
-				minor, err := money.Parse(strings.ReplaceAll(val, ",", ""), currency)
-				if err != nil {
-					return nil, &ParseError{Line: row.Line, Message: fmt.Sprintf("couldn't read TRNAMT %q", val)}
-				}
-				row.AmountMinor = minor
-			case "NAME":
-				row.Description = val
-			case "PAYEE":
-				if row.Description == "" {
-					row.Description = val
-				}
-			case "MEMO":
-				if val != "" && !strings.Contains(row.Description, val) {
-					row.Description = strings.TrimSpace(row.Description + " — " + val)
-				}
-			case "FITID":
-				row.FitID = val
-			case "TRNTYPE":
-				row.TypeHint = val
+	header := []string{"Date", "Name", "Memo", "Amount", "Type", "ID"}
+	table := [][]string{header}
+	for _, m := range reBlock.FindAllStringSubmatch(text, -1) {
+		tags := map[string]string{}
+		for _, tag := range reTag.FindAllStringSubmatch(m[1], -1) {
+			if _, seen := tags[tag[1]]; !seen {
+				tags[tag[1]] = strings.TrimSpace(tag[2])
 			}
 		}
-		if row.Date != "" {
-			rows = append(rows, row)
+		dm := reDT.FindStringSubmatch(tags["DTPOSTED"])
+		if dm == nil {
+			continue
 		}
+		name := tags["NAME"]
+		if name == "" {
+			name = tags["PAYEE"]
+		}
+		memo := tags["MEMO"]
+		if memo != "" && strings.Contains(name, memo) {
+			memo = ""
+		}
+		table = append(table, []string{dm[1] + "-" + dm[2] + "-" + dm[3], name, memo, tags["TRNAMT"], tags["TRNTYPE"], tags["FITID"]})
 	}
-	if len(rows) == 0 {
+	if len(table) == 1 {
 		return nil, fmt.Errorf("no transactions found in the OFX file")
 	}
-	return rows, nil
+	return table, nil
+}
+
+// StructuredTable reads a QIF or OFX file as a table.
+func StructuredTable(kind Kind, data []byte) ([][]string, error) {
+	if kind == KindOFX {
+		return OFXTable(data)
+	}
+	return QIFTable(data)
 }
 
 func atoi(s string) int {
