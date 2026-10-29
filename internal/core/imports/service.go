@@ -1409,3 +1409,96 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+// MoveToAccount moves a confirmed import's transactions to another account.
+// Only the ones still in the import's account move: any moved by hand since
+// stay where they were put.
+func (s *Service) MoveToAccount(batchID, accountID string) (*Batch, error) {
+	batch, err := s.getBatch(batchID)
+	if err != nil {
+		return nil, err
+	}
+	if batch.Status != "confirmed" {
+		return nil, &ValidationError{Message: "Only a finished import can be edited"}
+	}
+	from := deref(batch.AccountID)
+	if accountID == "" {
+		return nil, &ValidationError{Message: "Choose the account to move the import to"}
+	}
+	if accountID == from {
+		return s.Get(batchID)
+	}
+	err = s.DB.WithTx(func(tx *sql.Tx) error {
+		var toName, toCurrency, fromName string
+		if err := tx.QueryRow(`SELECT name, currency FROM accounts WHERE id = ? AND deleted_at IS NULL`, accountID).
+			Scan(&toName, &toCurrency); err != nil {
+			return &ValidationError{Message: "That account doesn't exist"}
+		}
+		if toCurrency == "" { // like targetCurrency: no currency means the display currency
+			toCurrency = s.DisplayCC
+		}
+		_ = tx.QueryRow(`SELECT name FROM accounts WHERE id = ?`, from).Scan(&fromName)
+		rows, err := tx.Query(`SELECT id, date, amount_minor, description, currency, transfer_id IS NOT NULL
+			FROM transactions WHERE import_batch_id = ? AND account_id = ? AND deleted_at IS NULL`, batchID, from)
+		if err != nil {
+			return err
+		}
+		type moved struct {
+			id, date, desc, currency string
+			amount                   int64
+			linked                   bool
+		}
+		var txs []moved
+		for rows.Next() {
+			var m moved
+			if err := rows.Scan(&m.id, &m.date, &m.amount, &m.desc, &m.currency, &m.linked); err != nil {
+				rows.Close()
+				return err
+			}
+			txs = append(txs, m)
+		}
+		rows.Close()
+		if len(txs) == 0 {
+			return &ValidationError{Message: "None of this import's transactions are still in " + fromName}
+		}
+		linked := 0
+		for _, m := range txs {
+			if m.linked {
+				linked++
+			}
+			if !strings.EqualFold(m.currency, toCurrency) {
+				return &ValidationError{Message: fmt.Sprintf("%s is in %s, but this import is in %s", toName, toCurrency, m.currency)}
+			}
+		}
+		if linked > 0 {
+			return &ValidationError{Message: fmt.Sprintf("%d of these transactions are linked as transfers. Break those links before moving the import.", linked)}
+		}
+		ids := make([]string, len(txs))
+		now := util.NowStr()
+		for i, m := range txs {
+			ids[i] = m.id
+			if _, err := tx.Exec(`UPDATE transactions SET account_id = ?, dedupe_hash = ?, updated_at = ? WHERE id = ?`,
+				accountID, repos.DedupeHash(accountID, m.date, m.amount, m.desc), now, m.id); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`UPDATE import_batches SET account_id = ? WHERE id = ?`, accountID, batchID); err != nil {
+			return err
+		}
+		_, err = s.Audit.Write(tx, audit.Input{
+			Actor: core.ActorUser, Action: "import.edited",
+			EntityType: "import_batch", EntityID: batchID,
+			Title:  fmt.Sprintf("Moved %d imported transactions to %s", len(txs), toName),
+			Sub:    batch.Filename,
+			Diff:   audit.Field("account", fromName, toName),
+			Before: map[string]any{"account_id": from},
+			After:  map[string]any{"account_id": accountID},
+			Revert: map[string]any{"batch_id": batchID, "transaction_ids": ids},
+		})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.Get(batchID)
+}

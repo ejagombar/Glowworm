@@ -11,6 +11,7 @@ import (
 	"glowworm/internal/ai"
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
+	"glowworm/internal/core/auditexec"
 	"glowworm/internal/core/categoriser"
 	"glowworm/internal/importer"
 	"glowworm/internal/store"
@@ -574,5 +575,68 @@ func TestQIFGoesThroughMapping(t *testing.T) {
 	}
 	if b.Status != "awaiting_schema" {
 		t.Fatalf("second QIF: status = %s", b.Status)
+	}
+}
+
+// Moving a finished import changes its transactions' account; undo puts back
+// only the ones still where the move left them.
+func TestMoveImportToAccountAndUndo(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	acc := "acc-main"
+	b, err := s.Upload("statement.csv", []byte(statementCSV), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ApplySchemaPublic(b.ID, userMapping(), []byte(statementCSV)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Confirm(b.ID, acc, ""); err != nil {
+		t.Fatal(err)
+	}
+	count := func(account string) int {
+		var n int
+		_ = s.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE import_batch_id = ? AND account_id = ? AND deleted_at IS NULL`, b.ID, account).Scan(&n)
+		return n
+	}
+	if _, err := s.MoveToAccount(b.ID, "acc-joint"); err != nil {
+		t.Fatal(err)
+	}
+	if count("acc-joint") != 7 || count("acc-main") != 0 {
+		t.Fatalf("after move: joint %d, main %d", count("acc-joint"), count("acc-main"))
+	}
+	var hash string
+	_ = s.DB.QueryRow(`SELECT dedupe_hash FROM transactions WHERE import_batch_id = ? AND description = 'Netflix'`, b.ID).Scan(&hash)
+	if hash != repos.DedupeHash("acc-joint", "2026-06-06", -999, "Netflix") {
+		t.Errorf("dedupe hash not moved with the account")
+	}
+	var moveID int64
+	_ = s.DB.QueryRow(`SELECT MAX(id) FROM audit_entries WHERE action = 'import.edited'`).Scan(&moveID)
+
+	// One transaction is moved back by hand; undoing the import move leaves it.
+	mustExec(t, s, `UPDATE transactions SET account_id = 'acc-main' WHERE import_batch_id = ? AND description = 'Salary'`, b.ID)
+	engine := audit.NewEngine(s.DB, s.Audit)
+	x := &auditexec.Executor{DB: s.DB, Txs: s.Txs, Accounts: s.Accounts, Categories: &repos.Categories{DB: s.DB}}
+	notes, err := engine.Undo(moveID, x.Apply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count("acc-main") != 7 || len(notes) != 1 {
+		t.Fatalf("after undo: main %d, notes %q", count("acc-main"), notes)
+	}
+	if _, err := engine.Redo([]int64{moveID}, x.Apply); err != nil {
+		t.Fatal(err)
+	}
+	if count("acc-joint") != 7 {
+		t.Fatalf("after redo: joint %d", count("acc-joint"))
+	}
+
+	// An account with no currency set uses the display currency.
+	mustExec(t, s, `UPDATE accounts SET currency = '' WHERE id = 'acc-main'`)
+	if _, err := s.MoveToAccount(b.ID, "acc-main"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.MoveToAccount(b.ID, "nope"); err == nil {
+		t.Error("moving to a missing account should fail")
 	}
 }

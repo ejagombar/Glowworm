@@ -22,6 +22,11 @@ type auditEntryView struct {
 	Undoable   bool
 	Rewindable bool
 	CausedBy   int64
+	EntityID   string
+	// EditImport is set on an import still in effect: its batch id and
+	// account, for the Edit button.
+	EditImport    string
+	ImportAccount string
 	// Effects are the system changes this entry caused; they're shown
 	// inside it and undone/redone with it.
 	Effects []auditEntryView
@@ -66,10 +71,27 @@ func (a *App) toEntryViews(entries []core.AuditEntry) []auditEntryView {
 			ID: e.ID, Timestamp: e.Timestamp, When: a.auditWhen(e.Timestamp, now),
 			Actor: actorLabel(e.Actor), Kind: kind,
 			Title: e.Title, Sub: e.Sub, DiffLines: e.DiffLines, State: e.State,
-			PathID: e.PathID, Action: e.Action, CausedBy: e.CausedBy,
+			PathID: e.PathID, Action: e.Action, CausedBy: e.CausedBy, EntityID: e.EntityID,
 		})
 	}
 	return out
+}
+
+// markEditableImports sets EditImport on active import entries whose
+// transactions are still there.
+func (a *App) markEditableImports(views []auditEntryView) {
+	for i := range views {
+		v := &views[i]
+		if v.Action != "import.confirmed" || v.State == "inactive" || v.EntityID == "" {
+			continue
+		}
+		var account string
+		err := a.DB.QueryRow(`SELECT COALESCE(b.account_id, '') FROM import_batches b WHERE b.id = ? AND b.status = 'confirmed'
+			AND EXISTS (SELECT 1 FROM transactions t WHERE t.import_batch_id = b.id AND t.deleted_at IS NULL)`, v.EntityID).Scan(&account)
+		if err == nil {
+			v.EditImport, v.ImportAccount = v.EntityID, account
+		}
+	}
 }
 
 func actorLabel(actor string) string {

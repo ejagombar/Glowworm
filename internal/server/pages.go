@@ -777,6 +777,10 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		reconStatus, reconLabel, reconHint = a.reconcileSummary()
 	}
 	entryViews := []auditEntryView{}
+	importAccounts, err := a.Accounts.List(nil)
+	if err != nil {
+		return nil, err
+	}
 	if mode == "audit" {
 		opt := audit.ListOptions{Limit: 50}
 		switch filter {
@@ -790,6 +794,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 			return nil, err
 		}
 		entryViews = a.toEntryViews(entries)
+		a.markEditableImports(entryViews)
 		if len(entries) > 0 {
 			args := make([]any, len(entries))
 			for i, e := range entries {
@@ -828,6 +833,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		Accounts        []*accountCard
 		Series          string
 		Blocks          []auditBlock
+		ImportAccounts  []*core.Account
 		ReconcileStatus string
 		ReconcileLabel  string
 		ReconcileHint   string
@@ -837,6 +843,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		TxCountToDate: txCount, Accounts: cards,
 		Series:          series,
 		Blocks:          groupAuditEntries(entryViews),
+		ImportAccounts:  importAccounts,
 		ReconcileStatus: reconStatus, ReconcileLabel: reconLabel, ReconcileHint: reconHint,
 	}
 	return data, nil

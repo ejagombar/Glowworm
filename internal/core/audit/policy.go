@@ -30,7 +30,8 @@ func (p *Policy) Evaluate(action, state string) Capabilities {
 		action == "transfer.linked" || action == "transfer.unlink",
 		strings.HasPrefix(action, "group_rule."),
 		action == "change.applied",
-		action == "categorisation.applied":
+		action == "categorisation.applied",
+		action == "import.edited":
 		c.Revert = true
 	case action == "import.confirmed":
 		c.Revert, c.Forget, c.Delete = true, false, false

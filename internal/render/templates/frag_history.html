@@ -118,8 +118,9 @@
   </div>
   <time class="history-time" datetime="{{.Timestamp}}">{{.When}}</time>
   {{if ne .State "inactive"}}
-  {{if or .Rewindable .Undoable}}
+  {{if or .Rewindable .Undoable .EditImport}}
   <div class="history-actions">
+    {{if .EditImport}}<button class="btn btn-ghost btn-xs" data-edit-import="{{.EditImport}}" data-import-account="{{.ImportAccount}}" data-import-title="{{.Title}}" data-import-sub="{{.Sub}}" title="Change the account this import went into">Edit</button>{{end}}
     {{if .Rewindable}}<button class="btn btn-ghost btn-xs" data-jump-back="{{.ID}}" title="Undo everything after this change">Rewind here</button>{{end}}
     {{if .Undoable}}<button class="btn btn-ghost btn-xs" data-undo="{{.ID}}" title="Undo just this change">Undo</button>{{end}}
   </div>

@@ -2296,7 +2296,40 @@ document.addEventListener("DOMContentLoaded", () => {
     wire("[data-discard]", (btn) => auditAction("/api/v1/audit/discard", { ids: idsOf(btn.dataset.discard) },
       "Delete these changes for good?", "They're removed from the log and can't be redone. Nothing else changes: they're already undone.",
       "Delete", "Removed from the log"));
+    wire("[data-edit-import]", openImportEdit);
   }
+
+  // Edit import: only the account can be changed after an import.
+  const importEdit = document.getElementById("importEditModal");
+  function openImportEdit(btn) {
+    if (!importEdit) return;
+    importEdit.dataset.batchId = btn.dataset.editImport;
+    document.getElementById("importEditTitle").textContent = btn.dataset.importTitle || "Edit import";
+    document.getElementById("importEditSub").textContent = btn.dataset.importSub || "";
+    const sel = document.getElementById("importEditAccount");
+    sel.value = btn.dataset.importAccount || sel.value;
+    sel.dataset.from = btn.dataset.importAccount || "";
+    importEdit.hidden = false;
+    sel.focus();
+  }
+  importEdit?.addEventListener("click", (e) => {
+    if (e.target === importEdit || e.target.closest("[data-close-import-edit]")) importEdit.hidden = true;
+  });
+  document.getElementById("importEditSave")?.addEventListener("click", (e) => {
+    const btn = e.currentTarget;
+    const sel = document.getElementById("importEditAccount");
+    if (sel.value === sel.dataset.from) { importEdit.hidden = true; return; }
+    btn.disabled = true;
+    fetch(`/api/v1/imports/${importEdit.dataset.batchId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ account_id: sel.value }),
+    }).then(async (r) => {
+      btn.disabled = false;
+      if (!r.ok) { toast(await apiErrorText(r, "Couldn't move the import")); return; }
+      reloadWithToast(`Import moved to ${sel.options[sel.selectedIndex].text}`);
+    }).catch(() => { btn.disabled = false; toast("Couldn't move the import"); });
+  });
   window.wireAuditActions = wireAuditActions;
   wireAuditActions(document);
 });

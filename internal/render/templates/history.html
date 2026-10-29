@@ -17,5 +17,33 @@
   </div>
 
   <div id="historyPaneHost">{{template "history-pane-content" .}}</div>
+
+  <div class="modal-backdrop" id="importEditModal" hidden>
+    <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="importEditTitle">
+      <button class="icon-btn modal-close" type="button" data-close-import-edit aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div class="modal-head">
+        <div class="modal-head-text">
+          <h3 id="importEditTitle">Edit import</h3>
+          <p class="muted" id="importEditSub"></p>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <label for="importEditAccount">Account</label>
+          <select class="field select" id="importEditAccount">
+            {{range .ImportAccounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <p class="muted">Moves this import's transactions to the chosen account. Any you've moved by hand since stay where they are. You can undo this from the audit log.</p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" type="button" data-close-import-edit>Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" type="button" id="importEditSave">Save</button>
+      </div>
+    </div>
+  </div>
 </section>
 {{end}}

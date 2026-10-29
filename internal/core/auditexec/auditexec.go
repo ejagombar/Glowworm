@@ -177,6 +177,13 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	case "import.confirmed":
 		return x.applyImportConfirmed(tx, ent, revert, reapply)
 
+	case "import.edited":
+		from, to := str(before["account_id"]), str(after["account_id"])
+		if !reapply {
+			from, to = to, from
+		}
+		return x.applyImportMove(tx, revert, from, to)
+
 	case "import.schema_detected", "import.cancelled", "import.reverted",
 		"audit.reverted", "audit.jumpback", "audit.path.activated", "audit.entry.deleted",
 		"schema.saved", "schema.updated", "schema.deleted",
@@ -684,6 +691,41 @@ func (x *Executor) applyImportConfirmed(tx *sql.Tx, ent *audit.AuditRow, revert 
 		if _, err := tx.Exec(`DELETE FROM transfers WHERE source_transaction_id = ? OR destination_transaction_id = ?`, id, id); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// applyImportMove moves an import's transactions from one account to the
+// other, leaving any moved again since where they are.
+func (x *Executor) applyImportMove(tx *sql.Tx, revert map[string]any, from, to string) error {
+	batchID := str(revert["batch_id"])
+	if batchID == "" || from == "" || to == "" {
+		return fmt.Errorf("auditexec: batch or account missing in payload")
+	}
+	ids, _ := revert["transaction_ids"].([]any)
+	kept := 0
+	for _, v := range ids {
+		var date, desc string
+		var amount int64
+		err := tx.QueryRow(`SELECT date, description, amount_minor FROM transactions
+			WHERE id = ? AND account_id = ? AND deleted_at IS NULL`, str(v), from).Scan(&date, &desc, &amount)
+		if err == sql.ErrNoRows {
+			kept++
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE transactions SET account_id = ?, dedupe_hash = ?, updated_at = ? WHERE id = ?`,
+			to, repos.DedupeHash(to, date, amount, desc), util.NowStr(), str(v)); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`UPDATE import_batches SET account_id = ? WHERE id = ?`, to, batchID); err != nil {
+		return err
+	}
+	if kept > 0 {
+		return &audit.Partial{Notes: []string{fmt.Sprintf("%d transactions were changed or removed since, so they were left where they are", kept)}}
 	}
 	return nil
 }

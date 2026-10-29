@@ -205,6 +205,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v1/imports/{id}/review", j(a.apiImportReviewPatch))
 	mux.HandleFunc("POST /api/v1/imports/{id}/confirm", j(a.apiImportConfirm))
 	mux.HandleFunc("POST /api/v1/imports/{id}/cancel", j(a.apiImportCancel))
+	mux.HandleFunc("PATCH /api/v1/imports/{id}", j(a.apiImportEdit))
 	mux.HandleFunc("GET /api/v1/schemas", j(a.apiSchemasList))
 	mux.HandleFunc("DELETE /api/v1/schemas/{id}", j(a.apiSchemaDelete))
 
@@ -884,6 +885,22 @@ func (a *App) apiImportCancel(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+// apiImportEdit changes a finished import. Only its account can be changed.
+func (a *App) apiImportEdit(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	b, err := a.Imports.MoveToAccount(r.PathValue("id"), in.AccountID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, b)
 	return nil
 }
 
