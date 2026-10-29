@@ -531,3 +531,48 @@ func TestPDFIsRefused(t *testing.T) {
 		t.Errorf("batches = %d (%v), want none", n, err)
 	}
 }
+
+const statementQIF = "!Type:Bank\nD01/06/2026\nT-10.00\nPTesco Stores\n^\nD02/06/2026\nT2000.00\nPSalary\nMJune\n^\n"
+
+// A QIF file stops at the column mapping like a CSV, rather than going
+// straight to review.
+func TestQIFGoesThroughMapping(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	acc := "acc-main"
+	b, err := s.Upload("statement.qif", []byte(statementQIF), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "awaiting_schema" || b.Detection == nil {
+		t.Fatalf("status = %s, detection = %v", b.Status, b.Detection)
+	}
+	if got := strings.Join(b.Detection.Sample[0], ","); got != "Date,Payee,Memo,Amount" {
+		t.Fatalf("sample header = %s", got)
+	}
+	d := b.Detection
+	m := &importer.Mapping{Kind: importer.KindQIF, HasHeader: true, Columns: d.Columns, DateFormat: d.DateFormat}
+	if b, err = s.ApplySchemaPublic(b.ID, m, []byte(statementQIF)); err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "awaiting_review" || b.Rows != 2 {
+		t.Fatalf("after mapping: status %s, %d rows, %v", b.Status, b.Rows, b.ParseError)
+	}
+	st := stagedByDesc(t, s, b.ID)
+	if len(st["Salary — June|"]) != 1 {
+		t.Fatalf("staged = %v", st)
+	}
+	if _, err := s.Confirm(b.ID, acc, "My QIF"); err != nil {
+		t.Fatal(err)
+	}
+
+	// No schema is remembered, so the next QIF stops at the mapping too.
+	next := strings.ReplaceAll(statementQIF, "/06/2026", "/07/2026")
+	b, err = s.Upload("next.qif", []byte(next), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "awaiting_schema" {
+		t.Fatalf("second QIF: status = %s", b.Status)
+	}
+}

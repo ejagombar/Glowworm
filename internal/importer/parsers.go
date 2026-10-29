@@ -188,70 +188,122 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 	return sheets, table, nil
 }
 
-func ReadQIF(data []byte, currency string) ([]Row, error) {
+// qifFields are the QIF record codes shown as columns, in display order.
+// Split lines (S, E, $) and addresses are left out.
+var qifFields = []struct {
+	code byte
+	name string
+}{
+	{'D', "Date"}, {'P', "Payee"}, {'M', "Memo"}, {'T', "Amount"},
+	{'N', "Number"}, {'L', "Category"}, {'C', "Cleared"},
+}
+
+// QIFTable lays a QIF file out as a table with a header row, so it can be
+// mapped like a CSV. Only the columns some record uses are included, apart
+// from Date and Amount, which are always there.
+func QIFTable(data []byte) ([][]string, error) {
 	lines := strings.Split(strings.ReplaceAll(string(bytes.TrimPrefix(data, utf8BOM)), "\r\n", "\n"), "\n")
-	var rows []Row
-	var cur *Row
-	lineNo := 0
+	var recs []map[byte]string
+	var cur map[byte]string
+	flush := func() {
+		if cur != nil && cur['D'] != "" {
+			recs = append(recs, cur)
+		}
+		cur = nil
+	}
 	for _, ln := range lines {
-		lineNo++
 		ln = strings.TrimRight(ln, "\r")
-		if ln == "" {
+		if strings.HasPrefix(ln, "!") {
+			flush()
 			continue
 		}
-		if strings.HasPrefix(ln, "!") {
-			cur = nil
+		if ln == "^" {
+			flush()
 			continue
 		}
 		if len(ln) < 2 {
 			continue
 		}
-		code, val := ln[0], ln[1:]
+		code, val := ln[0], strings.TrimSpace(ln[1:])
 		if cur == nil {
 			if code != 'D' {
 				continue
 			}
-			cur = &Row{Line: lineNo, Currency: currency, Raw: map[string]string{}}
+			cur = map[byte]string{}
+		} else if code == 'D' && cur['D'] != "" {
+			flush() // a record missing its closing ^
+			cur = map[byte]string{}
 		}
-		switch code {
-		case 'D':
-			iso, _ := tryDate(val)
-			if iso == "" {
-				if t, err := timeParseQIF(val); err == nil {
-					iso = t.Format("2006-01-02")
-				}
+		if code == 'U' { // older files repeat the amount as U
+			if cur['T'] == "" {
+				cur['T'] = val
 			}
-			if iso == "" {
-				return nil, &ParseError{Line: lineNo, Message: fmt.Sprintf("couldn't read the date %q", val)}
-			}
-			if cur.Date != "" {
-				rows = append(rows, *cur)
-				cur = &Row{Line: lineNo, Currency: currency, Raw: map[string]string{}}
-			}
-			cur.Date = iso
-			cur.Raw["date"] = val
-		case 'T':
-			minor, err := money.Parse(cleanAmount(val), currency)
-			if err != nil {
-				return nil, &ParseError{Line: lineNo, Message: fmt.Sprintf("couldn't read the amount %q", val)}
-			}
-			cur.AmountMinor = minor
-		case 'P':
-			cur.Description = strings.TrimSpace(val)
-			cur.Raw["payee"] = val
-		case 'M':
-			cur.Description = strings.TrimSpace(cur.Description + " — " + strings.TrimSpace(val))
-		case '^':
-			if cur != nil && cur.Date != "" {
-				rows = append(rows, *cur)
-			}
-			cur = nil
+			continue
+		}
+		if code == 'D' {
+			// Quicken writes 1/ 2'26 for 1/2/26.
+			val = strings.ReplaceAll(strings.ReplaceAll(val, " ", ""), "'", "/")
+		}
+		if _, seen := cur[code]; !seen {
+			cur[code] = val
 		}
 	}
-	if cur != nil && cur.Date != "" {
-		rows = append(rows, *cur)
+	flush()
+	if len(recs) == 0 {
+		return nil, fmt.Errorf("no transactions found in the QIF file")
 	}
-	return rows, nil
+	var header []string
+	var codes []byte
+	for _, f := range qifFields {
+		used := f.code == 'D' || f.code == 'T'
+		for _, r := range recs {
+			if r[f.code] != "" {
+				used = true
+				break
+			}
+		}
+		if used {
+			header = append(header, f.name)
+			codes = append(codes, f.code)
+		}
+	}
+	table := [][]string{header}
+	for _, r := range recs {
+		row := make([]string, len(codes))
+		for i, c := range codes {
+			row[i] = r[c]
+		}
+		table = append(table, row)
+	}
+	return table, nil
+}
+
+// QIFDateLayout picks a layout for QIF dates the usual formats can't read
+// (e.g. US 1/2/06), or "" when they read as they are.
+func QIFDateLayout(dates []string) string {
+	auto := true
+	for _, d := range dates {
+		if iso, _ := tryDate(d); iso == "" {
+			auto = false
+			break
+		}
+	}
+	if auto {
+		return ""
+	}
+	for _, f := range qifDateFormats {
+		ok := true
+		for _, d := range dates {
+			if _, err := timeParse(f, d); err != nil {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return f
+		}
+	}
+	return ""
 }
 
 var qifDateFormats = []string{"1/2/2006", "1/2/06", "1-2-2006", "2006/1/2"}

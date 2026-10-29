@@ -177,11 +177,22 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 			det.Confidence = 0.5
 		}
 	case importer.KindQIF:
-		rr, err := importer.ReadQIF(data, s.DisplayCC)
+		table, err := importer.QIFTable(data)
 		if err != nil {
 			return s.markFailed(batchID, err.Error())
 		}
-		rows = rr
+		// Every QIF file has the same columns, so a saved schema would match
+		// them all and skip this step; QIF always stops here for checking.
+		det.HasHeader = true
+		det.Sample = sampleTable(table, detectionSampleLines+1)
+		m := importer.AutoMapping(kind, table[0], nil)
+		det.Columns = m.Columns
+		det.Confidence = 0.5
+		dates := make([]string, 0, len(table)-1)
+		for _, r := range table[1:] {
+			dates = append(dates, r[0])
+		}
+		det.DateFormat = importer.QIFDateLayout(dates)
 	case importer.KindOFX:
 		rr, err := importer.ReadOFX(data, s.DisplayCC)
 		if err != nil {
@@ -190,7 +201,7 @@ func (s *Service) Detect(batchID string, kind importer.Kind, filename string, da
 		rows = rr
 	}
 
-	if kind == importer.KindQIF || kind == importer.KindOFX {
+	if kind == importer.KindOFX {
 		if _, err := s.stageRows(batchID, rows); err != nil {
 			return nil, err
 		}
@@ -241,8 +252,10 @@ func (s *Service) AIDetect(batchID string, data []byte, filename string) (*Batch
 		table, _, err = importer.ReadCSV(data)
 	case importer.KindXLSX:
 		_, table, err = importer.ReadXLSX(data, "")
+	case importer.KindQIF:
+		table, err = importer.QIFTable(data)
 	default:
-		return nil, &ValidationError{Message: "AI mapping is only supported for CSV and Excel files"}
+		return nil, &ValidationError{Message: "AI mapping is only supported for CSV, Excel and QIF files"}
 	}
 	if err != nil {
 		return nil, err
@@ -374,8 +387,10 @@ func (s *Service) applyMapping(batchID string, m *importer.Mapping, data []byte,
 		_, table, err = importer.ReadXLSX(data, m.Sheet)
 	case importer.KindCSV:
 		table, _, err = importer.ReadCSV(data)
+	case importer.KindQIF:
+		table, err = importer.QIFTable(data)
 	default:
-		return nil, &ValidationError{Message: "Mapping applies only to CSV and Excel files"}
+		return nil, &ValidationError{Message: "Mapping applies only to CSV, Excel and QIF files"}
 	}
 	if err != nil {
 		return nil, err
@@ -1104,7 +1119,7 @@ func (s *Service) rememberSchema(batchID string, batch *core.ImportBatch, accoun
 			accountID, name, now, now, *batch.SchemaID)
 		return err
 	}
-	if batch.Detection == nil {
+	if batch.Detection == nil || batch.Mime == string(importer.KindQIF) {
 		return nil
 	}
 	var det Detection

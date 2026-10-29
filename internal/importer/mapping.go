@@ -146,6 +146,11 @@ func ParseRows(m *Mapping, table [][]string, currency string) ([]Row, error) {
 				}
 				if row.Date == "" {
 					iso, detected := tryDate(val)
+					if iso == "" && m.Kind == KindQIF {
+						if t, err := timeParseQIF(val); err == nil {
+							iso = t.Format("2006-01-02")
+						}
+					}
 					if iso == "" {
 						return nil, &ParseError{Line: row.Line, Message: fmt.Sprintf("couldn't read the date %q", val)}
 					}

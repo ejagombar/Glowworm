@@ -87,19 +87,54 @@ func TestReadCSVSkipsPreamble(t *testing.T) {
 	}
 }
 
-func TestReadQIF(t *testing.T) {
-	rows, err := ReadQIF(testdata(t, "natwest.qif"), "GBP")
+func TestQIFTable(t *testing.T) {
+	table, err := QIFTable(testdata(t, "natwest.qif"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(table[0], ","); got != "Date,Payee,Amount" {
+		t.Fatalf("header = %s", got)
+	}
+	m := AutoMapping(KindQIF, table[0], nil)
+	rows, err := ParseRows(m, table, "GBP")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("got %d rows, want 2", len(rows))
 	}
-	if rows[0].Date != "2024-06-01" || rows[0].AmountMinor != 245000 {
+	if rows[0].Date != "2024-06-01" || rows[0].AmountMinor != 245000 || rows[0].Description != "Acme Ltd — Salary" {
 		t.Errorf("row0 = %+v", rows[0])
 	}
-	if rows[1].AmountMinor != -4235 {
-		t.Errorf("row1 amount = %d", rows[1].AmountMinor)
+	if rows[1].AmountMinor != -4235 || rows[1].Line != 3 {
+		t.Errorf("row1 = %+v", rows[1])
+	}
+}
+
+func TestQIFTableUSDatesAndMemo(t *testing.T) {
+	data := []byte("!Type:CCard\nD12/31'25\nU-9.99\nT-9.99\nPNetflix\nMMonthly plan\nLEntertainment\n^\nD1/ 2'26\nT20.00\nPRefund\n^\n")
+	table, err := QIFTable(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(table[0], ","); got != "Date,Payee,Memo,Amount,Category" {
+		t.Fatalf("header = %s", got)
+	}
+	layout := QIFDateLayout([]string{table[1][0], table[2][0]})
+	if layout != "1/2/06" {
+		t.Fatalf("layout = %q", layout)
+	}
+	m := AutoMapping(KindQIF, table[0], nil)
+	m.DateFormat = layout
+	rows, err := ParseRows(m, table, "GBP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Date != "2025-12-31" || rows[0].Description != "Netflix — Monthly plan" || rows[0].AmountMinor != -999 {
+		t.Errorf("row0 = %+v", rows[0])
+	}
+	if rows[1].Date != "2026-01-02" || rows[1].AmountMinor != 2000 {
+		t.Errorf("row1 = %+v", rows[1])
 	}
 }
 
