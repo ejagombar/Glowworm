@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"glowworm/internal/core/widgets"
 	"glowworm/internal/money"
@@ -88,6 +89,57 @@ func dateArgs(query string, win *TimeWindow) []any {
 	return args
 }
 
+var grainParamRE = regexp.MustCompile(`:grain\b`)
+
+// Time-series bucket sizes, chosen by how many days the period spans.
+const (
+	grainDayMaxDays  = 62
+	grainWeekMaxDays = 400
+)
+
+// queryArgs binds :from and :to (see dateArgs) and, when the query uses it,
+// :grain: 'day', 'week' or 'month', whichever gives a readable number of
+// points over the period. The period is clamped to the dates the data
+// covers, so "all time" over five months of data still gets weeks.
+func (s *Service) queryArgs(query string, win *TimeWindow) []any {
+	args := dateArgs(query, win)
+	if grainParamRE.MatchString(query) {
+		args = append(args, sql.Named("grain", s.grain(win)))
+	}
+	return args
+}
+
+func (s *Service) grain(win *TimeWindow) string {
+	var from, to string
+	if win != nil {
+		from, to = win.From, win.To
+	}
+	var lo, hi sql.NullString
+	_ = s.DB.QueryRow(`SELECT MIN(date), MAX(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&lo, &hi)
+	if lo.Valid && lo.String > from {
+		from = lo.String
+	}
+	if hi.Valid && (to == "" || hi.String < to) {
+		to = hi.String
+	}
+	return grainFor(from, to)
+}
+
+func grainFor(from, to string) string {
+	f, err1 := time.Parse("2006-01-02", from)
+	t, err2 := time.Parse("2006-01-02", to)
+	if err1 != nil || err2 != nil {
+		return "month"
+	}
+	switch days := t.Sub(f).Hours() / 24; {
+	case days <= grainDayMaxDays:
+		return "day"
+	case days <= grainWeekMaxDays:
+		return "week"
+	}
+	return "month"
+}
+
 func (sp *Spec) format(col string) string {
 	if c, ok := sp.Columns[col]; ok && c.Format != "" {
 		return strings.ToLower(c.Format)
@@ -111,7 +163,7 @@ func (s *Service) RunSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widge
 }
 
 func (s *Service) runSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widget, *QueryResult, error) {
-	res, err := RunReadonlyQuery(s.DB, sp.SQL, dateArgs(sp.SQL, win)...)
+	res, err := RunReadonlyQuery(s.DB, sp.SQL, s.queryArgs(sp.SQL, win)...)
 	if err != nil {
 		return nil, nil, err
 	}

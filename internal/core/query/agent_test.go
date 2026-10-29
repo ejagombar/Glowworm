@@ -642,3 +642,77 @@ func TestAgentDraftsChange(t *testing.T) {
 		t.Errorf("a draft deleted %d transactions", before-after)
 	}
 }
+
+func TestGrainFor(t *testing.T) {
+	for _, c := range []struct{ from, to, want string }{
+		{"2026-01-01", "2026-01-31", "day"},
+		{"2026-01-01", "2026-03-04", "day"},
+		{"2026-01-01", "2026-09-30", "week"},
+		{"2025-10-01", "2026-10-01", "week"},
+		{"2024-01-01", "2026-10-01", "month"},
+		{"", "", "month"},
+	} {
+		if got := grainFor(c.from, c.to); got != c.want {
+			t.Errorf("grainFor(%s, %s) = %s, want %s", c.from, c.to, got, c.want)
+		}
+	}
+}
+
+// A time-series widget buckets by :grain, which follows the period viewed
+// but never spans more than the data: five days of data over a two-year
+// window still gets daily points.
+func TestWidgetGrainFollowsPeriodAndData(t *testing.T) {
+	svc := newAgentService(t, &ai.Mock{})
+	defer func() { _ = svc.DB.Close() }()
+	spec := &Spec{V: SpecVersion, Columns: map[string]SpecColumn{"spend": {Format: "money"}},
+		SQL: `SELECT CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END AS period,
+			SUM(-t.amount_minor) AS spend FROM transactions t WHERE t.deleted_at IS NULL AND t.date BETWEEN :from AND :to GROUP BY 1 ORDER BY 1`}
+	for _, win := range []*TimeWindow{nil, {From: "2023-01-01", To: "2024-12-31", Label: "2 years"}} {
+		w, err := svc.RunSpec(spec, "line", win)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if labels := w.Data.(map[string]any)["labels"].([]string); len(labels) != 5 || labels[0] != "2024-06-10" {
+			t.Errorf("window %v: labels = %v, want one per day", win, labels)
+		}
+	}
+	// More data, spread over months, switches to weekly buckets.
+	if _, err := svc.DB.Exec(`UPDATE transactions SET date = '2024-0' || (substr(id, -1) + 1) || '-15'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.grain(nil); got != "week" {
+		t.Errorf("five months of data: grain = %s, want week", got)
+	}
+}
+
+// badThenScripted fails its first call with a reply that has no JSON, then
+// follows the script.
+type badThenScripted struct {
+	ai.MockAgent
+	failed bool
+}
+
+func (p *badThenScripted) CompleteStructured(req *ai.StructuredRequest) (string, *ai.Usage, error) {
+	if !p.failed {
+		p.failed = true
+		return "", nil, &ai.ErrBadReply{Reason: "no JSON in reply", Reply: "Let me think about this."}
+	}
+	return p.MockAgent.CompleteStructured(req)
+}
+
+// A reply with no JSON goes back to the model as invalid instead of ending
+// the agent (which would fall back to the old planner).
+func TestAgentRetriesAfterReplyWithNoJSON(t *testing.T) {
+	provider := &badThenScripted{MockAgent: ai.MockAgent{Replies: []string{
+		`{"action":"final","text":"£50.00 on transport.","widgets":[]}`,
+	}}}
+	svc := newAgentService(t, provider)
+	defer func() { _ = svc.DB.Close() }()
+	ans, err := svc.AskAgentWindow("transport spend", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Text != "£50.00 on transport." {
+		t.Errorf("text = %q", ans.Text)
+	}
+}

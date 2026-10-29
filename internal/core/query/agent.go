@@ -206,7 +206,10 @@ DATABASE (SQLite). Tables you may query:
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
-asks about transfers. Balance(account) = opening_balance_minor +
+asks about transfers, or is about one account's balance or money in and out: to a
+single account a transfer is real money moving in or out (a credit card's
+repayments, a top-up), so an account's balance and running totals include its
+transfers. Balance(account) = opening_balance_minor +
 SUM(amount_minor) of its transactions (only those after opening_balance_date when set).
 SAVINGS ARE EXCLUDED BY DEFAULT: leave savings accounts (accounts.type = 'savings')
 out of every figure — balances, spend, income, counts, lists, charts — unless the
@@ -233,13 +236,15 @@ t.account_id NOT IN (SELECT id FROM accounts WHERE type = 'savings').
 	b.WriteString(`DATE PARAMETERS: :from and :to are bound to the current view period as
 'YYYY-MM-DD' strings (all time binds 0000-01-01 and 9999-12-31), in run_query
 and in widget sql. Filter with t.date BETWEEN :from AND :to.
+:grain is bound to 'day', 'week' or 'month': the bucket size that gives a
+readable number of points over the period being viewed (see TIME SERIES).
 
 `)
 
 	b.WriteString(`WIDGET POLICY (default ON): embed one widget that visualises the answer
 unless the question is purely conversational. Choose by question shape:
-- change over time ("how has X changed", "over the year") → line chart,
-  labels = months/weeks/days in chronological order
+- change over time ("how has X changed", "over time", "trend") → line or
+  bar chart built as described under TIME SERIES
 - breakdown of an amount ("where did my money go") → bar or pie
 - a single value ("what's my balance", "how much did I spend on X",
   "in total") → ALWAYS a number widget. This is mandatory: a single-figure
@@ -275,8 +280,8 @@ statement. Each widget is:
 - Result shape by type:
     number: one row; the first column is the value. caption is a short
             description WITHOUT dates (the app adds the period).
-    bar/line: first column = x labels (chronological for time, e.g.
-            strftime('%Y-%m', t.date)); every further column is a series.
+    bar/line: first column = x labels (chronological for time: the :grain
+            bucket under TIME SERIES); every further column is a series.
     pie:    first column = label, second = value (>= 0); at most 12 rows.
     table:  every column is shown, in order; at most 50 rows.
     transactions: columns date, description, category, amount_minor (signed),
@@ -299,7 +304,56 @@ EXAMPLE FINAL (list question — transactions widget, empty text):
    "widgets":[{"type":"transactions","title":"Recent transactions",
     "sql":"SELECT t.date, t.description, c.name AS category, t.amount_minor, t.type FROM transactions t LEFT JOIN categories c ON c.id = t.category_id WHERE t.deleted_at IS NULL AND t.type <> 'transfer' AND t.date BETWEEN :from AND :to ORDER BY t.date DESC LIMIT 20"}]}
 
+TIME SERIES — before writing SQL, decide what the user wants to see, then
+say in the text and caption exactly what is plotted:
+- WHAT TO PLOT. Spending (or income) over time = the amount per period, refunds
+  netted off. An account's history, or how much is owed or held over time =
+  the account's running BALANCE. Short requests leave this implicit: choose
+  the reading that is most useful and say which it is.
+- BUCKETS. Unless the user names a bucket size ("monthly", "per week",
+  "daily"), group by :grain — never pick months on your own: a handful of
+  points hides the shape of the data. :grain follows the period, so a pinned
+  chart keeps a sensible bucket when the user changes it. Bucket label (the
+  first day of the bucket, or YYYY-MM):
+    CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END
+- EVERY TRANSACTION ("each transaction", "every payment"): no bucketing, one
+  point per transaction, ORDER BY t.date, t.id. When the question is about an
+  account (or its spending), plot the running balance after each transaction,
+  so every purchase, refund and repayment moves the line. A line of each
+  transaction's own amount is a jagged row of unrelated values: only when the
+  user asks for the size of each transaction, show those as bars.
+- RUNNING TOTALS. A cumulative line must be a real balance: the opening
+  balance plus SUM(amount_minor) over EVERY transaction of the account(s) up to
+  that point — income, refunds and transfers included — computed over all
+  history and only then filtered to :from/:to, so it starts at the right level.
+  Never draw a running sum of one kind of transaction (spend alone): it can
+  only rise, and hides repayments and refunds. Only when the user explicitly
+  asks for cumulative spend is that the answer.
+- CREDIT CARDS (accounts.type = 'credit'): the balance is negative while money
+  is owed. Plot the amount owed, -balance, labelled "Owed": purchases push it
+  up, repayments bring it down.
+- With more than ~150 points in the period, show the balance at the end of
+  each :grain bucket instead of after every transaction (pattern below).
+EXAMPLE FINAL (spending over time, bucket follows the period):
+  {"action":"final","text":"£1,240.00 spent on the Visa card over the period, peaking in the week of 2026-03-09 at £310.50.",
+   "widgets":[{"type":"bar","title":"Visa spending",
+    "sql":"SELECT CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END AS period, SUM(-t.amount_minor) AS spend FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.deleted_at IS NULL AND t.type = 'expense' AND a.name = 'Visa' AND t.date BETWEEN :from AND :to GROUP BY 1 ORDER BY 1",
+    "columns":{"period":{"format":"text"},"spend":{"label":"Spend","format":"money"}},"caption":"Spend per period, refunds netted off"}]}
+EXAMPLE FINAL (a credit card over time, every transaction — running balance):
+  {"action":"final","text":"The Visa card's balance after each transaction: purchases raise what is owed, repayments lower it. £420.00 is owed now.",
+   "widgets":[{"type":"line","title":"Visa balance owed",
+    "sql":"SELECT date, owed FROM (SELECT t.date, t.id, -(a.opening_balance_minor + SUM(t.amount_minor) OVER (ORDER BY t.date, t.id)) AS owed FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.deleted_at IS NULL AND a.name = 'Visa' AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date)) WHERE date BETWEEN :from AND :to ORDER BY date, id",
+    "columns":{"date":{"format":"text"},"owed":{"label":"Owed","format":"money"}},"caption":"Amount owed after each transaction, repayments included"}]}
+
 EXAMPLE QUERIES (verified against this schema — prefer these patterns):
+- An account's balance at the end of each :grain bucket (long periods):
+  SELECT period, balance FROM (SELECT CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END AS period, t.date,
+      a.opening_balance_minor + SUM(t.amount_minor) OVER (ORDER BY t.date, t.id) AS balance,
+      ROW_NUMBER() OVER (PARTITION BY CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END ORDER BY t.date DESC, t.id DESC) AS rn
+    FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE t.deleted_at IS NULL AND a.name = 'Current account'
+    AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date))
+  WHERE rn = 1 AND date BETWEEN :from AND :to ORDER BY period
 - Current balance per account:
   SELECT a.name, a.opening_balance_minor + COALESCE((SELECT SUM(t.amount_minor)
     FROM transactions t WHERE t.account_id = a.id AND t.deleted_at IS NULL
@@ -442,6 +496,15 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 			Timeout:    agentCallTimeout,
 		})
 		logCall(usage, err)
+		// A reply with no JSON at all (prose, or cut off) is sent back like
+		// any other invalid reply rather than ending the answer.
+		var bad *ai.ErrBadReply
+		if errors.As(err, &bad) {
+			msgs = append(msgs,
+				ai.ChatMessage{Role: "assistant", Content: bad.Reply},
+				ai.ChatMessage{Role: "user", Content: invalidFeedback})
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -461,7 +524,7 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 				msgs = append(msgs, ai.ChatMessage{Role: "user", Content: "TOOL RESULT: " + invalidFeedback})
 				continue
 			}
-			res, qerr := RunReadonlyQuery(s.DB, sql, dateArgs(sql, win)...)
+			res, qerr := RunReadonlyQuery(s.DB, sql, s.queryArgs(sql, win)...)
 			if qerr != nil {
 				// A step is a heading line, then the full SQL (shown as code).
 				emit(fmt.Sprintf("Query failed: %s\n%s", truncateChars(oneLine(qerr.Error(), 200), 200), strings.TrimSpace(sql)))
@@ -674,7 +737,7 @@ func (s *Service) draftChange(sp agentWidgetSpec, win *TimeWindow) (*changes.Pre
 // selectIDs runs a change's read-only query and returns its first column.
 func (s *Service) selectIDs(query string, win *TimeWindow) ([]string, error) {
 	var ids []string
-	err := WithReadonlyRows(s.DB, query, changes.MaxTransactions+1, dateArgs(query, win), func(rows *sql.Rows) error {
+	err := WithReadonlyRows(s.DB, query, changes.MaxTransactions+1, s.queryArgs(query, win), func(rows *sql.Rows) error {
 		cols, err := rows.Columns()
 		if err != nil {
 			return err
