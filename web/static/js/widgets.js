@@ -98,12 +98,15 @@ function convertWidgetData(from, to, data) {
     };
   }
 
-  return { labels: s.labels, series: s.series, format: data.format };
+  return { labels: s.labels, series: s.series, format: data.format, stacked: data.stacked };
 }
 
-function axisTicks(max, count = 4) {
-  const step = max <= 0 ? 1 : niceStep(max / count);
+// Ticks from 0 up to max, and down to min when the chart goes below zero.
+function axisTicks(max, count = 4, min = 0) {
+  const range = max - Math.min(min, 0);
+  const step = range <= 0 ? 1 : niceStep(range / count);
   const ticks = [];
+  for (let t = -step; t >= min * (1 + 1e-9); t -= step) ticks.unshift(Math.round(t * 1e6) / 1e6);
   for (let t = 0; t <= max * (1 + 1e-9); t += step) ticks.push(Math.round(t * 1e6) / 1e6);
   return ticks;
 }
@@ -123,20 +126,33 @@ function fmtMoneyAxis(v) {
   return sign + sym + (Number.isInteger(a) ? a : Math.round(a * 10) / 10);
 }
 
-// Bar chart geometry, shared by drawing and the hover tooltip.
+// Bar chart geometry, shared by drawing and the hover tooltip. Stacked
+// bars put a label's series on top of each other in one bar; otherwise
+// they stand side by side. Bars fill most of their slot, so a long run of
+// them on a phone isn't mostly gaps.
 function barGeom(data, W, H) {
   const s = data.series || [];
   const labels = data.labels || [];
+  const stacked = !!data.stacked && s.length > 1;
   let max = 0;
-  s.forEach((x) => (x.values || []).forEach((v) => { if (Number(v) > max) max = Number(v); }));
+  labels.forEach((_, i) => {
+    let sum = 0;
+    s.forEach((x) => {
+      const v = Math.max(Number((x.values || [])[i]) || 0, 0);
+      if (stacked) sum += v;
+      else if (v > max) max = v;
+    });
+    if (sum > max) max = sum;
+  });
   const scale = max || 1; // an empty chart would otherwise divide by zero
   const padL = 46, padB = 30, padT = 14, padR = 10;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const groupW = innerW / Math.max(labels.length, 1);
-  const barW = Math.min(34, (groupW * 0.6) / Math.max(s.length, 1));
+  const across = stacked ? 1 : Math.max(s.length, 1);
+  const barW = Math.min(stacked || across === 1 ? 64 : 40, (groupW * 0.82) / across);
   const cx = (i) => padL + i * groupW + groupW / 2;
   const py = (v) => padT + innerH - (Math.max(Number(v) || 0, 0) / scale) * innerH;
-  return { series: s, labels, max, padL, padB, padT, padR, innerW, innerH, groupW, barW, cx, py };
+  return { series: s, labels, stacked, max, padL, padB, padT, padR, innerW, innerH, groupW, barW, across, cx, py };
 }
 
 // Every step-th label, with step chosen so the widest label fits its slot.
@@ -165,12 +181,25 @@ function barChartSVG(data, width = 640, height = 260) {
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
   });
 
+  const base = g.padT + g.innerH;
+  // Side-by-side bars keep a hairline apart; stacked parts share one bar.
+  const gap = !g.stacked && g.across > 1 && barW > 6 ? 1 : 0;
   labels.forEach((label, i) => {
     const x = cx(i);
+    let top = base;
     s.forEach((series, si) => {
-      const by = py(series.values[i]);
-      const bx = x - (s.length * barW) / 2 + si * barW + 2;
-      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - 4, 2)}" height="${Math.max(g.padT + g.innerH - by, 0)}" rx="1" fill="${series.color || WIDGET_COLORS[si % WIDGET_COLORS.length]}"/>`);
+      const color = series.color || WIDGET_COLORS[si % WIDGET_COLORS.length];
+      const v = Math.max(Number((series.values || [])[i]) || 0, 0);
+      if (g.stacked) {
+        const h = base - py(v);
+        if (h <= 0) return;
+        parts.push(`<rect x="${x - barW / 2}" y="${top - h}" width="${Math.max(barW, 1)}" height="${h}" fill="${color}"/>`);
+        top -= h;
+        return;
+      }
+      const by = py(v);
+      const bx = x - (g.across * barW) / 2 + si * barW + gap / 2;
+      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - gap, 1)}" height="${Math.max(base - by, 0)}" rx="1" fill="${color}"/>`);
     });
   });
 
@@ -196,17 +225,20 @@ function barAt(host, svg, clientX) {
   const x = ((clientX - rect.left) / rect.width) * W;
   if (x < g.padL || x > g.padL + g.innerW) return null;
   const idx = Math.min(n - 1, Math.max(0, Math.floor((x - g.padL) / g.groupW)));
-  const rows = g.series.map((x) => ({ name: x.name || "Value", value: (x.values || [])[idx] || 0 }));
-  const top = Math.min(...rows.map((r) => g.py(r.value)));
-  return { idx, label: g.labels[idx], rows, format: data.format, x: g.cx(idx), y: top };
+  let rows = g.series.map((x, si) => ({ name: x.name || "Value", color: x.color || WIDGET_COLORS[si % WIDGET_COLORS.length], value: Number((x.values || [])[idx]) || 0 }));
+  const total = rows.reduce((a, r) => a + Math.max(r.value, 0), 0);
+  const top = g.stacked ? g.py(total) : Math.min(...rows.map((r) => g.py(r.value)));
+  // A stack reads top down, and its empty parts say nothing.
+  if (g.stacked) rows = rows.filter((r) => r.value).reverse();
+  return { idx, label: g.labels[idx], rows, total: g.stacked ? total : null, format: data.format, x: g.cx(idx), y: top };
 }
 
 // Line chart geometry, shared by drawing and the hover tooltip. view is an
 // optional {lo, hi} window of fractional point indices for an x-axis zoom.
+// A value of null is a gap: that series has nothing at that label yet.
 function lineGeom(data, W, H, view) {
-  const series = (data.series && data.series[0]) ? data.series[0] : { name: "Value", color: WIDGET_COLORS[0], values: [] };
+  const series = (data.series && data.series.length) ? data.series : [{ name: "Value", color: WIDGET_COLORS[0], values: [] }];
   const labels = data.labels || [];
-  const vals = series.values || [];
   const n = labels.length;
   const padL = 46, padB = 30, padT = 14, padR = 14;
   const innerW = W - padL - padR, innerH = H - padT - padB;
@@ -214,51 +246,84 @@ function lineGeom(data, W, H, view) {
   const hi = view ? view.hi : Math.max(n - 1, 0);
   // The points drawn: the window plus one either side, so the line runs off the clipped edge.
   const i0 = Math.max(0, Math.floor(lo) - (view ? 1 : 0));
-  const i1 = Math.min(vals.length - 1, Math.ceil(hi) + (view ? 1 : 0));
+  const i1 = Math.min(n - 1, Math.ceil(hi) + (view ? 1 : 0));
   // Loop, not spread: Math.max(...vals) throws RangeError on very long series.
   let max = 0, min = 0;
-  for (let i = Math.max(0, Math.floor(lo)); i <= Math.min(vals.length - 1, Math.ceil(hi)); i++) {
-    const v = Number(vals[i]);
-    if (v > max) max = v;
-    if (v < min) min = v;
+  series.forEach((x) => {
+    const vals = x.values || [];
+    for (let i = Math.max(0, Math.floor(lo)); i <= Math.min(vals.length - 1, Math.ceil(hi)); i++) {
+      if (vals[i] == null) continue;
+      const v = Number(vals[i]);
+      if (v > max) max = v;
+      if (v < min) min = v;
+    }
+  });
+  // Below zero, the axis reaches down to a whole tick, so it gets a label.
+  if (min < 0) {
+    const step = niceStep((max - min) / 4);
+    min = -Math.ceil(-min / step - 1e-9) * step;
   }
   const span = (max - min) || 1;
   const px = (i) => (n <= 1 ? padL + innerW / 2 : padL + ((i - lo) / (hi - lo)) * innerW);
   const py = (v) => padT + innerH - ((v - min) / span) * innerH;
-  return { series, labels, vals, n, padL, padB, padT, padR, innerW, innerH, lo, hi, i0, i1, max, min, px, py };
+  return { series, labels, n, padL, padB, padT, padR, innerW, innerH, lo, hi, i0, i1, max, min, px, py };
+}
+
+// The runs of points with a value, for each to be drawn as one line.
+function lineRuns(vals, i0, i1) {
+  const runs = [];
+  let run = null;
+  for (let i = i0; i <= i1; i++) {
+    if (vals[i] == null) { run = null; continue; }
+    if (!run) runs.push(run = []);
+    run.push(i);
+  }
+  return runs;
 }
 
 function lineChartSVG(data, width = 640, height = 260, view = null) {
   const W = width, H = height;
   const g = lineGeom(data, W, H, view);
-  const { series: s, labels, vals, n, padL, padR, padT, innerW, innerH, i0, i1, max, min, px, py } = g;
+  const { series, labels, n, padL, padR, padT, innerW, innerH, i0, i1, max, min, px, py } = g;
+  const one = series.length === 1;
 
   let parts = [];
-  axisTicks(max, 4).forEach((t) => {
+  axisTicks(max, 4, min).forEach((t) => {
     const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
   });
 
-  const shown = [];
-  for (let i = i0; i <= i1; i++) shown.push(i);
-  const points = shown.map((i) => `${px(i)},${py(vals[i])}`).join(" ");
-  const area = shown.length ? `${px(i0)},${py(min)} ${points} ${px(i1)},${py(min)}` : "";
-  // The area under the line is a fading gradient with a grid like the page background over it, in the series colour.
   const fillId = Math.random().toString(36).slice(2, 8);
-  parts.push(`<defs><linearGradient id="grad-${fillId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="0.14"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>` +
-    `<pattern id="grid-${fillId}" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M8 0V8M0 8H8" fill="none" stroke="${s.color}" stroke-opacity="0.22" stroke-width="1"/></pattern>` +
-    `<clipPath id="clip-${fillId}"><rect x="${padL - 4}" y="0" width="${innerW + 8}" height="${padT + innerH + 4}"/></clipPath></defs>`);
-  parts.push(`<g clip-path="url(#clip-${fillId})">`);
-  parts.push(`<polygon points="${area}" fill="url(#grad-${fillId})"/>`);
-  parts.push(`<polygon points="${area}" fill="url(#grid-${fillId})"/>`);
-  parts.push(`<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
-  if (shown.length <= 80) {
-    shown.forEach((i) => {
-      parts.push(`<circle cx="${px(i)}" cy="${py(vals[i])}" r="3" style="fill:var(--surface)" stroke="${s.color}" stroke-width="2"><title>${esc(labels[i] || "")}: ${fmtValue(vals[i], data.format)}</title></circle>`);
+  const defs = [`<clipPath id="clip-${fillId}"><rect x="${padL - 4}" y="0" width="${innerW + 8}" height="${padT + innerH + 4}"/></clipPath>`];
+  const body = [];
+  // Dots only while there's room for them: fewer as lines are added.
+  const dots = (i1 - i0 + 1) * series.length <= 80;
+  series.forEach((s, si) => {
+    const color = s.color || WIDGET_COLORS[si % WIDGET_COLORS.length];
+    const vals = s.values || [];
+    lineRuns(vals, i0, i1).forEach((run) => {
+      const points = run.map((i) => `${px(i)},${py(vals[i])}`).join(" ");
+      // A lone series gets the area under it: a fading gradient with a grid
+      // like the page background over it, in its colour. Several would muddy.
+      if (one) {
+        const area = `${px(run[0])},${py(min)} ${points} ${px(run[run.length - 1])},${py(min)}`;
+        body.push(`<polygon points="${area}" fill="url(#grad-${fillId})"/>`);
+        body.push(`<polygon points="${area}" fill="url(#grid-${fillId})"/>`);
+      }
+      body.push(`<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+      if (dots) {
+        run.forEach((i) => {
+          body.push(`<circle cx="${px(i)}" cy="${py(vals[i])}" r="${one ? 3 : 2.5}" style="fill:var(--surface)" stroke="${color}" stroke-width="2"><title>${esc(labels[i] || "")}${one ? "" : " · " + esc(s.name || "")}: ${fmtValue(vals[i], data.format)}</title></circle>`);
+        });
+      }
     });
-  }
-  parts.push(`</g>`);
+    if (one) {
+      defs.push(`<linearGradient id="grad-${fillId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity="0.14"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient>` +
+        `<pattern id="grid-${fillId}" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M8 0V8M0 8H8" fill="none" stroke="${color}" stroke-opacity="0.22" stroke-width="1"/></pattern>`);
+    }
+  });
+  parts.push(`<defs>${defs.join("")}</defs><g clip-path="url(#clip-${fillId})">${body.join("")}</g>`);
 
   const xTickCount = width < 420 ? 2 : width < 700 ? 4 : 6;
   const first = Math.max(0, Math.ceil(g.lo - 1e-9)), last = Math.min(n - 1, Math.floor(g.hi + 1e-9));
@@ -288,26 +353,37 @@ function fmtMoneyTip(v) {
   const sign = n < 0 ? "\u2212" : "";
   return sign + sym + Math.abs(n / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+// The point nearest the pointer. With several lines, every line's value at
+// that label goes in the tip, largest first, the nearest line's marked.
 function nearestLinePoint(host, svg, clientX, clientY) {
   const data = chartDataFor(host);
   const vb = svg.viewBox && svg.viewBox.baseVal;
   const W = vb && vb.width ? vb.width : 640;
   const H = vb && vb.height ? vb.height : 260;
   const g = lineGeom(data, W, H, chartZoomFor(host, data));
-  const n = Math.min(g.labels.length, g.vals.length);
-  if (!n) return null;
+  if (!g.n) return null;
   const rect = svg.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
   const x = ((clientX - rect.left) / rect.width) * W;
   const y = ((clientY - rect.top) / rect.height) * H;
-  let idx = -1, best = Infinity;
-  for (let i = Math.max(0, Math.ceil(g.lo - 1e-9)); i <= Math.min(n - 1, Math.floor(g.hi + 1e-9)); i++) {
-    const dx = g.px(i) - x, dy = g.py(g.vals[i]) - y;
-    const d = dx * dx + dy * dy;
-    if (d < best) { best = d; idx = i; }
+  let idx = -1, near = -1, best = Infinity;
+  for (let i = Math.max(0, Math.ceil(g.lo - 1e-9)); i <= Math.min(g.n - 1, Math.floor(g.hi + 1e-9)); i++) {
+    g.series.forEach((s, si) => {
+      const v = (s.values || [])[i];
+      if (v == null) return;
+      const dx = g.px(i) - x, dy = g.py(v) - y;
+      const d = dx * dx + dy * dy;
+      if (d < best) { best = d; idx = i; near = si; }
+    });
   }
   if (idx < 0) return null;
-  return { label: g.labels[idx], value: g.vals[idx], format: data.format, name: g.series.name || "Value", x: g.px(idx), y: g.py(g.vals[idx]) };
+  const nearV = g.series[near].values[idx];
+  const pt = { label: g.labels[idx], value: nearV, format: data.format, name: g.series[near].name || "Value", x: g.px(idx), y: g.py(nearV) };
+  if (g.series.length > 1) {
+    pt.rows = g.series.map((s, si) => ({ name: s.name || "Value", color: s.color || WIDGET_COLORS[si % WIDGET_COLORS.length], value: (s.values || [])[idx], near: si === near }))
+      .filter((r) => r.value != null).sort((a, b) => Number(b.value) - Number(a.value));
+  }
+  return pt;
 }
 
 const chartDataCache = new WeakMap();
@@ -321,8 +397,16 @@ function chartDataFor(host) {
   return data;
 }
 function showChartTip(tip, svg, pt) {
-  placeChartTip(tip, svg, pt.x, pt.y, `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
-    + `<div class="chart-tip-value">${esc(fmtTip(pt.value, pt.format))}</div>`);
+  placeChartTip(tip, svg, pt.x, pt.y, chartTipHTML(pt));
+}
+// A tip's label and value, or with several series a row per series: a
+// swatch in its colour, its name and value, and a stack's total.
+function chartTipHTML(pt) {
+  const head = `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`;
+  if (!pt.rows) return head + `<div class="chart-tip-value">${esc(fmtTip(pt.value, pt.format))}</div>`;
+  return head + pt.rows.map((r) => `<div class="chart-tip-row${r.near ? " near" : ""}"><span class="chart-tip-dot" style="background:${esc(r.color)}"></span>`
+    + `<span class="chart-tip-name">${esc(r.name)}</span><span class="chart-tip-value">${esc(fmtTip(r.value, pt.format))}</span></div>`).join("")
+    + (pt.total != null ? `<div class="chart-tip-row chart-tip-total"><span class="chart-tip-name">Total</span><span class="chart-tip-value">${esc(fmtTip(pt.total, pt.format))}</span></div>` : "");
 }
 // Puts the tip above (or below) the point x, y given in the svg's viewBox units.
 function placeChartTip(tip, svg, x, y, html) {
@@ -371,9 +455,8 @@ function ensureChartHover() {
   const pickBar = (host, svg, clientX) => {
     const pt = host && svg ? barAt(host, svg, clientX) : null;
     if (!pt) { if (host) tip.style.display = "none"; return; }
-    const one = pt.rows.length === 1;
-    placeChartTip(tip, svg, pt.x, pt.y, `<div class="chart-tip-label">${esc(chartTooltipLabel(pt.label))}</div>`
-      + pt.rows.map((r) => `<div class="chart-tip-value">${one ? "" : esc(r.name) + ": "}${esc(fmtTip(r.value, pt.format))}</div>`).join(""));
+    const one = pt.rows.length === 1 && pt.total == null;
+    placeChartTip(tip, svg, pt.x, pt.y, chartTipHTML(one ? { label: pt.label, value: pt.rows[0].value, format: pt.format } : pt));
   };
   const sliceAt = (e) => (e.target && e.target.closest ? e.target.closest(".pie-slice") : null);
   document.addEventListener("click", (e) => pickSlice(sliceAt(e)));
@@ -539,13 +622,28 @@ function redrawChartHost(host) {
   // Hosts not laid out yet report 0; without defaults they'd stay empty.
   if (!w || w < 80) w = 640;
   if (!h || h < 80) h = 260;
+  // Several series get a key above the chart, which takes its height.
+  const legend = chartLegendHTML(type, data);
+  if (legend) {
+    host.innerHTML = legend;
+    h = Math.max(h - host.firstElementChild.offsetHeight, 80);
+  }
+  const sized = (svg) => legend ? svg.replace("<svg ", `<svg style="height:${h}px" `) : svg;
   if (type !== "line") {
-    host.innerHTML = barChartSVG(data, w, h);
+    host.innerHTML = legend + sized(barChartSVG(data, w, h));
     return;
   }
   const view = chartZoomFor(host, data);
-  host.innerHTML = lineChartSVG(data, w, h, view) +
+  host.innerHTML = legend + sized(lineChartSVG(data, w, h, view)) +
     (view ? `<button type="button" class="chart-zoom-reset" data-chart-zoom-reset>Reset zoom</button>` : "");
+}
+
+function chartLegendHTML(type, data) {
+  const series = data.series || [];
+  if (series.length < 2) return "";
+  return `<div class="chart-legend">${series.map((s, i) => `<span class="chart-legend-item">`
+    + `<span class="chart-legend-swatch ${type === "line" ? "line" : ""}" style="background:${esc(s.color || WIDGET_COLORS[i % WIDGET_COLORS.length])}"></span>`
+    + `${esc(s.name || "Series " + (i + 1))}</span>`).join("")}</div>`;
 }
 
 // ---- Line charts zoom along the x axis: Ctrl + scroll or a trackpad pinch
@@ -795,6 +893,15 @@ function ensureWidgetStyles() {
     .pie-legend-dot { width: 8px; height: 8px; border-radius: 1px; flex: none; }
     .pie-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
     .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 4px 8px; font-size: 12px; color: var(--text-2); }
+    .chart-legend-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chart-legend-swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+    .chart-legend-swatch.line { width: 14px; height: 3px; border-radius: 2px; }
+    .chart-hover-tip .chart-tip-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .chart-hover-tip .chart-tip-row.near .chart-tip-name { color: var(--text); font-weight: 600; }
+    .chart-hover-tip .chart-tip-dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+    .chart-hover-tip .chart-tip-name { flex: 1; color: var(--text-2); margin-right: 10px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chart-hover-tip .chart-tip-total { border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; padding-left: 14px; }
     .pie-legend-val { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
   `;
   document.head.appendChild(style);
