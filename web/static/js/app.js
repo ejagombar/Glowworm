@@ -311,9 +311,12 @@ document.addEventListener("submit", (e) => {
 });
 
 // Pop-ups: while one is open the page behind stays put. iOS ignores
-// overflow: hidden for touch scrolling, so a drag only scrolls something
-// inside the pop-up that can scroll (the pop-up itself, when it's taller
-// than the screen); anything else is held.
+// overflow: hidden for touch scrolling, so a drag, wherever it starts
+// (a text box included), only scrolls something inside the pop-up that can
+// scroll, such as the pop-up itself when it's taller than the screen, and
+// not past its top or bottom; anything else is held. Once a scroll is under
+// way iOS no longer lets a drag be held, so overscroll-behavior: contain
+// keeps it from carrying on to the page.
 const scrollLock = (() => {
   const OPEN = ".modal-backdrop:not([hidden]), .drawer.show";
   const phone = window.matchMedia("(max-width: 760px)");
@@ -324,16 +327,29 @@ const scrollLock = (() => {
     locked = !!document.querySelector(OPEN) || (phone.matches && !!document.querySelector(".chat-panel.floating.open"));
     document.documentElement.classList.toggle("scroll-locked", locked);
   };
-  const scrollable = (el) => {
+  // The nearest thing under the finger that can scroll, short of the page.
+  const scroller = (el) => {
     for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
       const oy = getComputedStyle(el).overflowY;
-      if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 1) return true;
+      if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 1) return el;
     }
-    return false;
+    return null;
   };
+  let startY = 0;
+  document.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) startY = e.touches[0].clientY;
+  }, { passive: true });
   document.addEventListener("touchmove", (e) => {
-    if (!locked || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-    if (!scrollable(e.target)) e.preventDefault();
+    if (!locked || e.touches.length !== 1) return;
+    if (e.target.type === "range") return; // dragging a slider
+    const el = scroller(e.target);
+    const y = e.touches[0].clientY;
+    const dy = y - startY; // > 0: finger moving down, scrolling up
+    startY = y;
+    // At its top or bottom, iOS would carry the drag on to the page.
+    const atTop = el && el.scrollTop <= 0 && dy > 0;
+    const atEnd = el && el.scrollTop + el.clientHeight >= el.scrollHeight - 1 && dy < 0;
+    if (!el || atTop || atEnd) e.preventDefault();
   }, { passive: false });
   document.addEventListener("DOMContentLoaded", () => {
     sync();

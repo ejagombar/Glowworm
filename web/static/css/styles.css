@@ -1295,6 +1295,7 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .modal-body { max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
 /* The page behind an open pop-up stays put while it's scrolled. */
 html:has(.modal-backdrop:not([hidden])), html.scroll-locked { overflow: hidden; }
+html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
 .drawer-body, .chat-panel { overscroll-behavior: contain; }
 .modal-backdrop { overscroll-behavior: contain; }
 .recurring-modal { max-width: 540px; }
