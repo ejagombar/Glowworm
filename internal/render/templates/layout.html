@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>{{.Title}} | Glowworm</title>
   <link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml" />
@@ -10,7 +10,18 @@
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Glowworm" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <!-- The status bar takes the masthead's colour (--surface). The theme script
+       below sets both to the chosen theme's when it isn't the system's. -->
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#14181d" media="(prefers-color-scheme: dark)" />
+  <!-- Launch screens for the home screen app; iOS reads them when it's added. -->
+  {{- range splashScreens}}
+  <link rel="apple-touch-startup-image" href="/static/splash/{{.File false}}" media="{{.Media false}}" />
+  <link rel="apple-touch-startup-image" href="/static/splash/{{.File true}}" media="{{.Media true}}" />
+  {{- end}}
   <meta name="glowworm-version" content="{{.DataVersion}}" />
   <link rel="stylesheet" href="{{asset "css/styles.css"}}" />
   <script>
@@ -19,6 +30,7 @@
         var t = localStorage.getItem("glowworm-theme") || {{.Theme}};
         var dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.content = dark ? "#14181d" : "#ffffff"; });
       } catch (e) {}
     })();
   </script>

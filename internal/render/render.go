@@ -27,6 +27,7 @@ func New() (*Renderer, error) {
 		"asset": func(path string) string {
 			return "/static/" + path + "?v=" + static.Version(path)
 		},
+		"splashScreens": func() []static.SplashScreen { return static.SplashScreens },
 		"accountTypeBadge": func(t string) string {
 			switch t {
 			case "savings":

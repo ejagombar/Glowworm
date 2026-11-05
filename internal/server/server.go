@@ -269,6 +269,16 @@ func (a *App) Router() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /static/{path...}", a.staticHandlerFS(staticFS.FS, "/static/"))
+	mux.HandleFunc("GET /static/splash/{name}", func(w http.ResponseWriter, r *http.Request) {
+		data, ok := staticFS.Splash(r.PathValue("name"))
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=2592000")
+		_, _ = w.Write(data)
+	})
 	mux.Handle("GET /sw.js", serviceWorkerHandler(staticFS.FS))
 	mux.HandleFunc("POST /sw-log", a.handleSWLog)
 	// Browsers and iOS ask for these at the root, whatever the page links to.

@@ -2,6 +2,8 @@
 function applyTheme(t) {
   const dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+  // The status bar follows the masthead (see layout.html).
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => { m.content = dark ? "#14181d" : "#ffffff"; });
   const sel = document.getElementById("themeSelect");
   if (sel && sel.value !== t) sel.value = t;
 }
