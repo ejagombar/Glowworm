@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +30,22 @@ type Spec struct {
 	SQL     string                `json:"sql"`
 	Columns map[string]SpecColumn `json:"columns,omitempty"`
 	Caption string                `json:"caption,omitempty"`
+	// Series names a column of a bar or line chart's result whose values
+	// split it into one series each (one line per account, say): the rows
+	// are then label, series, value, rather than one column per series.
+	Series string `json:"series,omitempty"`
+	// Fill says what a series with no row for a label shows: "zero" (the
+	// default, right for amounts per period) or "previous", which carries
+	// the last value forward (right for balances).
+	Fill string `json:"fill,omitempty"`
+	// Stacked draws a bar chart's series on top of each other, so each bar
+	// is the total split into its parts, instead of side by side.
+	Stacked bool `json:"stacked,omitempty"`
 }
+
+// maxChartSeries is how many series a chart shows; past it the smallest
+// are added together as "Other".
+const maxChartSeries = 8
 
 // SpecColumn says how to show one result column. Format is money (integer
 // minor units), percent (a ratio: 0.25 is 25%), number, or text.
@@ -185,23 +201,15 @@ func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur stri
 		}
 		w.Data = map[string]any{"value": value, "caption": caption}
 	case "bar", "line":
-		if len(res.Columns) < 2 {
-			return nil, fmt.Errorf("a %s chart needs a label column and at least one value column", typ)
+		labels, series, format, err := chartSeries(sp, typ, res)
+		if err != nil {
+			return nil, err
 		}
-		labels := make([]string, len(res.Rows))
-		for i, row := range res.Rows {
-			labels[i] = cellText(row[0])
+		d := map[string]any{"labels": labels, "series": series, "format": format}
+		if typ == "bar" && sp.Stacked && len(series) > 1 {
+			d["stacked"] = true
 		}
-		var series []map[string]any
-		for j := 1; j < len(res.Columns) && len(series) < 6; j++ {
-			vals := make([]float64, len(res.Rows))
-			for i, row := range res.Rows {
-				vals[i], _ = cellNumber(row[j])
-			}
-			series = append(series, map[string]any{"name": sp.label(res.Columns[j]),
-				"color": widgets.PaletteAt(j - 1), "values": vals})
-		}
-		w.Data = map[string]any{"labels": labels, "series": series, "format": chartFormat(sp.format(res.Columns[1]))}
+		w.Data = d
 	case "pie":
 		if len(res.Columns) < 2 {
 			return nil, fmt.Errorf("a pie chart needs a label column and a value column")
@@ -275,6 +283,127 @@ func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur stri
 		return nil, fmt.Errorf("unknown widget type %q", typ)
 	}
 	return w, nil
+}
+
+// chartSeries shapes a bar or line chart's result: one row per label with a
+// column per series, or, when the spec names a series column, rows of label,
+// series and value, pivoted to a series per distinct value.
+func chartSeries(sp *Spec, typ string, res *QueryResult) ([]string, []map[string]any, string, error) {
+	if sp.Series == "" {
+		if len(res.Columns) < 2 {
+			return nil, nil, "", fmt.Errorf("a %s chart needs a label column and at least one value column", typ)
+		}
+		labels := make([]string, len(res.Rows))
+		for i, row := range res.Rows {
+			labels[i] = cellText(row[0])
+		}
+		var series []map[string]any
+		for j := 1; j < len(res.Columns) && len(series) < maxChartSeries; j++ {
+			vals := make([]float64, len(res.Rows))
+			for i, row := range res.Rows {
+				vals[i], _ = cellNumber(row[j])
+			}
+			series = append(series, map[string]any{"name": sp.label(res.Columns[j]),
+				"color": widgets.PaletteAt(j - 1), "values": vals})
+		}
+		return labels, series, chartFormat(sp.format(res.Columns[1])), nil
+	}
+
+	by := -1
+	for j, c := range res.Columns {
+		if strings.EqualFold(c, sp.Series) {
+			by = j
+		}
+	}
+	if by < 0 {
+		return nil, nil, "", fmt.Errorf("series column %q is not in the result (columns: %s)", sp.Series, strings.Join(res.Columns, ", "))
+	}
+	var rest []int
+	for j := range res.Columns {
+		if j != by {
+			rest = append(rest, j)
+		}
+	}
+	if len(rest) != 2 {
+		return nil, nil, "", fmt.Errorf("a %s chart with a series column needs exactly three columns: label, series and value", typ)
+	}
+	lc, vc := rest[0], rest[1]
+
+	// Labels and series keep the order they first appear in, so the
+	// query's ORDER BY decides both.
+	var labels, names []string
+	labelAt, nameAt := map[string]int{}, map[string]int{}
+	cells := map[[2]int]float64{}
+	for _, row := range res.Rows {
+		l, n := cellText(row[lc]), cellText(row[by])
+		if n == "" {
+			n = "(none)"
+		}
+		li, ok := labelAt[l]
+		if !ok {
+			li = len(labels)
+			labelAt[l] = li
+			labels = append(labels, l)
+		}
+		ni, ok := nameAt[n]
+		if !ok {
+			ni = len(names)
+			nameAt[n] = ni
+			names = append(names, n)
+		}
+		v, _ := cellNumber(row[vc])
+		cells[[2]int{ni, li}] += v
+	}
+
+	carry := strings.EqualFold(sp.Fill, "previous")
+	vals := make([][]*float64, len(names))
+	weight := make([]float64, len(names))
+	for ni := range names {
+		vals[ni] = make([]*float64, len(labels))
+		var last *float64
+		for li := range labels {
+			if v, ok := cells[[2]int{ni, li}]; ok {
+				last = &v
+				weight[ni] += math.Abs(v)
+			} else if !carry {
+				zero := 0.0
+				last = &zero
+			}
+			vals[ni][li] = last
+		}
+	}
+
+	// Too many to tell apart: keep the largest, add up the rest as Other.
+	keep := make([]int, len(names))
+	for i := range keep {
+		keep[i] = i
+	}
+	var other []*float64
+	if len(names) > maxChartSeries {
+		sort.SliceStable(keep, func(a, b int) bool { return weight[keep[a]] > weight[keep[b]] })
+		other = make([]*float64, len(labels))
+		for _, ni := range keep[maxChartSeries-1:] {
+			for li, v := range vals[ni] {
+				if v != nil {
+					sum := *v
+					if other[li] != nil {
+						sum += *other[li]
+					}
+					other[li] = &sum
+				}
+			}
+		}
+		keep = keep[:maxChartSeries-1]
+		sort.Ints(keep)
+	}
+	var series []map[string]any
+	for i, ni := range keep {
+		series = append(series, map[string]any{"name": names[ni], "color": widgets.PaletteAt(i), "values": vals[ni]})
+	}
+	if other != nil {
+		series = append(series, map[string]any{"name": "Other", "color": widgets.PaletteAt(len(series)), "values": other})
+	}
+	return labels, series, chartFormat(sp.format(res.Columns[vc])), nil
 }
 
 // checkSpec catches what would run but show wrongly: a numeric column with

@@ -36,6 +36,9 @@ type agentWidgetSpec struct {
 	SQL     string                `json:"sql"`
 	Columns map[string]SpecColumn `json:"columns"`
 	Caption string                `json:"caption"`
+	Series  string                `json:"series"`
+	Fill    string                `json:"fill"`
+	Stacked bool                  `json:"stacked"`
 	Data    json.RawMessage       `json:"data"`
 	// A group_rule widget: grouping rules drafted for the user to create.
 	Group string               `json:"group"`
@@ -87,6 +90,8 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	if c, ok := m["columns"]; ok && sp.SQL != "" {
 		_ = json.Unmarshal(c, &sp.Columns)
 	}
+	sp.Series, sp.Fill = rawStr(m["series"]), strings.ToLower(rawStr(m["fill"]))
+	_ = json.Unmarshal(m["stacked"], &sp.Stacked)
 	if strings.EqualFold(sp.Type, "group_rule") {
 		src := m
 		if d, ok := m["data"]; ok {
@@ -281,7 +286,9 @@ statement. Each widget is:
     number: one row; the first column is the value. caption is a short
             description WITHOUT dates (the app adds the period).
     bar/line: first column = x labels (chronological for time: the :grain
-            bucket under TIME SERIES); every further column is a series.
+            bucket under TIME SERIES); every further column is a series —
+            or, with "series" set, three columns: label, series, value
+            (see SEVERAL SERIES).
     pie:    first column = label, second = value (>= 0); at most 12 rows.
     table:  every column is shown, in order; at most 50 rows.
     transactions: columns date, description, category, amount_minor (signed),
@@ -344,6 +351,34 @@ EXAMPLE FINAL (a credit card over time, every transaction — running balance):
    "widgets":[{"type":"line","title":"Visa balance owed",
     "sql":"SELECT date, owed FROM (SELECT t.date, t.id, -(a.opening_balance_minor + SUM(t.amount_minor) OVER (ORDER BY t.date, t.id)) AS owed FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.deleted_at IS NULL AND a.name = 'Visa' AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date)) WHERE date BETWEEN :from AND :to ORDER BY date, id",
     "columns":{"date":{"format":"text"},"owed":{"label":"Owed","format":"money"}},"caption":"Amount owed after each transaction, repayments included"}]}
+
+SEVERAL SERIES — when the user wants things compared or split on one chart
+("each account", "all my accounts", "by category over time", "income vs
+spending"), give a bar or line chart several series; the app draws a key.
+- A fixed few series (income vs spend): one value column each.
+- One series per account, category, merchant, ... : return rows of
+  label, series, value (one row per label per series) and set
+  "series":"<series column>". The app makes a series per distinct value, in
+  the order they first appear, and adds all but the largest 7 together as
+  "Other". ORDER BY the label first so the x axis stays chronological.
+- "fill": what a series with no row at a label shows. "zero" (the default)
+  for amounts per period; "previous" for balances, so an account that had no
+  transactions in a bucket keeps its last balance.
+- Bars: "stacked":true stacks the series into one bar per label, split by
+  colour — use it for parts of a whole (spend by category per period). Leave
+  it off for side-by-side comparisons (income vs spend).
+- Lines suit balances and trends per account; one line per account, each
+  that account's own running balance (PARTITION BY the account).
+EXAMPLE FINAL (every account's balance over time — one line each):
+  {"action":"final","text":"Balances of all 3 accounts over the period; the Visa card is negative while money is owed.",
+   "widgets":[{"type":"line","title":"Account balances","series":"account","fill":"previous",
+    "sql":"SELECT period, account, balance FROM (SELECT CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END AS period, t.date, a.name AS account, a.opening_balance_minor + SUM(t.amount_minor) OVER (PARTITION BY a.id ORDER BY t.date, t.id) AS balance, ROW_NUMBER() OVER (PARTITION BY a.id, CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END ORDER BY t.date DESC, t.id DESC) AS rn FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.deleted_at IS NULL AND a.deleted_at IS NULL AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date)) WHERE rn = 1 AND date BETWEEN :from AND :to ORDER BY period, account",
+    "columns":{"period":{"format":"text"},"account":{"format":"text"},"balance":{"label":"Balance","format":"money"}},"caption":"Balance at the end of each period, per account"}]}
+EXAMPLE FINAL (spending split by category over time — stacked bars):
+  {"action":"final","text":"£2,310.00 spent over the period; Groceries was the largest share.",
+   "widgets":[{"type":"bar","title":"Spending by category","series":"category","stacked":true,
+    "sql":"SELECT CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END AS period, COALESCE(c.name, 'Uncategorised') AS category, SUM(-t.amount_minor) AS spend FROM transactions t LEFT JOIN categories c ON c.id = t.category_id WHERE t.deleted_at IS NULL AND t.type = 'expense' AND t.date BETWEEN :from AND :to GROUP BY 1, 2 ORDER BY 1, 3 DESC",
+    "columns":{"period":{"format":"text"},"category":{"format":"text"},"spend":{"label":"Spend","format":"money"}},"caption":"Spend per period by category, refunds netted off"}]}
 
 EXAMPLE QUERIES (verified against this schema — prefer these patterns):
 - An account's balance at the end of each :grain bucket (long periods):
@@ -684,7 +719,8 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 			continue
 		}
 		spec := &Spec{V: SpecVersion, SQL: stripFences(sp.SQL), Columns: sp.Columns,
-			Caption: truncateChars(strings.TrimSpace(sp.Caption), 120)}
+			Caption: truncateChars(strings.TrimSpace(sp.Caption), 120),
+			Series: sp.Series, Fill: sp.Fill, Stacked: sp.Stacked}
 		w, res, err := s.runSpec(spec, typ, win)
 		if err == nil {
 			err = checkSpec(spec, typ, res)

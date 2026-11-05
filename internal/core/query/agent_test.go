@@ -2,6 +2,8 @@ package query
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -714,5 +716,119 @@ func TestAgentRetriesAfterReplyWithNoJSON(t *testing.T) {
 	}
 	if ans.Text != "£50.00 on transport." {
 		t.Errorf("text = %q", ans.Text)
+	}
+}
+
+// A series column pivots label, series, value rows into a series each;
+// "previous" carries a balance over a bucket with no row, and past the
+// limit the smallest series are added up as Other.
+func TestRunSpecSeriesColumn(t *testing.T) {
+	svc := newAgentService(t, nil)
+	defer func() { _ = svc.DB.Close() }()
+	sql := `SELECT * FROM (VALUES ('2024-01','A',1),('2024-01','B',10),('2024-02','B',20),('2024-03','A',3)) ORDER BY 1`
+	sp := &Spec{V: 2, SQL: sql, Series: "column2", Columns: map[string]SpecColumn{"column3": {Format: "money"}}}
+	get := func(sp *Spec, typ string) map[string]any {
+		t.Helper()
+		w, err := svc.RunSpec(sp, typ, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w.Data.(map[string]any)
+	}
+	vals := func(s map[string]any) string {
+		var out []string
+		for _, v := range s["values"].([]*float64) {
+			if v == nil {
+				out = append(out, "-")
+			} else {
+				out = append(out, strconv.FormatFloat(*v, 'f', -1, 64))
+			}
+		}
+		return strings.Join(out, ",")
+	}
+	d := get(sp, "line")
+	series := d["series"].([]map[string]any)
+	if strings.Join(d["labels"].([]string), ",") != "2024-01,2024-02,2024-03" || len(series) != 2 ||
+		series[0]["name"] != "A" || vals(series[0]) != "1,0,3" || vals(series[1]) != "10,20,0" {
+		t.Errorf("zero fill: %v %v %v", d["labels"], series[0], series[1])
+	}
+	if d["stacked"] != nil {
+		t.Error("a line chart marked stacked")
+	}
+
+	sp.Fill, sp.Stacked = "previous", true
+	d = get(sp, "bar")
+	series = d["series"].([]map[string]any)
+	if vals(series[0]) != "1,1,3" || vals(series[1]) != "10,20,20" || d["stacked"] != true {
+		t.Errorf("previous fill: %v %v %v", series[0], series[1], d["stacked"])
+	}
+
+	var rows []string
+	for i := 0; i < 10; i++ {
+		rows = append(rows, fmt.Sprintf("('x','s%d',%d)", i, i+1))
+	}
+	d = get(&Spec{V: 2, SQL: "SELECT * FROM (VALUES " + strings.Join(rows, ",") + ")", Series: "column2",
+		Columns: map[string]SpecColumn{"column3": {Format: "number"}}}, "bar")
+	series = d["series"].([]map[string]any)
+	if len(series) != maxChartSeries || series[0]["name"] != "s3" || series[len(series)-1]["name"] != "Other" ||
+		vals(series[len(series)-1]) != "6" {
+		t.Errorf("other: %d series, first %v, last %v", len(series), series[0], series[len(series)-1])
+	}
+
+	if _, err := svc.RunSpec(&Spec{V: 2, SQL: sql, Series: "nope"}, "line", nil); err == nil {
+		t.Error("a missing series column passed")
+	}
+}
+
+// Every example answer in the prompt runs as written.
+func TestPromptExamplesRun(t *testing.T) {
+	svc := newAgentService(t, nil)
+	defer func() { _ = svc.DB.Close() }()
+	if _, err := svc.DB.Exec(`INSERT INTO accounts (id, name, type, color, currency, opening_balance_minor, created_at, updated_at)
+		VALUES ('a2','Visa','credit','#4f5bc7','GBP',0,'2024-01-01T00:00:00Z','2024-01-01T00:00:00Z');
+		INSERT INTO transactions (id, account_id, date, description, amount_minor, currency, type, dedupe_hash, created_at, updated_at)
+		VALUES ('v1','a2','2024-05-02','Shop',-5000,'GBP','expense','h','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z'),
+		       ('v2','a2','2024-06-01','Repay',4000,'GBP','transfer','h','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	prompt := svc.agentSystemPrompt(nil)
+	n := 0
+	for rest := prompt; ; {
+		i := strings.Index(rest, `{"action":"final"`)
+		if i < 0 {
+			break
+		}
+		rest = rest[i:]
+		depth, end := 0, -1
+		for j, c := range rest {
+			if c == '{' {
+				depth++
+			} else if c == '}' {
+				if depth--; depth == 0 {
+					end = j + 1
+					break
+				}
+			}
+		}
+		if end < 0 {
+			t.Fatal("unbalanced example")
+		}
+		if strings.Contains(rest[:end], "[...]") { // the format, not an example
+			rest = rest[end:]
+			continue
+		}
+		act, err := parseAction(rest[:end])
+		if err != nil {
+			t.Fatalf("example %d: %v\n%s", n, err, rest[:end])
+		}
+		rest = rest[end:]
+		n++
+		ws, problems := svc.buildWidgets(act.Widgets, nil, false)
+		if len(problems) > 0 || len(ws) != len(act.Widgets) {
+			t.Errorf("example %d: %v", n, problems)
+		}
+	}
+	if n < 7 {
+		t.Errorf("found %d examples", n)
 	}
 }
