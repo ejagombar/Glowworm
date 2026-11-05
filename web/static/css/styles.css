@@ -1133,6 +1133,7 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .timeline-tick::before {
   content: ""; width: 1px; height: 5px; background: var(--line-2); margin-bottom: 4px;
 }
+.timeline-tick[hidden] { display: none; }
 .timeline-tick span { font-size: 10.5px; color: var(--muted-2); white-space: nowrap; }
 .timeline-tick.first { transform: none; align-items: flex-start; }
 .timeline-tick.last { transform: translateX(-100%); align-items: flex-end; }

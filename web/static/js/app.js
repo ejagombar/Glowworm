@@ -3978,6 +3978,16 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
+// The current timeline's tick layout, redone when the window resizes. The
+// timeline is rebuilt when History switches panes, so it's kept here and the
+// listener is added once.
+let layoutTimelineTicks = null;
+let tickResizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(tickResizeTimer);
+  tickResizeTimer = setTimeout(() => { if (layoutTimelineTicks) layoutTimelineTicks(); }, 100);
+});
+
 function initHistoryTimeline() {
   const slider = document.getElementById("timelineSlider");
   if (!slider) return;
@@ -4040,8 +4050,11 @@ function initHistoryTimeline() {
     timer = setTimeout(() => render(idx), 80);
   });
   const ticks = document.getElementById("timelineTicks");
-  if (ticks && months.length) {
-    const count = Math.min(months.length, 7);
+  // As many date labels as fit the slider's width (up to 7); a middle one
+  // that would still run into its neighbour or the last is dropped.
+  const layoutTicks = () => {
+    if (!ticks || !months.length) return;
+    const count = Math.max(2, Math.min(months.length, 7, Math.floor(ticks.clientWidth / 64)));
     const denom = count > 1 ? count - 1 : 1;
     let html = "";
     for (let i = 0; i < count; i++) {
@@ -4051,7 +4064,20 @@ function initHistoryTimeline() {
       html += `<div class="timeline-tick${cls}" style="left:${pos}%"><span>${esc(tickDateLabel(months[tIdx]))}</span></div>`;
     }
     ticks.innerHTML = html;
-  }
+    const spans = [...ticks.querySelectorAll(".timeline-tick span")];
+    if (spans.length < 3) return;
+    const gap = 8;
+    const last = spans[spans.length - 1].getBoundingClientRect();
+    let prevRight = spans[0].getBoundingClientRect().right;
+    spans.slice(1, -1).forEach((span) => {
+      const r = span.getBoundingClientRect();
+      if (r.left < prevRight + gap || r.right > last.left - gap) span.parentElement.hidden = true;
+      else prevRight = r.right;
+    });
+  };
+  layoutTicks();
+  layoutTimelineTicks = layoutTicks;
+
   render(Number(slider.value));
 }
 document.addEventListener("DOMContentLoaded", initHistoryTimeline);
