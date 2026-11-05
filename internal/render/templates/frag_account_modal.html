@@ -24,6 +24,26 @@
           <option value="savings">Savings</option>
         </select>
       </div>
+      <section class="balance-panel" id="accValuationBlock" hidden>
+        <div class="balance-panel-head">
+          <span class="balance-panel-label">Balance</span>
+          <span class="balance-panel-now" id="accBalanceNow"></span>
+        </div>
+        <p class="field-hint" id="accBalanceAsOf"></p>
+        <div class="balance-update">
+          <div class="field-unit">
+            <span class="field-unit-symbol">{{.Symbol}}</span>
+            <input class="field" id="accValuation" type="text" inputmode="decimal" placeholder="New balance" aria-label="New balance" enterkeyhint="done" />
+          </div>
+          <input class="field" id="accValuationDate" type="date" aria-label="Balance date" />
+          <button class="btn btn-primary" type="button" id="accValuationRecord">Update</button>
+        </div>
+        <p class="field-hint">What the account is worth on that day, e.g. after interest. Undo it from History.</p>
+        <details class="valuation-history" id="accValuationHistory" hidden>
+          <summary>Earlier balances <span class="muted" id="accValuationCount"></span></summary>
+          <ul class="valuation-list" id="accValuationList"></ul>
+        </details>
+      </section>
       <div class="field-row">
         <label>Opening balance</label>
         <div class="field-unit">
@@ -55,30 +75,14 @@
           <input class="field" id="accBic" type="text" placeholder="NWBKGB2L" />
         </div>
       </div>
-      <div class="field-row" id="accValuationBlock" hidden>
-        <label id="accValuationListLabel" hidden>Values at a date</label>
-        <ul class="valuation-list" id="accValuationList" hidden></ul>
-        <button class="btn btn-ghost btn-xs" type="button" id="accValuationAdd">
-          <svg class="icon"><use href="#i-plus"/></svg> Add a value at a date
-        </button>
-        <div id="accValuationRow" hidden>
-          <label for="accValuation">Value on date</label>
-          <div class="field-cols">
-            <div class="field-unit">
-              <span class="field-unit-symbol">{{.Symbol}}</span>
-              <input class="field" id="accValuation" type="number" step="0.01" placeholder="e.g. 4520.00" />
-            </div>
-            <input class="field" id="accValuationDate" type="date" aria-label="Valuation date" />
-          </div>
-          <p class="field-hint">What the account was worth on that date, e.g. after interest. It's saved as a correction in the audit log, so it can be undone.</p>
-        </div>
+      <div class="account-danger" id="accDangerZone" hidden>
+        <button class="btn btn-ghost btn-xs danger-text" type="button" id="accDeleteBtn">Delete account</button>
+        <span class="field-hint">Removes it and its transactions. You can restore it from Deleted accounts.</span>
       </div>
     </form>
-    <div class="modal-foot">
-      <button class="btn btn-danger" id="accDeleteBtn" hidden>Delete account</button>
-      <span class="spacer"></span>
-      <button class="btn btn-primary" id="accSaveBtn">Add account</button>
+    <div class="modal-foot account-modal-foot">
       <button class="btn btn-ghost" id="accCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="accSaveBtn">Add account</button>
     </div>
   </div>
 </div>

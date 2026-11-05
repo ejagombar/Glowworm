@@ -282,6 +282,8 @@ body.privacy .account-row p,
 body.privacy .settings-account-balance,
 body.privacy .settings-account-opening,
 body.privacy .valuation-value,
+body.privacy .balance-panel-now,
+body.privacy .valuation-compare,
 body.privacy #accOpening,
 body.privacy #accValuation,
 body.privacy .table-widget td.num { filter: blur(5px); }
@@ -1185,8 +1187,29 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .setting-stack { grid-column: span 4; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .setting-stack > .setting-block { grid-column: auto; }
 .setting-divider { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+.balance-panel {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2);
+  padding: 12px 12px 10px; margin-bottom: 14px;
+}
+.balance-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.balance-panel-label { font-size: 12px; color: var(--muted); }
+.balance-panel-now { font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.balance-panel > .field-hint:first-of-type { margin: 2px 0 10px; }
+.balance-update { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.balance-update .field-unit { min-width: 0; }
+.balance-update .field-unit .field { min-width: 0; width: 100%; }
+.balance-update input[type="date"].field { width: auto; }
+.valuation-history { margin-top: 10px; }
+.valuation-history summary { cursor: pointer; font-size: 12.5px; padding: 4px 0; }
+.valuation-history .valuation-list { margin: 6px 0 0; }
 .valuation-list { list-style: none; margin: 0 0 10px; padding: 0; border: 1px solid var(--line); border-radius: var(--r); }
-.valuation-list li { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 11px; font-size: 13px; }
+.valuation-list li { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 11px; font-size: 13px; }
+.account-danger {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border-top: 1px solid var(--line); padding-top: 14px; margin-top: 6px;
+}
+.account-danger .field-hint { margin: 0; flex: 1; min-width: 180px; }
+.account-modal-foot { justify-content: flex-end; }
 .valuation-list li + li { border-top: 1px solid var(--line); }
 .valuation-date { color: var(--muted); min-width: 96px; }
 .valuation-value { flex: 1; font-family: var(--mono); }
@@ -1959,6 +1982,12 @@ html.app-covered body > * { visibility: hidden; }
   .tx-editor-actions { margin-left: 0; justify-content: flex-end; }
   .tx-editor-row td { padding: 0 8px 10px !important; }
   .modal-foot { flex-wrap: wrap; }
+  .account-modal-foot { flex-wrap: nowrap; }
+  .account-modal-foot .btn { flex: 1; justify-content: center; }
+  .balance-update { grid-template-columns: 1fr auto; }
+  .balance-update .field-unit { grid-column: 1 / -1; }
+  .balance-update .btn { justify-content: center; }
+  .balance-update input[type="date"].field { width: 100%; }
 }
 /* Touch screens can't hover, so controls that appear on hover stay visible. */
 @media (hover: none) {
@@ -1978,3 +2007,5 @@ html.app-covered body > * { visibility: hidden; }
 .change-rows { max-height: 320px; overflow-y: auto; }
 .change-skip td { opacity: .55; }
 .rule-draft-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.valuation-compare { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: var(--mono); font-size: 13px; margin-bottom: 4px; }
+.valuation-compare .icon { width: 14px; height: 14px; color: var(--muted); }

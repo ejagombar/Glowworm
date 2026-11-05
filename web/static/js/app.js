@@ -467,7 +467,11 @@ function openModal(id) {
 }
 function closeModal(id) {
   const m = document.getElementById(id);
-  if (m) m.hidden = true;
+  if (!m) return;
+  const wasOpen = !m.hidden;
+  m.hidden = true;
+  // A balance recorded from the account pop-up shows on the page behind.
+  if (wasOpen && m.dataset.changed) { delete m.dataset.changed; location.reload(); }
 }
 function closePasswordModal() {
   closeModal("passwordModal");
@@ -1127,6 +1131,7 @@ function widgetBodyHTML(widget) {
   if (widget.type === "group_rules") return `<div class="rules-host" data-rules-kind="list"></div>`;
   if (widget.type === "group_rule") return `<div class="rules-host" data-rules-kind="draft" data-draft="${esc(JSON.stringify(data))}"></div>`;
   if (widget.type === "change") return `<div class="rules-host" data-rules-kind="change" data-draft="${esc(JSON.stringify(data))}"></div>`;
+  if (widget.type === "valuation") return `<div class="rules-host" data-rules-kind="valuation" data-draft="${esc(JSON.stringify(data))}"></div>`;
   if (data.transactions) {
     data.transactions = data.transactions.map((tx) => {
       const v = tx.amount_minor ?? tx.amount ?? 0;
@@ -1752,7 +1757,7 @@ function recurringSearchHref(txs) {
 }
 // ---- Grouping rules, shown only in the query window. Both widgets read the
 // rules live, so an old answer still shows what's true now.
-function isRulesWidget(type) { return type === "group_rule" || type === "group_rules" || type === "change"; }
+function isRulesWidget(type) { return type === "group_rule" || type === "group_rules" || type === "change" || type === "valuation"; }
 function ruleText(r) {
   return `${r.match === "is" ? "is" : "contains"} “${r.text}”`;
 }
@@ -1760,6 +1765,7 @@ function hydrateRules(root) {
   (root || document).querySelectorAll(".rules-host").forEach((host) => {
     if (host.dataset.rulesKind === "list") loadRulesList(host);
     else if (host.dataset.rulesKind === "change") loadChange(host);
+    else if (host.dataset.rulesKind === "valuation") loadValuationDraft(host);
     else loadRuleDraft(host);
   });
 }
@@ -1831,6 +1837,51 @@ function loadChange(host) {
       </div></div>`;
   }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the change.")}</p>`; });
 }
+// A savings account's value, drafted from a question ("my ISA is 50,000").
+// It's read against the account each time, so an old answer shows whether
+// it was recorded.
+function loadValuationDraft(host) {
+  let d;
+  try { d = JSON.parse(host.dataset.draft || "{}"); } catch (e) { d = {}; }
+  const id = encodeURIComponent(d.account_id || "");
+  Promise.all([
+    fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)),
+    fetch(`/api/v1/accounts/${id}/valuations`).then((r) => jsonOk(r)),
+  ]).then(([acct, vals]) => {
+    const cc = acct.currency || d.currency || "GBP";
+    const money = (m) => (m < 0 ? "\u2212" : "") + fmtMoneyMinor(m, cc);
+    const recorded = (vals.items || []).some((v) => v.date === d.date && v.value_minor === d.value_minor);
+    const diff = d.value_minor - acct.current_balance_minor;
+    host.innerHTML = `<div class="rule-draft valuation-draft">
+      <p class="rule-draft-head">${recorded ? "<strong>Recorded:</strong> " : ""}<strong>${esc(acct.name)}</strong>
+        ${recorded ? "was" : "is"} worth <strong>${esc(money(d.value_minor))}</strong> on ${esc(dayMonthYearJS(d.date))}</p>
+      ${recorded ? "" : `<div class="valuation-compare">
+        <span><span class="cell-sub">Now</span> ${esc(money(acct.current_balance_minor))}</span>
+        <svg class="icon"><use href="#i-arrow-right"/></svg>
+        <span><strong>${esc(money(d.value_minor))}</strong></span>
+        ${diff ? `<span class="cell-sub">(${esc(fmtMoneySigned(diff, cc))})</span>` : ""}
+      </div>`}
+      <div class="rule-draft-foot">
+        <span class="cell-sub">${recorded ? `Recorded · <a href="/history?mode=audit">undo in History</a>` : "Nothing changes until you record it."}</span>
+        ${recorded ? "" : `<button class="btn btn-primary btn-xs" data-record-valuation>Record</button>`}
+      </div></div>`;
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not load the account.")}</p>`; });
+}
+function recordValuation(btn) {
+  const host = btn.closest(".rules-host");
+  let d;
+  try { d = JSON.parse(host.dataset.draft || "{}"); } catch (e) { return; }
+  btn.disabled = true;
+  fetch(`/api/v1/accounts/${encodeURIComponent(d.account_id)}/valuations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: JSON.stringify({ value_minor: d.value_minor, date: d.date, note: "From Queries" }),
+  }).then(async (r) => {
+    if (!r.ok) { toast(await apiErrorText(r, "Could not record the value")); btn.disabled = false; return; }
+    toast("Value recorded");
+    loadValuationDraft(host);
+  }).catch(() => { toast("Could not record the value"); btn.disabled = false; });
+}
 function applyChange(btn) {
   const host = btn.closest(".rules-host");
   btn.disabled = true;
@@ -1853,6 +1904,8 @@ document.addEventListener("click", (e) => {
     } else applyChange(apply);
     return;
   }
+  const record = e.target.closest("[data-record-valuation]");
+  if (record) { recordValuation(record); return; }
   const create = e.target.closest("[data-create-rule]");
   if (create) {
     const host = create.closest(".rules-host");
@@ -1965,10 +2018,11 @@ function openAccountForm(id) {
   const modal = document.getElementById("accountModal");
   const form = document.getElementById("accountForm");
   form.dataset.accountId = id || "";
+  delete modal.dataset.changed;
   document.getElementById("accSaveBtn").textContent = id ? "Save changes" : "Add account";
   document.getElementById("accountModalTitle").textContent = id ? "Account settings" : "Add account";
   document.getElementById("accountModalSub").textContent = id ? "Edit this account's details." : "Add a new account to Glowworm.";
-  document.getElementById("accDeleteBtn").hidden = !id;
+  document.getElementById("accDangerZone").hidden = !id;
   resetValuationFields();
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
@@ -1980,47 +2034,62 @@ function openAccountForm(id) {
       document.getElementById("accSortCode").value = a.sort_code || "";
       document.getElementById("accIban").value = a.iban || "";
       document.getElementById("accBic").value = a.bic || "";
+      showAccountBalance(a);
       syncValuationBlock();
       loadValuations(id);
     }).catch((e) => toast(e.message || "Could not load account"));
   } else {
     ["accName","accOpening","accNumber","accSortCode","accIban","accBic"].forEach((x) => (document.getElementById(x).value = ""));
-    document.getElementById("accValuationList").hidden = document.getElementById("accValuationListLabel").hidden = true;
+    document.getElementById("accValuationHistory").hidden = true;
     document.getElementById("accType").value = "debit";
   }
   syncValuationBlock();
   modal.hidden = false;
-  document.getElementById("accName").focus();
+  modal.scrollTop = 0;
+  // Only a new account starts in the Name box, and not on a touch screen,
+  // where focus throws up the keyboard before anything is tapped.
+  if (!id && !window.matchMedia("(pointer: coarse)").matches) document.getElementById("accName").focus();
 }
 
-// A dated value is only for savings accounts, and only when asked for: the
-// fields stay hidden behind "Add a value at a date" so a plain save never
-// records a correction.
-function resetValuationFields() {
-  document.getElementById("accValuationRow").hidden = true;
-  document.getElementById("accValuationAdd").hidden = false;
-  document.getElementById("accValuation").value = "";
-  document.getElementById("accValuationDate").value = new Date().toISOString().slice(0, 10);
+// A savings account's balance is set by recording what it's worth on a day.
+// Update records it straight away; it doesn't wait for Save changes.
+function localISODate(d) {
+  const t = d || new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
-// Existing dated values for the account, each removable (it's logged, so the
-// removal can be undone from the audit log).
+function resetValuationFields() {
+  document.getElementById("accValuation").value = "";
+  document.getElementById("accValuationDate").value = localISODate();
+  document.getElementById("accValuationDate").max = localISODate();
+}
+function showAccountBalance(a) {
+  const cc = a.currency || (typeof WIDGET_CURRENCY === "string" ? WIDGET_CURRENCY : "GBP");
+  const now = document.getElementById("accBalanceNow");
+  now.textContent = (a.current_balance_minor < 0 ? "\u2212" : "") + fmtMoneyMinor(a.current_balance_minor, cc);
+  now.dataset.currency = cc;
+}
+// Existing dated values for the account, newest first, each removable (it's
+// logged, so the removal can be undone from History).
 function loadValuations(accountID) {
+  const box = document.getElementById("accValuationHistory");
   const list = document.getElementById("accValuationList");
-  const label = document.getElementById("accValuationListLabel");
-  list.innerHTML = "";
-  list.hidden = label.hidden = true;
+  const asOf = document.getElementById("accBalanceAsOf");
+  const cc = document.getElementById("accBalanceNow").dataset.currency || "GBP";
   fetch(`/api/v1/accounts/${accountID}/valuations`).then((r) => jsonOk(r)).then((b) => {
-    const items = (b.items || []).slice().reverse(); // newest first
-    if (!items.length) return;
+    const items = (b.items || []).slice().sort((x, y) => (y.date + y.created_at).localeCompare(x.date + x.created_at));
+    asOf.textContent = items.length
+      ? `Last set to ${(items[0].value_minor < 0 ? "\u2212" : "") + fmtMoneyMinor(items[0].value_minor, cc)} on ${dayMonthYearJS(items[0].date)}, plus any transactions since.`
+      : "From the opening balance and transactions. Set what it's worth today below.";
+    box.hidden = !items.length;
+    document.getElementById("accValuationCount").textContent = items.length ? `(${items.length})` : "";
     list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
         <span class="valuation-date">${esc(dayMonthYearJS(v.date))}</span>
-        <span class="valuation-value">${v.value_minor < 0 ? "−" : ""}${esc(fmtMoneyMinor(v.value_minor, typeof WIDGET_CURRENCY === "string" ? WIDGET_CURRENCY : "GBP"))}</span>
-        <button type="button" class="btn btn-ghost btn-xs danger-text" data-valuation-delete>Delete</button>
+        <span class="valuation-value">${v.value_minor < 0 ? "\u2212" : ""}${esc(fmtMoneyMinor(v.value_minor, cc))}</span>
+        <button type="button" class="widget-btn" data-valuation-delete title="Delete" aria-label="Delete"><svg class="icon"><use href="#i-close"/></svg></button>
       </li>`).join("");
-    list.hidden = label.hidden = false;
     list.querySelectorAll("[data-valuation-delete]").forEach((btn) => btn.addEventListener("click", () => {
       const li = btn.closest("li");
-      showConfirm("Delete this value?", `The ${li.querySelector(".valuation-value").textContent} recorded on ${li.querySelector(".valuation-date").textContent} is removed. You can undo this from the audit log.`, "Delete", () => {
+      showConfirm("Delete this value?", `The ${li.querySelector(".valuation-value").textContent} recorded on ${li.querySelector(".valuation-date").textContent} is removed. You can undo this from History.`, "Delete", () => {
         fetch(`/api/v1/accounts/${accountID}/valuations/${li.dataset.valuationId}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
           .then(async (r) => {
             if (!r.ok) {
@@ -2029,10 +2098,17 @@ function loadValuations(accountID) {
               return;
             }
             toast("Value deleted");
-            loadValuations(accountID);
+            refreshAccountBalance(accountID);
           }).catch(() => toast("Could not delete the value"));
-      });
+      }, "danger");
     }));
+  }).catch(() => {});
+}
+function refreshAccountBalance(accountID) {
+  document.getElementById("accountModal").dataset.changed = "1";
+  fetch(`/api/v1/accounts/${accountID}`).then((r) => jsonOk(r)).then((a) => {
+    showAccountBalance(a);
+    loadValuations(accountID);
   }).catch(() => {});
 }
 function dayMonthYearJS(iso) {
@@ -2040,17 +2116,48 @@ function dayMonthYearJS(iso) {
   return isNaN(d) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// The balance panel is for a savings account that already exists: a new one
+// starts from its opening balance.
 function syncValuationBlock() {
   const savings = document.getElementById("accType").value === "savings";
-  document.getElementById("accValuationBlock").hidden = !savings;
+  const existing = !!document.getElementById("accountForm").dataset.accountId;
+  document.getElementById("accValuationBlock").hidden = !(savings && existing);
   if (!savings) resetValuationFields();
 }
+// "50,000", "£50000.00" and "50k" all read as 50,000.
+function parseMoneyInput(raw) {
+  let t = String(raw || "").replace(/[\s,£$€]/g, "").toLowerCase();
+  let mult = 1;
+  if (t.endsWith("k")) { mult = 1000; t = t.slice(0, -1); }
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(t)) return null;
+  return Math.round(parseFloat(t) * mult * 100);
+}
 function pendingValuation() {
-  if (document.getElementById("accValuationBlock").hidden || document.getElementById("accValuationRow").hidden) return null;
-  const raw = document.getElementById("accValuation").value;
-  const val = parseFloat(raw);
-  if (raw === "" || isNaN(val)) return null;
-  return { value_minor: Math.round(val * 100), date: document.getElementById("accValuationDate").value, note: "Manual valuation" };
+  if (document.getElementById("accValuationBlock").hidden) return null;
+  const raw = document.getElementById("accValuation").value.trim();
+  if (raw === "") return null;
+  const minor = parseMoneyInput(raw);
+  if (minor === null) return { error: "Enter the balance as a number, e.g. 4520.00" };
+  return { value_minor: minor, date: document.getElementById("accValuationDate").value || localISODate(), note: "Manual valuation" };
+}
+function recordAccountValuation() {
+  const id = document.getElementById("accountForm").dataset.accountId;
+  const v = pendingValuation();
+  if (!id || !v) { document.getElementById("accValuation").focus(); return; }
+  if (v.error) { toast(v.error); return; }
+  const btn = document.getElementById("accValuationRecord");
+  btn.disabled = true;
+  fetch(`/api/v1/accounts/${id}/valuations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: JSON.stringify(v),
+  }).then(async (r) => {
+    if (!r.ok) { toast(await apiErrorText(r, "Could not update the balance")); return; }
+    toast("Balance updated");
+    document.getElementById("accValuation").value = "";
+    document.getElementById("accValuation").blur();
+    refreshAccountBalance(id);
+  }).catch(() => toast("Could not update the balance")).finally(() => { btn.disabled = false; });
 }
 
 function saveAccount() {
@@ -2058,6 +2165,7 @@ function saveAccount() {
   const id = form.dataset.accountId;
   const body = accountPayload();
   const valuation = pendingValuation();
+  if (valuation && valuation.error) { toast(valuation.error); return; }
   const url = id ? `/api/v1/accounts/${id}` : "/api/v1/accounts";
   fetch(url, {
     method: id ? "PATCH" : "POST",
@@ -2105,10 +2213,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accCancelBtn")?.addEventListener("click", () => closeModal("accountModal"));
   document.querySelectorAll("[data-action='close-account']").forEach((b) => b.addEventListener("click", () => closeModal("accountModal")));
   document.getElementById("accType")?.addEventListener("change", syncValuationBlock);
-  document.getElementById("accValuationAdd")?.addEventListener("click", () => {
-    document.getElementById("accValuationAdd").hidden = true;
-    document.getElementById("accValuationRow").hidden = false;
-    document.getElementById("accValuation").focus();
+  document.getElementById("accValuationRecord")?.addEventListener("click", recordAccountValuation);
+  document.getElementById("accValuation")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); recordAccountValuation(); }
   });
   // The new-transaction modal is wired in the boot handler (guarded by
   // #newTxBtn). An unguarded copy here threw on pages without it and killed
