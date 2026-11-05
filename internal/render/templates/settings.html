@@ -151,6 +151,52 @@
                 </div>
             </div>
 
+            {{with .Lock}}
+            <div class="panel setting-block" id="lockSettings">
+                <h2>Face ID</h2>
+                <p class="muted">Lock Glowworm on this device and unlock it with Face ID (or Touch ID, or your
+                    device's passkey). Your password still unlocks it.</p>
+                {{if not .HostOK}}
+                <p class="muted"><strong>Not available here:</strong> Face ID only works when Glowworm is opened at
+                    a domain name over HTTPS, not an IP address.</p>
+                {{else}}
+                <p class="lock-state" id="lockState" data-locked="{{.DeviceLocked}}">
+                    {{if .DeviceLocked}}<svg class="icon"><use href="#i-check" /></svg> On for this device.
+                    {{else}}Off for this device.{{end}}
+                </p>
+                <div class="account-actions">
+                    {{if .DeviceLocked}}
+                    <button class="btn btn-ghost" id="lockOffBtn" type="button">Turn off on this device</button>
+                    {{else}}
+                    <button class="btn btn-primary" id="lockSetupBtn" type="button">Set up Face ID on this device</button>
+                    {{end}}
+                </div>
+                {{end}}
+                <div class="field-row lock-after-row">
+                    <label for="lockAfterSelect">Lock when away</label>
+                    <select class="field select" id="lockAfterSelect">
+                        {{range .Choices}}<option value="{{.}}" {{if eq . $.Lock.After}} selected{{end}}>
+                            {{if eq . 0}}Immediately{{else if eq . 60}}After 1 hour{{else if eq . 1}}After 1 minute{{else}}After {{.}} minutes{{end}}</option>{{end}}
+                    </select>
+                </div>
+                {{if .Passkeys}}
+                <h3 class="lock-keys-head">Passkeys</h3>
+                <ul class="lock-keys">
+                    {{range .Passkeys}}
+                    <li class="lock-key">
+                        <div>
+                            <strong>{{.Name}}</strong>
+                            <span class="muted">Added {{.Created}}{{if .LastUsed}} · last used {{.LastUsed}}{{end}}</span>
+                        </div>
+                        <button class="btn btn-ghost btn-xs" type="button" data-passkey-remove="{{.ID}}"
+                            data-passkey-name="{{.Name}}">Remove</button>
+                    </li>
+                    {{end}}
+                </ul>
+                {{end}}
+            </div>
+            {{end}}
+
             <div class="panel setting-block">
                 <div class="setting-head">
                     <h2>Backup &amp; deletion</h2>

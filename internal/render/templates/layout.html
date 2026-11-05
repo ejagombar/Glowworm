@@ -23,6 +23,9 @@
   <link rel="apple-touch-startup-image" href="/static/splash/{{.File true}}" media="{{.Media true}}" />
   {{- end}}
   <meta name="glowworm-version" content="{{.DataVersion}}" />
+  {{- if ge .LockAfter 0}}
+  <meta name="glowworm-lock" content="{{.LockAfter}}" />
+  {{- end}}
   <link rel="stylesheet" href="{{asset "css/styles.css"}}" />
   <script>
     (function () {

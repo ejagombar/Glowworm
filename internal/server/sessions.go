@@ -26,6 +26,8 @@ const (
 type Session struct {
 	UserID  string
 	Expires time.Time
+	// Nonce tells this sign-in from others; the app lock's unlock is tied to it.
+	Nonce string
 	// Fingerprint ties the session to the password it was signed in with,
 	// so changing the password signs out every other session.
 	Fingerprint string
@@ -58,7 +60,8 @@ func decodeToken(secret *crypto.Secret, token string) (string, bool) {
 
 func issueSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret, u *core.User) {
 	secure := isTLS(r)
-	payload := fmt.Sprintf("%s|%d|%s|%s", u.ID, time.Now().Add(sessionTTL).Unix(), randomHex(8),
+	nonce := randomHex(8)
+	payload := fmt.Sprintf("%s|%d|%s|%s", u.ID, time.Now().Add(sessionTTL).Unix(), nonce,
 		passwordFingerprint(u.PasswordHash))
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: encodeToken(secret, payload), Path: "/",
@@ -70,11 +73,14 @@ func issueSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret,
 		HttpOnly: false, Secure: secure, SameSite: http.SameSiteLaxMode,
 		MaxAge: int(sessionTTL.Seconds()),
 	})
+	// Having just given the password, the device is unlocked; the next
+	// request renews this for the full lock time.
+	writeUnlock(w, r, secret, nonce, time.Now().Add(time.Minute))
 }
 
 func clearSession(w http.ResponseWriter, r *http.Request) {
 	secure := isTLS(r)
-	for _, name := range []string{sessionCookie, csrfCookie} {
+	for _, name := range []string{sessionCookie, csrfCookie, unlockCookie} {
 		http.SetCookie(w, &http.Cookie{
 			Name: name, Value: "", Path: "/", HttpOnly: name == sessionCookie,
 			Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: -1,
@@ -102,7 +108,7 @@ func readSession(r *http.Request, secret *crypto.Secret) (*Session, bool) {
 	if time.Now().Unix() > exp {
 		return nil, false
 	}
-	return &Session{UserID: parts[0], Expires: time.Unix(exp, 0), Fingerprint: parts[3]}, true
+	return &Session{UserID: parts[0], Expires: time.Unix(exp, 0), Nonce: parts[2], Fingerprint: parts[3]}, true
 }
 
 func CSRFToken(w http.ResponseWriter, r *http.Request, secret *crypto.Secret) string {

@@ -48,6 +48,10 @@ type viewBase struct {
 	Standalone  bool
 	// DataVersion is the data this page was built from; see dataVersion.
 	DataVersion string
+	// LockAfter is the app lock's time in minutes on a device that has it
+	// on, for app.js to lock when the app comes back from being put away;
+	// -1 when this device isn't locked.
+	LockAfter int
 }
 
 // shortDate is "22 Oct 2025", matching the date range button in app.js.
@@ -113,8 +117,13 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	if c, err := r.Cookie(privacyCookie); err == nil {
 		privacy = c.Value == "1"
 	}
+	lockAfter := -1
+	if sess, ok := a.session(r); ok && a.Cfg.AuthMode == "password" && a.lockRequired(r, sess) {
+		lockAfter = a.lockAfter()
+	}
 	return &viewBase{
-		Title: title, View: view, Period: period, PeriodLabel: label,
+		LockAfter: lockAfter,
+		Title:     title, View: view, Period: period, PeriodLabel: label,
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
 		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
@@ -915,9 +924,15 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		AIQueriesModel string
 		AICatModel     string
 		SetupDone      bool
+		Lock           *lockSettings
 	}{
 		viewBase: base, Accounts: cards, Archives: archives,
 		AIProvider: aiProviderLabel(aiRow), AIKeyMask: aiMasked, SetupDone: s.SetupCompleted,
+	}
+	if a.Cfg.AuthMode == "password" {
+		if data.Lock, err = a.lockSettings(r); err != nil {
+			return err
+		}
 	}
 	if aiRow != nil {
 		data.AIHasKey = aiRow.KeyCipher != ""

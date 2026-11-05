@@ -77,6 +77,7 @@ window.fetch = function (input, init) {
     if (r.status >= 502 && r.status <= 504) connection.lost("server");
     else connection.ok();
     if (r.status === 401 && url.pathname.startsWith("/api/")) connection.signedOut();
+    if (r.status === 423) appLock.lock();
     const v = r.headers.get("X-Glowworm-Version");
     if (v && method !== "GET" && method !== "HEAD") dataVersion.ownChange(v);
     return r;
@@ -185,6 +186,100 @@ const dataVersion = (() => {
   setInterval(api.check, 60000);
   return api;
 })();
+// ---- App lock. On a device with Face ID turned on (the page has a
+// glowworm-lock meta), coming back to the app after the lock time sends it to
+// the unlock page. While the app is put away its content is hidden, so the
+// app switcher doesn't show balances. The server keeps the lock too: after
+// the lock time with no requests, it answers 423 (handled in fetch above)
+// or sends pages to /unlock.
+const appLock = (() => {
+  const meta = document.querySelector('meta[name="glowworm-lock"]');
+  const lock = () => {
+    if (location.pathname !== "/unlock") location.replace("/unlock?lock=1&next=" + encodeURIComponent(location.pathname + location.search));
+  };
+  if (!meta) return { lock };
+  const afterMs = Number(meta.content) * 60000;
+  let hiddenAt = 0;
+  const due = () => hiddenAt && Date.now() - hiddenAt >= afterMs;
+  const html = document.documentElement;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      hiddenAt = Date.now();
+      html.classList.add("app-covered");
+    } else if (due()) {
+      lock();
+    } else {
+      html.classList.remove("app-covered");
+    }
+  });
+  // Back from the page cache, after leaving the app on another page.
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;
+    if (due()) lock();
+    else html.classList.remove("app-covered");
+  });
+  return { lock };
+})();
+
+// ---- Passkeys (Face ID). The server sends WebAuthn options as JSON with
+// binary fields in base64url; the browser wants ArrayBuffers, and back.
+const passkeys = (() => {
+  const dec = (s) => {
+    const b = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4));
+    return Uint8Array.from(b, (c) => c.charCodeAt(0)).buffer;
+  };
+  const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const post = (url, body) => fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: body ? JSON.stringify(body) : "{}",
+  }).then((r) => jsonOk(r));
+  const supported = () => !!(window.PublicKeyCredential && navigator.credentials);
+  return {
+    supported,
+    // create sets up a passkey on this device; rejects with the browser's
+    // InvalidStateError if this device already has one.
+    async create() {
+      const { publicKey: o } = await post("/api/v1/passkeys/register/begin");
+      o.challenge = dec(o.challenge);
+      o.user.id = dec(o.user.id);
+      (o.excludeCredentials || []).forEach((c) => (c.id = dec(c.id)));
+      const cred = await navigator.credentials.create({ publicKey: o });
+      return post("/api/v1/passkeys/register/finish", {
+        id: cred.id, rawId: enc(cred.rawId), type: cred.type,
+        authenticatorAttachment: cred.authenticatorAttachment || undefined,
+        clientExtensionResults: cred.getClientExtensionResults(),
+        response: {
+          clientDataJSON: enc(cred.response.clientDataJSON),
+          attestationObject: enc(cred.response.attestationObject),
+          transports: cred.response.getTransports ? cred.response.getTransports() : [],
+        },
+      });
+    },
+    // unlock asks for one of the owner's passkeys and unlocks this device.
+    async unlock() {
+      const { publicKey: o } = await post("/unlock/begin");
+      o.challenge = dec(o.challenge);
+      (o.allowCredentials || []).forEach((c) => (c.id = dec(c.id)));
+      const cred = await navigator.credentials.get({ publicKey: o });
+      return post("/unlock/finish", {
+        id: cred.id, rawId: enc(cred.rawId), type: cred.type,
+        authenticatorAttachment: cred.authenticatorAttachment || undefined,
+        clientExtensionResults: cred.getClientExtensionResults(),
+        response: {
+          clientDataJSON: enc(cred.response.clientDataJSON),
+          authenticatorData: enc(cred.response.authenticatorData),
+          signature: enc(cred.response.signature),
+          userHandle: cred.response.userHandle ? enc(cred.response.userHandle) : undefined,
+        },
+      });
+    },
+    // cancelled is the error the browser gives when Face ID is dismissed
+    // (or not allowed without a tap).
+    cancelled: (err) => err && (err.name === "NotAllowedError" || err.name === "AbortError"),
+  };
+})();
+
 function restoredMessage(res) {
   const n = res.transactions || 0;
   let msg = `Restored “${res.name}” · ${n} transaction${n === 1 ? "" : "s"}`;
@@ -3725,5 +3820,102 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   window.addEventListener("popstate", () => {
     if (document.getElementById("historyPaneHost")) loadHistoryPane(location.href, false);
+  });
+});
+
+// ---- The unlock page and the Face ID settings.
+document.addEventListener("DOMContentLoaded", () => {
+  const faceBtn = document.getElementById("unlockFaceID");
+  if (faceBtn) {
+    const status = document.getElementById("unlockStatus");
+    const form = document.getElementById("unlockPasswordForm");
+    const usePw = document.getElementById("unlockUsePassword");
+    const showPassword = () => {
+      form.hidden = false;
+      usePw.hidden = true;
+      document.getElementById("unlockPassword").focus();
+    };
+    usePw.addEventListener("click", showPassword);
+    let busy = false;
+    const unlock = async (auto) => {
+      if (busy) return;
+      busy = true;
+      faceBtn.disabled = true;
+      try {
+        await passkeys.unlock();
+        location.replace(window.__UNLOCK_NEXT__ || "/");
+        return;
+      } catch (err) {
+        // Asking without a tap may not be allowed; the button is there.
+        if (!auto) status.textContent = passkeys.cancelled(err) ? "Face ID was cancelled. Try again, or use your password." : err.message;
+      }
+      busy = false;
+      faceBtn.disabled = false;
+    };
+    faceBtn.addEventListener("click", () => unlock(false));
+    if (!passkeys.supported()) {
+      faceBtn.hidden = true;
+      status.textContent = "This browser can't use Face ID. Unlock with your password.";
+      showPassword();
+    } else if (form.hidden) {
+      unlock(true);
+    }
+  }
+
+  const lockBox = document.getElementById("lockSettings");
+  if (!lockBox) return;
+  const setup = document.getElementById("lockSetupBtn");
+  if (setup && !passkeys.supported()) setup.disabled = true;
+  setup?.addEventListener("click", async () => {
+    setup.disabled = true;
+    try {
+      await passkeys.create();
+      reloadWithToast("Face ID is on for this device");
+      return;
+    } catch (err) {
+      if (err && err.name === "InvalidStateError") {
+        // This device already has a passkey for Glowworm: use it.
+        try {
+          await passkeys.unlock();
+          reloadWithToast("Face ID is on for this device");
+          return;
+        } catch (err2) {
+          if (!passkeys.cancelled(err2)) toast(err2.message);
+        }
+      } else if (!passkeys.cancelled(err)) {
+        toast(err.message || "Couldn't set up Face ID");
+      }
+    }
+    setup.disabled = false;
+  });
+  document.getElementById("lockOffBtn")?.addEventListener("click", async () => {
+    try {
+      await fetch("/api/v1/lock/device", {
+        method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ on: false }),
+      }).then((r) => jsonOk(r));
+      reloadWithToast("Face ID is off for this device");
+    } catch (err) { toast(err.message); }
+  });
+  document.getElementById("lockAfterSelect")?.addEventListener("change", async (e) => {
+    try {
+      await fetch("/api/v1/lock/after", {
+        method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ minutes: Number(e.target.value) }),
+      }).then((r) => jsonOk(r));
+      toast("Saved");
+    } catch (err) { toast(err.message); }
+  });
+  lockBox.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-passkey-remove]");
+    if (!btn) return;
+    showConfirm("Remove this passkey?", `Glowworm won't accept the passkey from ${btn.dataset.passkeyName} any more. With no passkeys left, the lock turns off.`, "Remove", async () => {
+      try {
+        await fetch("/api/v1/passkeys/" + encodeURIComponent(btn.dataset.passkeyRemove), {
+          method: "DELETE", headers: { "X-CSRF-Token": csrfToken() },
+        }).then((r) => jsonOk(r));
+        reloadWithToast("Passkey removed");
+      } catch (err) { toast(err.message); }
+    });
   });
 });

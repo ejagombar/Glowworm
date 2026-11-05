@@ -1644,6 +1644,21 @@ html:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
 .login-error { color: var(--expense); font-size: 12.5px; margin: 0 0 10px; }
 .login-card h1.login-title { margin-bottom: 6px; }
 .login-sub { text-align: center; font-size: 12.5px; margin: 0 0 16px; }
+/* The unlock page and the Face ID settings. */
+.unlock-card .btn-primary { margin-bottom: 10px; }
+.unlock-password { margin-top: 4px; }
+.unlock-links { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+.unlock-links form { margin: 0; }
+.lock-state { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
+.lock-state .icon { width: 15px; height: 15px; color: var(--primary); }
+.lock-after-row { margin-top: 14px; }
+.lock-keys-head { font-size: 13px; margin: 16px 0 6px; }
+.lock-keys { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.lock-key { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.lock-key > div { display: flex; flex-direction: column; min-width: 0; }
+.lock-key .muted { font-size: 12px; }
+/* While a locked app is put away, the app switcher sees only the background. */
+html.app-covered body > * { visibility: hidden; }
 .offline-status { text-align: center; font-size: 11.5px; margin: 10px 0 0; min-height: 1.4em; }
 .tx-editor .tx-field select.field { min-width: 200px; }
 

@@ -88,6 +88,7 @@ type Repos struct {
 	Accounts     *repos.Accounts
 	Categories   *repos.Categories
 	Transactions *repos.Transactions
+	Passkeys     *repos.Passkeys
 }
 
 func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logger) (*App, error) {
@@ -103,6 +104,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		Accounts:     &repos.Accounts{DB: db},
 		Categories:   &repos.Categories{DB: db},
 		Transactions: &repos.Transactions{DB: db},
+		Passkeys:     &repos.Passkeys{DB: db},
 	}
 	writer := &audit.Writer{DB: db}
 	app := &App{
@@ -314,6 +316,10 @@ func (a *App) Router() http.Handler {
 	mux.HandleFunc("GET /login", a.handleLoginPage)
 	mux.HandleFunc("POST /login", a.handleLoginSubmit)
 	mux.HandleFunc("POST /logout", a.handleLogout)
+	mux.HandleFunc("GET /unlock", a.handleUnlockPage)
+	mux.HandleFunc("POST /unlock/begin", a.handleUnlockBegin)
+	mux.HandleFunc("POST /unlock/finish", a.handleUnlockFinish)
+	mux.HandleFunc("POST /unlock/password", a.handleUnlockPassword)
 	mux.HandleFunc("GET /setup", a.handleSetupPage)
 	mux.HandleFunc("POST /setup", a.handleSetupSubmit)
 
@@ -427,7 +433,8 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
-		if _, ok := a.session(r); !ok {
+		sess, ok := a.session(r)
+		if !ok {
 			if strings.HasPrefix(path, "/api/") {
 				http.Error(w, `{"error":{"code":"auth_required","message":"Login required"}}`, http.StatusUnauthorized)
 				return
@@ -445,6 +452,9 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 				http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 				return
 			}
+		}
+		if !a.checkLock(w, r, sess) {
+			return
 		}
 		next.ServeHTTP(w, r)
 	})

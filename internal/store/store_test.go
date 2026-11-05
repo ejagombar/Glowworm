@@ -94,8 +94,9 @@ func TestAdoptsMainsCategoryDescriptionMigration(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*), MAX(version) FROM schema_migrations`).Scan(&n, &max); err != nil {
 		t.Fatal(err)
 	}
-	if n != 10 || max != 10 {
-		t.Errorf("migrations recorded = %d up to %d, want 10 up to 10", n, max)
+	// Every migration ends up applied once, under its own number.
+	if latest := all[len(all)-1].version; n != len(all) || max != latest {
+		t.Errorf("migrations recorded = %d up to %d, want %d up to %d", n, max, len(all), latest)
 	}
 	if _, err := db.Exec(`SELECT description FROM categories; SELECT id FROM group_rules`); err != nil {
 		t.Errorf("schema incomplete: %v", err)
