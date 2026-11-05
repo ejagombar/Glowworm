@@ -72,7 +72,9 @@ window.fetch = function (input, init) {
     init = Object.assign({}, init, { signal: ctrl.signal });
     timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   }
+  dataVersion.started();
   return nativeFetch(input, init).then((r) => {
+    dataVersion.finished();
     clearTimeout(timer);
     if (r.status >= 502 && r.status <= 504) connection.lost("server");
     else connection.ok();
@@ -82,6 +84,7 @@ window.fetch = function (input, init) {
     if (v && method !== "GET" && method !== "HEAD") dataVersion.ownChange(v);
     return r;
   }, (err) => {
+    dataVersion.finished();
     clearTimeout(timer);
     const timedOut = ctrl && ctrl.signal.aborted;
     if (err && err.name === "AbortError" && !timedOut) throw err; // the caller cancelled it
@@ -148,42 +151,92 @@ const connection = (() => {
 })();
 
 // ---- Other devices. The server's data version changes whenever anything is
-// saved. When this page comes back into view (and every minute while it's
-// open) it compares the version it was built from; if another device or tab
-// has saved something since, it offers a reload instead of showing old data.
+// saved. Every 20s while this page is in view, and when it comes back into
+// view, it compares the version it was built from; if another device or tab
+// has saved something since, the page reloads itself with the new data,
+// keeping its scroll position. It waits while reloading would lose anything:
+// something typed, an open pop-up, a request still going, rows loaded
+// further down, or the person mid-gesture.
 const dataVersion = (() => {
   const meta = document.querySelector('meta[name="glowworm-version"]');
   let known = meta ? meta.content : "";
-  let offered = false;
-  const offer = () => {
-    if (offered) return;
-    offered = true;
-    const bar = document.createElement("div");
-    bar.className = "conn-banner conn-stale";
-    bar.setAttribute("role", "status");
-    bar.innerHTML = `Something was changed on another device or tab.
-      <button class="btn btn-primary btn-xs" type="button" data-stale-reload>Reload</button>
-      <button class="btn btn-ghost btn-xs" type="button" data-stale-dismiss>Not now</button>`;
-    document.body.prepend(bar);
-    bar.addEventListener("click", (e) => {
-      if (e.target.closest("[data-stale-reload]")) location.reload();
-      if (e.target.closest("[data-stale-dismiss]")) bar.remove();
-    });
+  let stale = false;
+  let inflight = 0;
+  let lastTouch = 0;
+  let holds = 0;
+  const SCROLL_KEY = "glowworm-refresh-scroll";
+
+  // Form values when the page finished setting itself up; anything that
+  // differs since was changed by the person.
+  const fields = () => document.querySelectorAll("input:not([type=hidden]), textarea, select");
+  const valueOf = (el) => (el.type === "checkbox" || el.type === "radio" ? String(el.checked)
+    : el.multiple ? [...el.selectedOptions].map((o) => o.value).join("\n") : el.value);
+  let initial = new Map();
+  const snapshot = () => { initial = new Map([...fields()].map((el) => [el, valueOf(el)])); };
+
+  const busy = () => {
+    if (inflight > 0 || holds > 0 || state.editMode) return true;
+    if (Date.now() - lastTouch < 1500) return true;
+    const a = document.activeElement;
+    if (a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return true;
+    if (document.querySelector(".modal-backdrop:not([hidden]), .drawer.show, .chat-panel.floating.open, .info-popover:not([hidden])")) return true;
+    const sel = window.getSelection && window.getSelection();
+    if (sel && !sel.isCollapsed) return true;
+    for (const el of fields()) {
+      if (el.type === "password" && el.value) return true;
+      if (initial.has(el) ? initial.get(el) !== valueOf(el) : el.value) return true;
+    }
+    return false;
   };
+
+  const refresh = () => {
+    if (!stale || document.hidden || busy()) return;
+    stale = false;
+    try { sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ url: location.href, y: window.scrollY })); } catch (e) {}
+    // A replace, not reload(), so it gets the same crossfade as moving
+    // between pages instead of a blank frame.
+    location.replace(location.href);
+  };
+
   const api = {
     // A save made by this page: its new version isn't news.
     ownChange(v) { known = v; },
+    // Requests through the fetch wrapper; a reload would cut them off.
+    started() { inflight++; },
+    finished() { inflight = Math.max(0, inflight - 1); },
+    // hold is for state a reload would drop: rows loaded further down, an
+    // answer still streaming in, an import under way. It returns the release.
+    hold() {
+      holds++;
+      let held = true;
+      return () => { if (held) { held = false; holds--; } };
+    },
     check() {
-      if (!known || offered || document.hidden) return;
+      if (!known || document.hidden) return;
+      if (stale) { refresh(); return; }
       nativeFetch("/api/v1/version", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((b) => { if (b && b.version && b.version !== known) offer(); })
+        .then((b) => { if (b && b.version && b.version !== known) { stale = true; refresh(); } })
         .catch(() => {});
     },
   };
+
+  for (const ev of ["pointerdown", "touchstart", "keydown", "wheel", "scroll"]) {
+    addEventListener(ev, () => { lastTouch = Date.now(); }, { passive: true, capture: true });
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SCROLL_KEY) || "null");
+      sessionStorage.removeItem(SCROLL_KEY);
+      if (saved && saved.url === location.href) window.scrollTo(0, saved.y);
+    } catch (e) {}
+    setTimeout(snapshot, 0); // after the page's own setup has filled its fields
+  });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) api.check(); });
   window.addEventListener("pageshow", (e) => { if (e.persisted) api.check(); });
-  setInterval(api.check, 60000);
+  setInterval(api.check, 20000);
+  // Once a change is waiting, try again soon after the page is left alone.
+  setInterval(() => { if (stale) refresh(); }, 2000);
   return api;
 })();
 // ---- App lock. On a device with Face ID turned on (the page has a
@@ -631,6 +684,7 @@ function loadOlderMessages() {
       if (items.length) {
         box.dataset.oldest = items[0].created_at + "|" + items[0].id;
         prependMessages(box, items);
+        dataVersion.hold();
         if (window.drawChartHosts) drawChartHosts(box);
         seedSentHistoryFromDOM(box);
       }
@@ -733,6 +787,7 @@ function sendChat(text) {
   box.appendChild(user); box.appendChild(pending);
   box.scrollTop = box.scrollHeight;
 
+  const release = dataVersion.hold();
   fetch("/api/v1/query/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -794,7 +849,7 @@ function sendChat(text) {
       text: "Couldn't reach Glowworm. Check your connection and ask again; if the question did get through, its answer appears after a reload.",
       isError: true,
     });
-  });
+  }).finally(release);
 }
 
 function pinWidget(card, btn) {
@@ -2469,6 +2524,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const tpl = document.createElement("template");
           tpl.innerHTML = html.trim();
           tbody.appendChild(tpl.content);
+          dataVersion.hold();
         }
         if (nextOffset) table.dataset.txNextOffset = nextOffset;
         if (!hasMore) {
@@ -2751,6 +2807,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const accSel = document.getElementById("importAccount");
     if (accSel && accSel.value) fd.append("account_id", accSel.value);
     flowMessage(`<span class="spinner"></span> Reading ${esc(file.name)}…`);
+    dataVersion.hold(); // the import's review lives only on this page
     fetch("/api/v1/imports", {
       method: "POST",
       headers: { "X-CSRF-Token": csrfToken() },
