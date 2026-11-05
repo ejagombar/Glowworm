@@ -226,18 +226,26 @@ A **reconciliation** = recording a known statement balance
 3. Return `{drift_minor, computed_minor}` — the UI toasts "Saved — £X
    difference corrected" when drift ≠ 0.
 
-**Status per account at date D** (timeline "Reconciled" card):
+Any account takes one: a debit or credit account's statement balance, or a
+savings account's value (both recorded from the account pop-up in Settings,
+or drafted by Queries).
+
+**Status at date D** (timeline "Reconciled" card), from each account's latest
+valuation ≤ D, with drift recomputed live against the balance its opening
+balance, earlier valuations and transactions give for that day (so adding a
+missing transaction clears it):
 
 | Condition | Status |
 |---|---|
-| Latest valuation ≤ D has `drift_minor == 0` | `verified` ("In sync") |
-| Latest valuation ≤ D has `drift_minor != 0` | `diverged` ("N divergences" — action: open that account's transactions around the valuation date) |
-| No valuation ≤ D | `unverified` ("Unverified") |
+| A debit/credit account's latest valuation has drift ≠ 0 | `diverged` ("N divergences", naming each account and the gap) |
+| Otherwise, a debit/credit account has a valuation | `verified` ("In sync") |
+| No debit/credit valuation ≤ D | `unverified` ("Unverified") |
 
-Aggregate card = worst-of: any `diverged` → divergences count; else any
-`verified` → "In sync"; else "Unverified". Divergences are actionable: the
-card links to `/transactions?account={id}` and the audit entries for the
-valuation.
+Savings drift is never a divergence: deposits arrive as linked transfers, so
+what's left of a savings account's change since its last value is returns or
+money from outside, reported in the card's hint. A savings account's first
+value, with no earlier value or opening-balance date to compare against, is
+its starting point and reports nothing.
 
 ## 7. UI behaviour recap (prototype parity)
 

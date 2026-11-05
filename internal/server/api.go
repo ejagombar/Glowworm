@@ -1285,7 +1285,7 @@ func (a *App) apiSnapshot(w http.ResponseWriter, r *http.Request) error {
 	}
 	var txCount int64
 	_ = a.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL AND date <= ?`, date).Scan(&txCount)
-	status, label, hint := a.reconcileSummary()
+	status, label, hint := a.reconcileSummary(date)
 	writeJSON(w, map[string]any{
 		"date": date, "accounts": items, "total_minor": total,
 		"currency": a.Settings.Get().Currency, "tx_count": txCount,
@@ -1343,7 +1343,11 @@ func balancesAll(db *store.DB, date string) (map[string]int64, error) {
 }
 
 func (a *App) apiReconcileStatus(w http.ResponseWriter, r *http.Request) error {
-	status, label, hint := a.reconcileSummary()
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = a.Clock.Today()
+	}
+	status, label, hint := a.reconcileSummary(date)
 	writeJSON(w, map[string]any{"status": status, "label": label, "hint": hint})
 	return nil
 }

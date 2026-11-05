@@ -1382,6 +1382,8 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
   .tabnav-item { padding: 0 9px; }
   .content { --content-x: 14px; padding: 16px var(--content-x) 36px; }
   .stats-grid, .stats-grid.three { grid-template-columns: 1fr 1fr; }
+  /* An odd card out fills its row rather than leaving a grey gap beside it. */
+  .stats-grid > .stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .view-head { flex-direction: column; align-items: flex-start; }
   .category-grid { grid-template-columns: 1fr; }
   .setting-block, .setting-stack { grid-column: 1 / -1; }

@@ -221,10 +221,11 @@ DATABASE (SQLite). Tables you may query:
 - accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date)
 - group_rules(id, group_name, match TEXT 'is'|'contains', text, created_at, deleted_at)
 - valuations(id, account_id, date TEXT 'YYYY-MM-DD', value_minor, created_at, deleted_at):
-  what a savings account was worth on a date, recorded by the user. A
-  savings account's balance on a day is its latest valuation on or before
-  that day plus its transactions after the valuation's date; with no
-  valuation, the formula below.
+  an account's balance on a date, recorded by the user (a savings account's
+  value, or a debit/credit account's statement balance). Any account's
+  balance on a day is its latest valuation on or before that day plus its
+  transactions after the valuation's date; with no valuation, the formula
+  below.
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
@@ -406,11 +407,14 @@ EXAMPLE QUERIES (verified against this schema — prefer these patterns):
     WHERE t.deleted_at IS NULL AND a.name = 'Current account'
     AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date))
   WHERE rn = 1 AND date BETWEEN :from AND :to ORDER BY period
-- Current balance per account:
-  SELECT a.name, a.opening_balance_minor + COALESCE((SELECT SUM(t.amount_minor)
+- Current balance per account (from its latest valuation when it has one):
+  SELECT a.name, COALESCE(v.value_minor, a.opening_balance_minor) + COALESCE((SELECT SUM(t.amount_minor)
     FROM transactions t WHERE t.account_id = a.id AND t.deleted_at IS NULL
-    AND (a.opening_balance_date IS NULL OR a.opening_balance_date = '' OR t.date > a.opening_balance_date)), 0)
-    AS balance FROM accounts a WHERE a.deleted_at IS NULL AND a.type <> 'savings'
+    AND t.date > COALESCE(v.date, NULLIF(a.opening_balance_date, ''), '0000-01-01')), 0)
+    AS balance FROM accounts a
+    LEFT JOIN valuations v ON v.id = (SELECT id FROM valuations WHERE account_id = a.id
+      AND deleted_at IS NULL ORDER BY date DESC, created_at DESC LIMIT 1)
+    WHERE a.deleted_at IS NULL AND a.type <> 'savings'
 - Balance at each month end (a series, for line charts; savings excluded):
   WITH months AS (SELECT DISTINCT strftime('%Y-%m', date) AS m FROM transactions WHERE deleted_at IS NULL)
   SELECT m.m AS month, (SELECT COALESCE(SUM(opening_balance_minor),0) FROM accounts
@@ -474,25 +478,28 @@ touch and nothing happens until they press Apply. It can be undone from History.
     (not a category) to make transactions internal transfers.
   - unlink_transfer: breaks the transfer link on the selected transactions.
 - Recurring series are detected automatically from the data and can't be
-  set by hand; say so if asked. Account settings (other than a savings
-  value, below), categories, imports and
+  set by hand; say so if asked. Account settings (other than a recorded
+  balance, below), categories, imports and
   anything else can't be changed from here: say where in the app to do it.
 - Say in the text what pressing Apply would do — never claim it is done.
 
-SAVINGS VALUES: a savings account's balance is kept up to date by the user
-recording what it is worth on a date ("my ISA is 50,000", "the house fund
-is at 12.3k now", "my pension was 80k at the end of March"). When the user
-states a savings account's balance, answer with a valuation widget, which
-they record with one press:
+BALANCES: the user records an account's balance on a date. For a savings
+account it's what the account is worth ("my ISA is 50,000", "the house
+fund is at 12.3k now", "my pension was 80k at the end of March"); for a
+debit or credit account it's what the bank shows ("my Chase balance is
+85.99", "Amex says I owe 209.48"), which the app checks against the
+transactions. When the user states an account's balance, answer with a
+valuation widget, which they record with one press:
   {"type":"valuation","account":"ISA","value_minor":5000000,"date":"2026-11-05"}
-- "account" is the exact name from USER'S ACCOUNTS (a savings account);
-  match loose wording ("my ISA", "stocks and shares") to the closest one.
+- "account" is the exact name from USER'S ACCOUNTS; match loose wording
+  ("my ISA", "stocks and shares", "my current account") to the closest one.
 - "value_minor" is the stated value in minor units: 50,000 → 5000000,
-  12.3k → 1230000.
+  12.3k → 1230000. Money owed on a credit card is negative: owing
+  209.48 → -20948.
 - "date" is the day the value is for: today unless the user names a day.
 - No query is needed first. Text: one sentence saying pressing Record sets
-  the account to that value — never claim it is done.
-- Debit and credit balances come from transactions and can't be set.
+  the account to that balance (for a debit or credit account, checked
+  against its transactions) — never claim it is done.
 
 PROTOCOL — every reply is ONE JSON object, no prose outside it:
 1. To fetch data: {"action":"run_query","sql":"SELECT ..."}
@@ -511,7 +518,7 @@ PROTOCOL — every reply is ONE JSON object, no prose outside it:
    - "widgets": 0-3 live query widgets as described under WIDGETS ARE LIVE
      QUERIES, type one of number, bar, line, pie, table, transactions, text;
      or the group_rule / group_rules widgets under GROUPING (these have no sql),
-     or a change widget under CHANGES, or a valuation widget under SAVINGS VALUES.
+     or a change widget under CHANGES, or a valuation widget under BALANCES.
      Test a widget's sql with run_query first when unsure.
    - Use at most one widget unless the question clearly needs more.
 3. If the user names something that isn't in their categories/accounts/merchants,
@@ -850,7 +857,7 @@ type ValuationDraft struct {
 	Currency   string `json:"currency"`
 }
 
-// draftValuation checks a valuation widget names one savings account, a
+// draftValuation checks a valuation widget names one account, a
 // value and a real date (today when left out). Nothing is recorded.
 func (s *Service) draftValuation(sp agentWidgetSpec) (*ValuationDraft, error) {
 	name := strings.TrimSpace(sp.Account)
@@ -870,17 +877,13 @@ func (s *Service) draftValuation(sp agentWidgetSpec) (*ValuationDraft, error) {
 	if d.Date > s.Clock.Today() {
 		return nil, fmt.Errorf("the date %s is in the future", d.Date)
 	}
-	var typ string
-	err := s.DB.QueryRow(`SELECT id, name, type, currency FROM accounts
-		WHERE deleted_at IS NULL AND name = ? COLLATE NOCASE`, name).Scan(&d.AccountID, &d.Account, &typ, &d.Currency)
+	err := s.DB.QueryRow(`SELECT id, name, currency FROM accounts
+		WHERE deleted_at IS NULL AND name = ? COLLATE NOCASE`, name).Scan(&d.AccountID, &d.Account, &d.Currency)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no account is called %q; use the exact name from USER'S ACCOUNTS", name)
 	}
 	if err != nil {
 		return nil, err
-	}
-	if typ != "savings" {
-		return nil, fmt.Errorf("%s is a %s account, whose balance comes from its transactions; only savings accounts take a value", d.Account, typ)
 	}
 	return d, nil
 }

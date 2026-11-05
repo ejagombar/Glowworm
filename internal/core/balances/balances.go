@@ -7,6 +7,13 @@ import (
 )
 
 func Account(db *sql.DB, accountID, date string) (int64, error) {
+	return Expected(db, accountID, date, "")
+}
+
+// Expected is the account's balance at the end of date as if the valuation
+// excludeID had never been recorded: what its opening balance, earlier values
+// and transactions say. A recorded value is checked against it.
+func Expected(db *sql.DB, accountID, date, excludeID string) (int64, error) {
 	if date == "" {
 		date = "9999-12-31"
 	}
@@ -26,8 +33,8 @@ func Account(db *sql.DB, accountID, date string) (int64, error) {
 	var val int64
 	var valDate string
 	err = db.QueryRow(`SELECT value_minor, date FROM valuations
-		WHERE account_id = ? AND date <= ? AND deleted_at IS NULL ORDER BY date DESC, created_at DESC LIMIT 1`,
-		accountID, date).Scan(&val, &valDate)
+		WHERE account_id = ? AND date <= ? AND id <> ? AND deleted_at IS NULL ORDER BY date DESC, created_at DESC LIMIT 1`,
+		accountID, date, excludeID).Scan(&val, &valDate)
 	switch err {
 	case nil:
 		balance = val

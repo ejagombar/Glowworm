@@ -645,12 +645,12 @@ func TestAgentDraftsChange(t *testing.T) {
 	}
 }
 
-// A stated savings balance becomes a valuation draft for today; a debit
-// account goes back to the model, and nothing is recorded.
+// A stated balance becomes a valuation draft for today; an account that
+// doesn't exist goes back to the model, and nothing is recorded.
 func TestAgentDraftsValuation(t *testing.T) {
 	var sawCheck string
 	provider := &ai.MockAgent{Replies: []string{
-		`{"action":"final","text":"Press Record.","widgets":[{"type":"valuation","account":"Main","value_minor":5000000}]}`,
+		`{"action":"final","text":"Press Record.","widgets":[{"type":"valuation","account":"Pension","value_minor":5000000}]}`,
 		`{"action":"final","text":"Press Record.","widgets":[{"type":"valuation","account":"isa","value_minor":"5000000"}]}`,
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
@@ -663,8 +663,8 @@ func TestAgentDraftsValuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(sawCheck, "only savings accounts") {
-		t.Errorf("debit account not fed back: %q", sawCheck)
+	if !strings.Contains(sawCheck, "no account is called") {
+		t.Errorf("unknown account not fed back: %q", sawCheck)
 	}
 	if len(ans.Widgets) != 1 || ans.Widgets[0].Type != "valuation" {
 		t.Fatalf("widgets = %+v", ans.Widgets)
@@ -865,5 +865,26 @@ func TestPromptExamplesRun(t *testing.T) {
 	}
 	if n < 7 {
 		t.Errorf("found %d examples", n)
+	}
+}
+
+// A debit account's stated balance is drafted too: it's a statement balance
+// to check against the transactions.
+func TestAgentDraftsDebitBalance(t *testing.T) {
+	provider := &ai.MockAgent{Replies: []string{
+		`{"action":"final","text":"Press Record.","widgets":[{"type":"valuation","account":"main","value_minor":8599}]}`,
+	}}
+	svc := newAgentService(t, provider)
+	defer func() { _ = svc.DB.Close() }()
+	ans, err := svc.Ask("my main balance is 85.99")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ans.Widgets) != 1 || ans.Widgets[0].Type != "valuation" {
+		t.Fatalf("widgets = %+v", ans.Widgets)
+	}
+	d, ok := ans.Widgets[0].Data.(*ValuationDraft)
+	if !ok || d.AccountID != "a1" || d.Account != "Main" || d.ValueMinor != 8599 {
+		t.Errorf("draft = %#v", ans.Widgets[0].Data)
 	}
 }

@@ -1837,7 +1837,7 @@ function loadChange(host) {
       </div></div>`;
   }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the change.")}</p>`; });
 }
-// A savings account's value, drafted from a question ("my ISA is 50,000").
+// An account's balance, drafted from a question ("my ISA is 50,000").
 // It's read against the account each time, so an old answer shows whether
 // it was recorded.
 function loadValuationDraft(host) {
@@ -1849,12 +1849,13 @@ function loadValuationDraft(host) {
     fetch(`/api/v1/accounts/${id}/valuations`).then((r) => jsonOk(r)),
   ]).then(([acct, vals]) => {
     const cc = acct.currency || d.currency || "GBP";
+    host.dataset.accountType = acct.type || "";
     const money = (m) => (m < 0 ? "\u2212" : "") + fmtMoneyMinor(m, cc);
     const recorded = (vals.items || []).some((v) => v.date === d.date && v.value_minor === d.value_minor);
     const diff = d.value_minor - acct.current_balance_minor;
     host.innerHTML = `<div class="rule-draft valuation-draft">
       <p class="rule-draft-head">${recorded ? "<strong>Recorded:</strong> " : ""}<strong>${esc(acct.name)}</strong>
-        ${recorded ? "was" : "is"} worth <strong>${esc(money(d.value_minor))}</strong> on ${esc(dayMonthYearJS(d.date))}</p>
+        ${acct.type === "savings" ? (recorded ? "was worth" : "is worth") : (recorded ? "had a balance of" : "has a balance of")} <strong>${esc(money(d.value_minor))}</strong> on ${esc(dayMonthYearJS(d.date))}</p>
       ${recorded ? "" : `<div class="valuation-compare">
         <span><span class="cell-sub">Now</span> ${esc(money(acct.current_balance_minor))}</span>
         <svg class="icon"><use href="#i-arrow-right"/></svg>
@@ -1878,7 +1879,7 @@ function recordValuation(btn) {
     body: JSON.stringify({ value_minor: d.value_minor, date: d.date, note: "From Queries" }),
   }).then(async (r) => {
     if (!r.ok) { toast(await apiErrorText(r, "Could not record the value")); btn.disabled = false; return; }
-    toast("Value recorded");
+    toast(valuationToast(await r.json().catch(() => null), host.dataset.accountType));
     loadValuationDraft(host);
   }).catch(() => { toast("Could not record the value"); btn.disabled = false; });
 }
@@ -2051,8 +2052,10 @@ function openAccountForm(id) {
   if (!id && !window.matchMedia("(pointer: coarse)").matches) document.getElementById("accName").focus();
 }
 
-// A savings account's balance is set by recording what it's worth on a day.
-// Update records it straight away; it doesn't wait for Save changes.
+// Any account's balance can be recorded for a day: a savings account's value,
+// or the balance a bank statement shows, which is checked against the
+// transactions. Update records it straight away; it doesn't wait for Save
+// changes.
 function localISODate(d) {
   const t = d || new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
@@ -2079,7 +2082,7 @@ function loadValuations(accountID) {
     const items = (b.items || []).slice().sort((x, y) => (y.date + y.created_at).localeCompare(x.date + x.created_at));
     asOf.textContent = items.length
       ? `Last set to ${(items[0].value_minor < 0 ? "\u2212" : "") + fmtMoneyMinor(items[0].value_minor, cc)} on ${dayMonthYearJS(items[0].date)}, plus any transactions since.`
-      : "From the opening balance and transactions. Set what it's worth today below.";
+      : "From the opening balance and transactions. Record today's balance below.";
     box.hidden = !items.length;
     document.getElementById("accValuationCount").textContent = items.length ? `(${items.length})` : "";
     list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
@@ -2116,13 +2119,31 @@ function dayMonthYearJS(iso) {
   return isNaN(d) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-// The balance panel is for a savings account that already exists: a new one
-// starts from its opening balance.
+// The balance panel is for an account that already exists: a new one starts
+// from its opening balance.
 function syncValuationBlock() {
   const savings = document.getElementById("accType").value === "savings";
   const existing = !!document.getElementById("accountForm").dataset.accountId;
-  document.getElementById("accValuationBlock").hidden = !(savings && existing);
-  if (!savings) resetValuationFields();
+  document.getElementById("accValuationBlock").hidden = !existing;
+  const credit = document.getElementById("accType").value === "credit";
+  document.getElementById("accValuationHint").textContent = savings
+    ? "What the account is worth on that day, e.g. after interest. Undo it from History."
+    : credit
+      ? "What you owe at the end of that day, from your statement or app. It's checked against your transactions, and any gap shows on History."
+      : "The balance your bank shows at the end of that day. It's checked against your transactions, and any gap shows on History.";
+  const input = document.getElementById("accValuation");
+  input.placeholder = credit ? "Amount owed" : "New balance";
+  input.setAttribute("aria-label", input.placeholder);
+  if (!existing) resetValuationFields();
+}
+// What recording a balance found: a statement that disagrees with the
+// transactions, or a savings account's returns since its last value.
+function valuationToast(res, type, hadEarlier) {
+  const drift = res && res.drift_minor;
+  const cc = (res && res.valuation && res.valuation.currency) || document.getElementById("accBalanceNow")?.dataset.currency || "GBP";
+  if (type === "savings") return drift && hadEarlier ? `Balance updated · ${fmtMoneySigned(drift, cc)} since its last value` : "Balance updated";
+  if (!drift) return "Balance recorded · matches your transactions";
+  return `Balance recorded · ${fmtMoneyMinor(Math.abs(drift), cc)} out from your transactions, see History`;
 }
 // "50,000", "£50000.00" and "50k" all read as 50,000.
 function parseMoneyInput(raw) {
@@ -2138,7 +2159,9 @@ function pendingValuation() {
   if (raw === "") return null;
   const minor = parseMoneyInput(raw);
   if (minor === null) return { error: "Enter the balance as a number, e.g. 4520.00" };
-  return { value_minor: minor, date: document.getElementById("accValuationDate").value || localISODate(), note: "Manual valuation" };
+  // A credit card's balance is what's owed, stored as a negative.
+  const owed = document.getElementById("accType").value === "credit";
+  return { value_minor: owed ? -minor : minor, date: document.getElementById("accValuationDate").value || localISODate(), note: "Manual valuation" };
 }
 function recordAccountValuation() {
   const id = document.getElementById("accountForm").dataset.accountId;
@@ -2146,6 +2169,7 @@ function recordAccountValuation() {
   if (!id || !v) { document.getElementById("accValuation").focus(); return; }
   if (v.error) { toast(v.error); return; }
   const btn = document.getElementById("accValuationRecord");
+  const hadEarlier = document.getElementById("accValuationList").children.length > 0;
   btn.disabled = true;
   fetch(`/api/v1/accounts/${id}/valuations`, {
     method: "POST",
@@ -2153,7 +2177,7 @@ function recordAccountValuation() {
     body: JSON.stringify(v),
   }).then(async (r) => {
     if (!r.ok) { toast(await apiErrorText(r, "Could not update the balance")); return; }
-    toast("Balance updated");
+    toast(valuationToast(await r.json().catch(() => null), document.getElementById("accType").value, hadEarlier));
     document.getElementById("accValuation").value = "";
     document.getElementById("accValuation").blur();
     refreshAccountBalance(id);
@@ -3990,6 +4014,15 @@ function initHistoryTimeline() {
       if (bal) bal.textContent = fmtMoneyMinor(b.total_minor, b.currency);
       const count = document.getElementById("timelineTxCount");
       if (count) count.textContent = b.tx_count;
+      const recon = b.reconciled || {};
+      const reconLabel = document.getElementById("timelineReconLabel");
+      const reconHint = document.getElementById("timelineReconHint");
+      if (reconLabel && recon.label) {
+        reconLabel.textContent = recon.label;
+        reconLabel.classList.toggle("ok", recon.status === "verified");
+        reconHint.textContent = recon.hint || "";
+        reconHint.classList.toggle("up", recon.status === "verified");
+      }
       const wrap = document.getElementById("timelineAccounts");
       if (wrap) {
         wrap.innerHTML = (b.accounts || []).map((a) => `

@@ -69,8 +69,8 @@
     </article>
     <article class="stat-card">
       <div class="stat-label">Reconciled</div>
-      <div class="stat-value {{if eq .ReconcileStatus "verified"}}ok{{end}} no-blur">{{.ReconcileLabel}}</div>
-      <div class="stat-trend {{if eq .ReconcileStatus "verified"}}up{{end}} no-blur">{{.ReconcileHint}}</div>
+      <div class="stat-value {{if eq .ReconcileStatus "verified"}}ok{{end}} no-blur" id="timelineReconLabel">{{.ReconcileLabel}}</div>
+      <div class="stat-trend {{if eq .ReconcileStatus "verified"}}up{{end}} no-blur" id="timelineReconHint">{{.ReconcileHint}}</div>
     </article>
     <article class="stat-card">
       <div class="stat-label">Transactions in period</div>

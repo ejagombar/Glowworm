@@ -14,6 +14,7 @@ import (
 	"glowworm/internal/core"
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
+	"glowworm/internal/core/balances"
 	"glowworm/internal/core/periods"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/widgets"
@@ -783,7 +784,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 			return nil, err
 		}
 		series = seriesJSON(labels, values)
-		reconStatus, reconLabel, reconHint = a.reconcileSummary()
+		reconStatus, reconLabel, reconHint = a.reconcileSummary(a.Clock.Today())
 	}
 	entryViews := []auditEntryView{}
 	importAccounts, err := a.Accounts.List(nil)
@@ -858,39 +859,107 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 	return data, nil
 }
 
-func (a *App) reconcileSummary() (string, string, string) {
-	rows, err := a.DB.Query(`SELECT account_id, drift_minor FROM valuations
-		WHERE deleted_at IS NULL AND date <= ?
-		ORDER BY date ASC`, a.Clock.Today())
+// reconcileSummary checks each account's latest recorded balance on or
+// before date against what its transactions say it should be. A debit or
+// credit account that disagrees has a missing, duplicate or wrong
+// transaction. A savings account's deposits arrive as linked transfers, so
+// what's left of its change since its last value is returns or money from
+// outside; that's reported, but it's not a divergence.
+func (a *App) reconcileSummary(date string) (string, string, string) {
+	const unverifiedHint = "Record a statement balance for a current or credit account in Settings."
+	rows, err := a.DB.Query(`SELECT v.id, v.account_id, v.value_minor, v.date, acc.name, acc.type, acc.currency,
+			COALESCE(acc.opening_balance_date, ''),
+			EXISTS (SELECT 1 FROM valuations e WHERE e.account_id = v.account_id AND e.deleted_at IS NULL
+				AND e.id <> v.id AND (e.date < v.date OR (e.date = v.date AND e.created_at < v.created_at)))
+		FROM valuations v JOIN accounts acc ON acc.id = v.account_id
+		WHERE v.deleted_at IS NULL AND acc.deleted_at IS NULL AND v.date <= ?
+			AND v.id = (SELECT l.id FROM valuations l WHERE l.account_id = v.account_id AND l.deleted_at IS NULL
+				AND l.date <= ? ORDER BY l.date DESC, l.created_at DESC LIMIT 1)
+		ORDER BY acc.name`, date, date)
 	if err != nil {
-		return "unverified", "Unverified", "Record a current value in Settings to reconcile."
+		return "unverified", "Unverified", unverifiedHint
 	}
-	defer rows.Close()
-	latestDrift := map[string]any{}
+	type checked struct {
+		id, accountID, date, name, typ, currency, openingDate string
+		value                                                 int64
+		hasEarlier                                            bool
+	}
+	var all []checked
 	for rows.Next() {
-		var accountID string
-		var drift any
-		if err := rows.Scan(&accountID, &drift); err != nil {
+		var c checked
+		if err := rows.Scan(&c.id, &c.accountID, &c.value, &c.date, &c.name, &c.typ, &c.currency, &c.openingDate, &c.hasEarlier); err != nil {
+			rows.Close()
+			return "unverified", "Unverified", unverifiedHint
+		}
+		all = append(all, c)
+	}
+	rows.Close()
+	var diverged, matched, growth []string
+	for _, c := range all {
+		if c.currency == "" {
+			c.currency = a.Settings.Get().Currency
+		}
+		expected, err := balances.Expected(a.DB.DB, c.accountID, c.date, c.id)
+		if err != nil {
 			continue
 		}
-		latestDrift[accountID] = drift
-	}
-	hasVerified, hasDiverged := false, false
-	for _, drift := range latestDrift {
-		if d, ok := drift.(int64); ok && d != 0 {
-			hasDiverged = true
+		drift := c.value - expected
+		if c.typ == core.AccountSavings {
+			// A first value with nothing before it to compare against is the
+			// starting point, not growth.
+			if drift != 0 && (c.hasEarlier || (c.openingDate != "" && c.openingDate <= c.date)) {
+				growth = append(growth, fmt.Sprintf("%s: %s from returns or outside money up to %s.", c.name, money.FormatSigned(drift, c.currency), longDate(c.date)))
+			}
+			continue
+		}
+		if drift != 0 {
+			if drift < 0 {
+				drift = -drift
+			}
+			diverged = append(diverged, fmt.Sprintf("%s's balance on %s is %s out from its transactions", c.name, longDate(c.date), money.Format(drift, c.currency)))
 		} else {
-			hasVerified = true
+			matched = append(matched, c.name)
 		}
 	}
-	switch {
-	case hasDiverged:
-		return "diverged", "Divergences", "Review the affected account's transactions."
-	case hasVerified:
-		return "verified", "In sync", "No divergences"
-	default:
-		return "unverified", "Unverified", "Record a current value in Settings to reconcile."
+	note := strings.Join(growth, " ")
+	withNote := func(hint string) string {
+		if note == "" {
+			return hint
+		}
+		return hint + " " + note
 	}
+	switch {
+	case len(diverged) > 0:
+		label := "1 divergence"
+		if len(diverged) > 1 {
+			label = fmt.Sprintf("%d divergences", len(diverged))
+		}
+		return "diverged", label, withNote(strings.Join(diverged, "; ") + ". Look for a missing, duplicate or wrong transaction.")
+	case len(matched) > 0:
+		return "verified", "In sync", withNote(joinNames(matched) + " match their statements.")
+	default:
+		if note != "" {
+			return "unverified", "Unverified", unverifiedHint + " " + note
+		}
+		return "unverified", "Unverified", unverifiedHint
+	}
+}
+
+// longDate turns 2026-11-05 into 5 Nov 2026.
+func longDate(iso string) string {
+	t, err := time.Parse("2006-01-02", iso)
+	if err != nil {
+		return iso
+	}
+	return t.Format("2 Jan 2006")
+}
+
+// joinNames lists names as "A", "A and B" or "A, B and C".
+func joinNames(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {

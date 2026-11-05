@@ -222,3 +222,47 @@ func TestBalanceScopeSeriesSplitsSavings(t *testing.T) {
 		t.Fatalf("all = %d, want 6500", v)
 	}
 }
+
+// A debit statement balance is checked against the transactions up to its
+// day; a savings account's change since its last value is reported as
+// returns, never as a divergence, and its first value is just a start.
+func TestReconcileSummary(t *testing.T) {
+	db := newSeriesTestDB(t)
+	a := &App{DB: db, Clock: clock.New("UTC")}
+	insertAccount(t, db, "Chase", 1000, "2024-01-01")
+	insertAccount(t, db, "ISA", 0, nil)
+	if _, err := db.Exec(`UPDATE accounts SET type = 'savings' WHERE id = 'ISA'`); err != nil {
+		t.Fatal(err)
+	}
+	insertTx(t, db, "t1", "Chase", "2024-02-01", -200)
+
+	if status, _, _ := a.reconcileSummary("2024-12-31"); status != "unverified" {
+		t.Fatalf("no values: status = %q", status)
+	}
+	insertValuation(t, db, "s1", "ISA", "2024-01-10", 500000, "2024-01-10T00:00:00Z")
+	if status, _, hint := a.reconcileSummary("2024-12-31"); status != "unverified" || strings.Contains(hint, "returns") {
+		t.Fatalf("first savings value: %q, %q", status, hint)
+	}
+	insertValuation(t, db, "c1", "Chase", "2024-02-01", 800, "2024-02-02T00:00:00Z")
+	if status, label, hint := a.reconcileSummary("2024-12-31"); status != "verified" || label != "In sync" || !strings.Contains(hint, "Chase") {
+		t.Fatalf("matching statement: %q, %q, %q", status, label, hint)
+	}
+	insertValuation(t, db, "c2", "Chase", "2024-03-01", 750, "2024-03-02T00:00:00Z")
+	status, label, hint := a.reconcileSummary("2024-12-31")
+	if status != "diverged" || label != "1 divergence" || !strings.Contains(hint, "£0.50 out") {
+		t.Fatalf("short statement: %q, %q, %q", status, label, hint)
+	}
+	// The missing transaction turns up: the same statement now matches.
+	insertTx(t, db, "t2", "Chase", "2024-02-20", -50)
+	if status, _, _ := a.reconcileSummary("2024-12-31"); status != "verified" {
+		t.Fatalf("after the missing transaction: status = %q", status)
+	}
+	// Before the statement, the earlier check is the one that counts.
+	if status, _, _ := a.reconcileSummary("2024-02-15"); status != "verified" {
+		t.Fatalf("on 15 Feb: status = %q", status)
+	}
+	insertValuation(t, db, "s2", "ISA", "2024-06-01", 512000, "2024-06-01T00:00:00Z")
+	if status, _, hint := a.reconcileSummary("2024-12-31"); status != "verified" || !strings.Contains(hint, "ISA: +£120.00 from returns") {
+		t.Fatalf("savings growth: %q, %q", status, hint)
+	}
+}
