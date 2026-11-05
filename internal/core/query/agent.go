@@ -47,6 +47,11 @@ type agentWidgetSpec struct {
 	// the transactions' ids.
 	Action   string `json:"action"`
 	Category string `json:"category"`
+	// A valuation widget: an account's value on a date, drafted for the
+	// user to record.
+	Account    string `json:"account"`
+	ValueMinor *int64 `json:"value_minor"`
+	Date       string `json:"date"`
 }
 
 type agentAction struct {
@@ -107,6 +112,13 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	if strings.EqualFold(sp.Type, "change") {
 		sp.Action = strings.ToLower(rawStr(m["action"]))
 		sp.Category = rawStr(m["category"])
+		return sp
+	}
+	if strings.EqualFold(sp.Type, "valuation") {
+		sp.Account, sp.Date = rawStr(m["account"]), rawStr(m["date"])
+		if v, ok := toMinorUnits(decodeAny(m["value_minor"])); ok {
+			sp.ValueMinor = &v
+		}
 		return sp
 	}
 	if sp.SQL != "" {
@@ -208,6 +220,11 @@ DATABASE (SQLite). Tables you may query:
 - categories(id, name)
 - accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date)
 - group_rules(id, group_name, match TEXT 'is'|'contains', text, created_at, deleted_at)
+- valuations(id, account_id, date TEXT 'YYYY-MM-DD', value_minor, created_at, deleted_at):
+  what a savings account was worth on a date, recorded by the user. A
+  savings account's balance on a day is its latest valuation on or before
+  that day plus its transactions after the valuation's date; with no
+  valuation, the formula below.
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
@@ -457,9 +474,25 @@ touch and nothing happens until they press Apply. It can be undone from History.
     (not a category) to make transactions internal transfers.
   - unlink_transfer: breaks the transfer link on the selected transactions.
 - Recurring series are detected automatically from the data and can't be
-  set by hand; say so if asked. Account settings, categories, imports and
+  set by hand; say so if asked. Account settings (other than a savings
+  value, below), categories, imports and
   anything else can't be changed from here: say where in the app to do it.
 - Say in the text what pressing Apply would do — never claim it is done.
+
+SAVINGS VALUES: a savings account's balance is kept up to date by the user
+recording what it is worth on a date ("my ISA is 50,000", "the house fund
+is at 12.3k now", "my pension was 80k at the end of March"). When the user
+states a savings account's balance, answer with a valuation widget, which
+they record with one press:
+  {"type":"valuation","account":"ISA","value_minor":5000000,"date":"2026-11-05"}
+- "account" is the exact name from USER'S ACCOUNTS (a savings account);
+  match loose wording ("my ISA", "stocks and shares") to the closest one.
+- "value_minor" is the stated value in minor units: 50,000 → 5000000,
+  12.3k → 1230000.
+- "date" is the day the value is for: today unless the user names a day.
+- No query is needed first. Text: one sentence saying pressing Record sets
+  the account to that value — never claim it is done.
+- Debit and credit balances come from transactions and can't be set.
 
 PROTOCOL — every reply is ONE JSON object, no prose outside it:
 1. To fetch data: {"action":"run_query","sql":"SELECT ..."}
@@ -478,7 +511,7 @@ PROTOCOL — every reply is ONE JSON object, no prose outside it:
    - "widgets": 0-3 live query widgets as described under WIDGETS ARE LIVE
      QUERIES, type one of number, bar, line, pie, table, transactions, text;
      or the group_rule / group_rules widgets under GROUPING (these have no sql),
-     or a change widget under CHANGES.
+     or a change widget under CHANGES, or a valuation widget under SAVINGS VALUES.
      Test a widget's sql with run_query first when unsure.
    - Use at most one widget unless the question clearly needs more.
 3. If the user names something that isn't in their categories/accounts/merchants,
@@ -732,6 +765,19 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 			}
 			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: pv.Proposal})
 			continue
+		case "valuation":
+			d, err := s.draftValuation(sp)
+			if err != nil {
+				if !lenient {
+					problems = append(problems, name+": "+err.Error())
+				}
+				continue
+			}
+			if title == "" {
+				title = "Update " + d.Account
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: d})
+			continue
 		}
 		if strings.TrimSpace(sp.SQL) == "" {
 			if typ == "text" || lenient {
@@ -793,6 +839,50 @@ func (s *Service) draftChange(sp agentWidgetSpec, win *TimeWindow) (*changes.Pre
 		return nil, fmt.Errorf("it would change nothing: every selected transaction is skipped (%s)", pv.Rows[0].Skip)
 	}
 	return pv, nil
+}
+
+// ValuationDraft is an account's value on a date, for the user to record.
+type ValuationDraft struct {
+	AccountID  string `json:"account_id"`
+	Account    string `json:"account"`
+	ValueMinor int64  `json:"value_minor"`
+	Date       string `json:"date"`
+	Currency   string `json:"currency"`
+}
+
+// draftValuation checks a valuation widget names one savings account, a
+// value and a real date (today when left out). Nothing is recorded.
+func (s *Service) draftValuation(sp agentWidgetSpec) (*ValuationDraft, error) {
+	name := strings.TrimSpace(sp.Account)
+	if name == "" {
+		return nil, fmt.Errorf(`a valuation needs "account", the account's name`)
+	}
+	if sp.ValueMinor == nil {
+		return nil, fmt.Errorf(`a valuation needs "value_minor", the value in minor units`)
+	}
+	d := &ValuationDraft{Account: name, ValueMinor: *sp.ValueMinor, Date: strings.TrimSpace(sp.Date)}
+	if d.Date == "" {
+		d.Date = s.Clock.Today()
+	}
+	if _, err := time.Parse("2006-01-02", d.Date); err != nil {
+		return nil, fmt.Errorf(`"date" must be YYYY-MM-DD`)
+	}
+	if d.Date > s.Clock.Today() {
+		return nil, fmt.Errorf("the date %s is in the future", d.Date)
+	}
+	var typ string
+	err := s.DB.QueryRow(`SELECT id, name, type, currency FROM accounts
+		WHERE deleted_at IS NULL AND name = ? COLLATE NOCASE`, name).Scan(&d.AccountID, &d.Account, &typ, &d.Currency)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("no account is called %q; use the exact name from USER'S ACCOUNTS", name)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if typ != "savings" {
+		return nil, fmt.Errorf("%s is a %s account, whose balance comes from its transactions; only savings accounts take a value", d.Account, typ)
+	}
+	return d, nil
 }
 
 // selectIDs runs a change's read-only query and returns its first column.
@@ -892,6 +982,12 @@ func sanitizeWidget(sp agentWidgetSpec) *widgets.Widget {
 		}
 	}
 	return nil
+}
+
+func decodeAny(raw json.RawMessage) any {
+	var v any
+	_ = json.Unmarshal(raw, &v)
+	return v
 }
 
 func decodeData(raw json.RawMessage) map[string]any {

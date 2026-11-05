@@ -645,6 +645,41 @@ func TestAgentDraftsChange(t *testing.T) {
 	}
 }
 
+// A stated savings balance becomes a valuation draft for today; a debit
+// account goes back to the model, and nothing is recorded.
+func TestAgentDraftsValuation(t *testing.T) {
+	var sawCheck string
+	provider := &ai.MockAgent{Replies: []string{
+		`{"action":"final","text":"Press Record.","widgets":[{"type":"valuation","account":"Main","value_minor":5000000}]}`,
+		`{"action":"final","text":"Press Record.","widgets":[{"type":"valuation","account":"isa","value_minor":"5000000"}]}`,
+	}}
+	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
+	defer func() { _ = svc.DB.Close() }()
+	if _, err := svc.DB.Exec(`INSERT INTO accounts (id, name, type, color, currency, created_at, updated_at)
+		VALUES ('a2','ISA','savings','#0e6f51','GBP','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	ans, err := svc.Ask("the balance in my ISA is 50,000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sawCheck, "only savings accounts") {
+		t.Errorf("debit account not fed back: %q", sawCheck)
+	}
+	if len(ans.Widgets) != 1 || ans.Widgets[0].Type != "valuation" {
+		t.Fatalf("widgets = %+v", ans.Widgets)
+	}
+	d, ok := ans.Widgets[0].Data.(*ValuationDraft)
+	if !ok || d.AccountID != "a2" || d.Account != "ISA" || d.ValueMinor != 5000000 || d.Date != "2024-06-15" {
+		t.Errorf("draft = %#v", ans.Widgets[0].Data)
+	}
+	var n int
+	_ = svc.DB.QueryRow(`SELECT COUNT(*) FROM valuations`).Scan(&n)
+	if n != 0 {
+		t.Errorf("a draft recorded %d values", n)
+	}
+}
+
 func TestGrainFor(t *testing.T) {
 	for _, c := range []struct{ from, to, want string }{
 		{"2026-01-01", "2026-01-31", "day"},
