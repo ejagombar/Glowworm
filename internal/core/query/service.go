@@ -69,14 +69,17 @@ func (s *Service) CompilePublic(p *Plan) (*widgets.Dataset, string, error) {
 }
 
 func (s *Service) Ask(question string) (*Answer, error) {
-	return s.AskStreamWindow(question, nil, nil)
+	return s.AskStreamWindow(question, nil, nil, nil)
 }
 
 func (s *Service) AskStream(question string, onStep func(string)) (*Answer, error) {
-	return s.AskStreamWindow(question, nil, onStep)
+	return s.AskStreamWindow(question, nil, nil, onStep)
 }
 
-func (s *Service) AskStreamWindow(question string, win *TimeWindow, onStep func(string)) (*Answer, error) {
+// AskStreamWindow answers question over win, with history the earlier
+// turns of the discussion (see RecentTurns). The fallback planner gets no
+// history: it only handles plain questions.
+func (s *Service) AskStreamWindow(question string, history []Turn, win *TimeWindow, onStep func(string)) (*Answer, error) {
 	if s.Provider == nil {
 		return nil, &ClarifyError{Message: "Connect an AI provider in Settings to ask questions."}
 	}
@@ -84,7 +87,7 @@ func (s *Service) AskStreamWindow(question string, win *TimeWindow, onStep func(
 	if question == "" || len(question) > 500 {
 		return nil, fmt.Errorf("query: empty or too long")
 	}
-	ans, err := s.AskAgentWindow(question, win, onStep)
+	ans, err := s.askAgent(question, history, win, onStep)
 	if err == nil {
 		return ans, nil
 	}

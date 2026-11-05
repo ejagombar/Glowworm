@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -74,10 +76,16 @@ func (a *App) askQueryWindow(in struct {
 			return nil, "", err
 		}
 	}
+	// The discussion so far, read before this question is saved.
+	recent, err := a.Query.Repo.MessagesPage(conv.ID, nil, 2*query.HistoryTurns+4)
+	if err != nil {
+		return nil, "", err
+	}
+	history := query.RecentTurns(recent, time.Now())
 	if _, err := a.Query.Repo.AddMessage(conv.ID, "user", text, nil, nil, nil, nil); err != nil {
 		return nil, "", err
 	}
-	ans, err := a.Query.AskStreamWindow(text, win, onStep)
+	ans, err := a.Query.AskStreamWindow(text, history, win, onStep)
 	if err != nil {
 		return nil, conv.ID, err
 	}

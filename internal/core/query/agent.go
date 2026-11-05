@@ -503,11 +503,33 @@ func (s *Service) AskAgent(question string, onStep func(string)) (*Answer, error
 }
 
 func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(string)) (*Answer, error) {
+	return s.askAgent(question, nil, win, onStep)
+}
+
+// historyGuide goes with earlier turns, so questions without any don't pay
+// for it.
+const historyGuide = `USING EARLIER TURNS: they are only there so a follow-up ("same but for
+Amex", "why was that so high?", "show those as a chart") can be understood.
+Resolve words like that, those, it and same from them, and re-run or adapt
+their SQL instead of exploring again (:from and :to bind to the current
+view period). If the new question is about something else, ignore them
+entirely: carry over no filters, accounts or categories it doesn't ask for.
+Never repeat an earlier answer.`
+
+func (s *Service) askAgent(question string, history []Turn, win *TimeWindow, onStep func(string)) (*Answer, error) {
 	system := s.agentSystemPrompt(win)
-	msgs := []ai.ChatMessage{{Role: "user", Content: question}}
+	first := question
+	capability := "query_agent"
+	if block := historyBlock(history); block != "" {
+		// After the system prompt, which stays the same from one question
+		// to the next, so providers that cache a repeated start still can.
+		first = block + "\n" + historyGuide + "\n\nQUESTION: " + question
+		capability = "query_agent_ctx" // logged apart, to compare token use
+	}
+	msgs := []ai.ChatMessage{{Role: "user", Content: first}}
 	var callStart time.Time
 	logCall := func(usage *ai.Usage, err error) {
-		s.logCall("query_agent", callStart, usage, err)
+		s.logCall(capability, callStart, usage, err)
 	}
 	var steps []string
 	emit := func(step string) {
@@ -515,6 +537,9 @@ func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(s
 		if onStep != nil {
 			onStep(step)
 		}
+	}
+	if len(history) > 0 {
+		emit(fmt.Sprintf("Used %d earlier question%s as context", len(history), plural(len(history))))
 	}
 	invalidFeedback := `Invalid reply. Respond with ONE JSON object only: {"action":"run_query","sql":"SELECT ..."} to run a query, or {"action":"final","text":"...","widgets":[]} to answer.`
 	emptyFinalFeedback := `Your final action had no content: "text" must be non-empty, or at least one valid widget must be present. Reply with the final JSON again.`
