@@ -274,6 +274,97 @@ const appLock = (() => {
   return { lock };
 })();
 
+// ---- Feeling like an app on a phone.
+//
+// History: in a home screen app, swiping in from the left edge goes back.
+// Moving between the tabs, changing the date range or sort, and signing in
+// or out replace the page instead of adding to its history, so there's
+// nothing to swipe back to (least of all the sign-in page). Going into
+// something from a page, such as a dashboard link to filtered
+// transactions, still adds to it, so swiping back returns from it.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest(".masthead a[href]");
+  if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (a.target || a.hasAttribute("download")) return;
+  const u = new URL(a.href, location.href);
+  if (u.origin !== location.origin) return;
+  e.preventDefault();
+  location.replace(u.href);
+});
+// Forms marked data-replace post in the background and then replace the
+// page with wherever the server sent them.
+document.addEventListener("submit", (e) => {
+  const form = e.target.closest && e.target.closest("form[data-replace]");
+  if (!form || e.defaultPrevented) return;
+  e.preventDefault();
+  const btn = form.querySelector("[type=submit]");
+  if (btn) btn.disabled = true;
+  fetch(form.action, { method: "POST", body: new URLSearchParams(new FormData(form)) })
+    .then((r) => {
+      if (!r.redirected) throw new Error("no redirect");
+      location.replace(r.url);
+    })
+    .catch(() => {
+      if (btn) btn.disabled = false;
+      HTMLFormElement.prototype.submit.call(form); // the ordinary way
+    });
+});
+
+// Pop-ups: while one is open the page behind stays put. iOS ignores
+// overflow: hidden for touch scrolling, so a drag only scrolls something
+// inside the pop-up that can scroll (the pop-up itself, when it's taller
+// than the screen); anything else is held.
+const scrollLock = (() => {
+  const OPEN = ".modal-backdrop:not([hidden]), .drawer.show";
+  const phone = window.matchMedia("(max-width: 760px)");
+  let locked = false;
+  const sync = () => {
+    // On a phone the chat panel covers the page too; on a wider screen it
+    // sits beside it and the page still scrolls.
+    locked = !!document.querySelector(OPEN) || (phone.matches && !!document.querySelector(".chat-panel.floating.open"));
+    document.documentElement.classList.toggle("scroll-locked", locked);
+  };
+  const scrollable = (el) => {
+    for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 1) return true;
+    }
+    return false;
+  };
+  document.addEventListener("touchmove", (e) => {
+    if (!locked || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (!scrollable(e.target)) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener("DOMContentLoaded", () => {
+    sync();
+    new MutationObserver(sync).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["hidden", "class"] });
+  });
+  return { sync };
+})();
+
+// The keyboard: while it's up iOS lets the page scroll further, and in a
+// home screen app it can leave the page scrolled into space that's no
+// longer there once it goes. When it goes, put the page back within its
+// content.
+(() => {
+  const field = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+  const settle = () => {
+    if (field(document.activeElement)) return;
+    const max = Math.max(0, document.documentElement.scrollHeight - document.documentElement.clientHeight);
+    window.scrollTo(window.scrollX, Math.min(window.scrollY, max));
+  };
+  document.addEventListener("focusout", () => setTimeout(settle, 120));
+  const vv = window.visualViewport;
+  if (vv) {
+    let up = false;
+    vv.addEventListener("resize", () => {
+      const now = vv.height < window.innerHeight - 120;
+      if (up && !now) setTimeout(settle, 60);
+      up = now;
+    });
+  }
+})();
+
 // ---- Passkeys (Face ID). The server sends WebAuthn options as JSON with
 // binary fields in base64url; the browser wants ArrayBuffers, and back.
 const passkeys = (() => {
@@ -1439,7 +1530,7 @@ document.addEventListener("DOMContentLoaded", () => {
       url.searchParams.delete("from");
       url.searchParams.delete("to");
       Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-      window.location = url.toString();
+      location.replace(url.toString());
     };
     periodTrigger.addEventListener("click", (e) => { e.stopPropagation(); setOpen(periodMenu.hidden); });
     periodMenu.addEventListener("click", (e) => {
@@ -1466,14 +1557,14 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
-      window.location = "/queries";
+      location.replace("/queries");
       return;
     }
     if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[0-6]$/.test(e.key)) {
       const editable = e.target && e.target.closest ? e.target.closest("input, textarea, select, [contenteditable]") : null;
       if (!editable) {
         const views = { "1": "/", "2": "/queries", "3": "/transactions", "4": "/categories", "5": "/import", "6": "/history", "0": "/settings" };
-        window.location = views[e.key];
+        location.replace(views[e.key]);
       }
     }
     if (e.key === "Escape") {
@@ -2576,7 +2667,7 @@ document.addEventListener("DOMContentLoaded", () => {
       url.searchParams.set("sort", key);
       url.searchParams.set("dir", dir);
     }
-    window.location = url.toString();
+    location.replace(url.toString());
   });
 
   let editorSave = null; // saves the open editor if it changed; set by openEditor

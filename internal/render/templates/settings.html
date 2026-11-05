@@ -144,7 +144,7 @@
                 <div class="account-actions">
                     <button class="btn btn-ghost" id="changeNameBtn" type="button">Update name…</button>
                     <button class="btn btn-ghost" id="changePasswordBtn" type="button">Change password…</button>
-                    <form method="post" action="/logout">
+                    <form method="post" action="/logout" data-replace>
                         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
                         <button class="btn btn-ghost" type="submit">Sign out</button>
                     </form>

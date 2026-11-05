@@ -9,7 +9,7 @@
         <p class="login-sub muted" id="unlockStatus" aria-live="polite">Unlock with Face ID to carry on.</p>
         {{if .Error}}<p class="login-error">{{.Error}}</p>{{end}}
         <button class="btn btn-primary" id="unlockFaceID" type="button" style="width:100%">Unlock with Face ID</button>
-        <form method="post" action="/unlock/password" class="unlock-password" id="unlockPasswordForm"{{if not .Error}} hidden{{end}}>
+        <form method="post" action="/unlock/password" data-replace class="unlock-password" id="unlockPasswordForm"{{if not .Error}} hidden{{end}}>
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
             <input type="hidden" name="next" value="{{.Next}}" />
             <input type="text" name="username" value="{{.UserName}}" autocomplete="username" hidden />
@@ -19,7 +19,7 @@
         </form>
         <div class="unlock-links">
             <button class="btn btn-ghost btn-xs" id="unlockUsePassword" type="button"{{if .Error}} hidden{{end}}>Use password</button>
-            <form method="post" action="/logout">
+            <form method="post" action="/logout" data-replace>
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
                 <button class="btn btn-ghost btn-xs" type="submit">Sign out</button>
             </form>
