@@ -110,6 +110,27 @@ function axisTicks(max, count = 4, min = 0) {
   for (let t = 0; t <= max * (1 + 1e-9); t += step) ticks.push(Math.round(t * 1e6) / 1e6);
   return ticks;
 }
+// A line chart's y axis: the range the data sits in, out to whole ticks.
+// Zero is only included when the data crosses it or comes near it, where
+// near means closer than the data's own spread.
+function lineAxis(dmin, dmax, count = 4) {
+  if (!isFinite(dmin)) return { min: 0, max: 1, ticks: [0, 1] };
+  let lo = dmin, hi = dmax;
+  const spread = hi - lo;
+  if (lo > 0 && lo <= spread) lo = 0;
+  else if (hi < 0 && -hi <= spread) hi = 0;
+  if (hi === lo) {
+    // A flat line sits mid-chart, not on the floor.
+    const pad = Math.abs(hi) * 0.1 || 1;
+    hi += pad; lo = lo === 0 ? 0 : lo - pad;
+  }
+  const step = niceStep((hi - lo) / count);
+  const min = Math.floor(lo / step + 1e-9) * step;
+  const max = Math.ceil(hi / step - 1e-9) * step;
+  const ticks = [];
+  for (let t = min; t <= max + step * 1e-6; t += step) ticks.push(Math.round(t * 1e6) / 1e6);
+  return { min, max, ticks };
+}
 function niceStep(raw) {
   const pow = Math.pow(10, Math.floor(Math.log10(raw)));
   const n = raw / pow;
@@ -248,25 +269,21 @@ function lineGeom(data, W, H, view) {
   const i0 = Math.max(0, Math.floor(lo) - (view ? 1 : 0));
   const i1 = Math.min(n - 1, Math.ceil(hi) + (view ? 1 : 0));
   // Loop, not spread: Math.max(...vals) throws RangeError on very long series.
-  let max = 0, min = 0;
+  let dmax = -Infinity, dmin = Infinity;
   series.forEach((x) => {
     const vals = x.values || [];
     for (let i = Math.max(0, Math.floor(lo)); i <= Math.min(vals.length - 1, Math.ceil(hi)); i++) {
       if (vals[i] == null) continue;
       const v = Number(vals[i]);
-      if (v > max) max = v;
-      if (v < min) min = v;
+      if (v > dmax) dmax = v;
+      if (v < dmin) dmin = v;
     }
   });
-  // Below zero, the axis reaches down to a whole tick, so it gets a label.
-  if (min < 0) {
-    const step = niceStep((max - min) / 4);
-    min = -Math.ceil(-min / step - 1e-9) * step;
-  }
+  const { min, max, ticks } = lineAxis(dmin, dmax);
   const span = (max - min) || 1;
   const px = (i) => (n <= 1 ? padL + innerW / 2 : padL + ((i - lo) / (hi - lo)) * innerW);
   const py = (v) => padT + innerH - ((v - min) / span) * innerH;
-  return { series, labels, n, padL, padB, padT, padR, innerW, innerH, lo, hi, i0, i1, max, min, px, py };
+  return { series, labels, n, padL, padB, padT, padR, innerW, innerH, lo, hi, i0, i1, max, min, ticks, px, py };
 }
 
 // The runs of points with a value, for each to be drawn as one line.
@@ -284,11 +301,11 @@ function lineRuns(vals, i0, i1) {
 function lineChartSVG(data, width = 640, height = 260, view = null) {
   const W = width, H = height;
   const g = lineGeom(data, W, H, view);
-  const { series, labels, n, padL, padR, padT, innerW, innerH, i0, i1, max, min, px, py } = g;
+  const { series, labels, n, padL, padR, padT, innerW, innerH, i0, i1, min, ticks, px, py } = g;
   const one = series.length === 1;
 
   let parts = [];
-  axisTicks(max, 4, min).forEach((t) => {
+  ticks.forEach((t) => {
     const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
     parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
