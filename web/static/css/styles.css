@@ -1636,7 +1636,11 @@ html:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
 .ai-progress-steps li::before { content: "·"; position: absolute; left: 6px; }
 .ai-progress-steps li.active { color: var(--text); font-weight: 500; }
 .ai-progress-steps li.active::before { content: "▸"; color: var(--primary); }
-.login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+/* 100vh on iOS is the height with the toolbars hidden, taller than the
+   screen while they show, so the page would scroll; dvh is what's visible.
+   These pages are one card that fits: no rubber-band bounce either. */
+.login-shell { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none; }
 .login-card { width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 26px 26px 22px; box-shadow: var(--shadow-2); }
 .login-card .brand { justify-content: center; display: flex; margin-bottom: 6px; }
 .login-card h1 { text-align: center; font-size: 16px; margin: 8px 0 16px; }
