@@ -1644,7 +1644,7 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
 /* On a phone the card sits near the top, clear of the keyboard that comes
    up for the password, rather than in the middle where it would cover it. */
 @media (max-width: 760px) {
-  .login-shell { align-items: flex-start; padding-top: calc(max(20px, 8dvh) + env(safe-area-inset-top)); }
+  .login-shell { align-items: flex-start; padding-top: calc(max(20px, 18dvh) + env(safe-area-inset-top)); }
 }
 .login-card { width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 26px 26px 22px; box-shadow: var(--shadow-2); }
 .login-card .brand { justify-content: center; display: flex; margin-bottom: 6px; }
