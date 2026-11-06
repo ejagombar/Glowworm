@@ -170,7 +170,7 @@ const dataVersion = (() => {
   // differs since was changed by the person.
   const fields = () => document.querySelectorAll("input:not([type=hidden]), textarea, select");
   const valueOf = (el) => (el.type === "checkbox" || el.type === "radio" ? String(el.checked)
-    : el.multiple ? [...el.selectedOptions].map((o) => o.value).join("\n") : el.value);
+    : el.tagName === "SELECT" && el.multiple ? [...el.selectedOptions].map((o) => o.value).join("\n") : el.value);
   let initial = new Map();
   const snapshot = () => { initial = new Map([...fields()].map((el) => [el, valueOf(el)])); };
 
