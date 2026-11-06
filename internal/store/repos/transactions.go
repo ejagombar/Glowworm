@@ -144,9 +144,10 @@ func (r *Transactions) List(f ListFilter) ([]*core.Transaction, error) {
 }
 
 // SearchMatch is the transactions whose description, group, category,
-// recurring series, account or source/destination contains the search,
-// ignoring case and spaces: "PureGym" finds "Pure Gym Ltd" and everything
-// in the PureGym group.
+// recurring series or the bank's source/destination text contains the
+// search, ignoring case and spaces: "PureGym" finds "Pure Gym Ltd" and
+// everything in the PureGym group. Account names aren't searched, as the
+// account filter does that.
 func (r *Transactions) SearchMatch(f ListFilter) ([]*core.Transaction, error) {
 	w, args := f.where()
 	q := `SELECT ` + txCols + ` FROM transactions t` + w + txOrder(f.Sort)
@@ -172,7 +173,7 @@ func (r *Transactions) SearchMatch(f ListFilter) ([]*core.Transaction, error) {
 	for _, t := range enr {
 		for _, field := range []string{
 			t.Description, deref(t.Merchant), categoryName(t.Category), t.RecurringLabel(),
-			t.AccountName(), t.SourceName, t.DestinationName, t.SourceText, t.DestinationText,
+			t.SourceText, t.DestinationText,
 		} {
 			if strings.Contains(squash(field), needle) {
 				out = append(out, t)

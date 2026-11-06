@@ -57,6 +57,10 @@ func TestSearchMatchesGroupsIgnoringSpaces(t *testing.T) {
 	if got := search("uncategorised", 0); strings.Count(got, ",") != 3 {
 		t.Errorf("category search = %q", got)
 	}
+	// Account names aren't searched: the account filter does that.
+	if got := search("main", 0); got != "" {
+		t.Errorf("account name search = %q, want nothing", got)
+	}
 	// The limit counts matches, not rows read.
 	if got := search("gym", 2); strings.Count(got, ",") != 1 {
 		t.Errorf("limited search = %q, want 2 results", got)
