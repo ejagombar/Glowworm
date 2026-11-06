@@ -1824,6 +1824,9 @@ html.app-covered body > * { visibility: hidden; }
 .map-field { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; padding: 13px 14px; }
 .map-field + .map-field { border-top: 1px solid var(--line); }
 .map-field.mapping-changed { background: var(--transfer-soft); }
+/* An unset optional column reads as a placeholder, not a choice. */
+.map-field select:has(> option[value=""]:checked) { color: var(--muted-2); }
+.map-field select option { color: var(--text); }
 .map-field-label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
 .map-field-label .muted { font-size: 12px; }
 .map-field-label .badge { align-self: flex-start; }

@@ -3207,7 +3207,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return sel;
   }
 
-  function columnSelectHTML(id, headers, value, { optional = true, none = "— none —" } = {}) {
+  function columnSelectHTML(id, headers, value, { optional = true, none = "None" } = {}) {
     return `<select class="field select" id="${id}">
       ${optional ? `<option value="">${esc(none)}</option>` : `<option value="" disabled${value ? "" : " selected"}>Choose a column…</option>`}
       ${headers.map((h) => `<option value="${esc(h)}"${h === value ? " selected" : ""}>${esc(h)}</option>`).join("")}
@@ -3248,7 +3248,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="map-sub" data-mode-show="direction" id="mapOutValuesRow"><span class="map-sub-label">Values meaning money out</span><div class="map-checks" id="mapOutValues"></div></div>
         <div class="map-amount-preview" id="mapAmountPreview"></div>`)}
       ${row("currency", "Currency", "", `
-        <div class="map-sub"><label class="map-sub-label" for="mapCurrency">Currency column</label>${columnSelectHTML("mapCurrency", headers, sel.currency, { none: `— everything is in ${target} —` })}</div>
+        <div class="map-sub"><label class="map-sub-label" for="mapCurrency">Currency column</label>${columnSelectHTML("mapCurrency", headers, sel.currency, { none: `Everything is in ${target}` })}</div>
         <div class="map-fx" id="mapFx"></div>
         <details class="map-orig"${sel.origAmount ? " open" : ""}><summary>Amount paid in another currency</summary>
           <div class="map-sub"><label class="map-sub-label" for="mapOrigAmount">Amount paid</label>${columnSelectHTML("mapOrigAmount", headers, sel.origAmount)}</div>
