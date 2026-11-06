@@ -199,7 +199,8 @@ function barChartSVG(data, width = 640, height = 260) {
   axisTicks(max).forEach((t) => {
     const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`
+      + `<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip privacy-mask">\u2022\u2022\u2022</text>`);
   });
 
   const base = g.padT + g.innerH;
@@ -308,7 +309,8 @@ function lineChartSVG(data, width = 640, height = 260, view = null) {
   ticks.forEach((t) => {
     const y = py(t);
     parts.push(`<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" style="stroke:var(--chart-grid)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`);
+    parts.push(`<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip chart-y-label">${fmtAxis(t, data.format)}</text>`
+      + `<text x="${padL - 8}" y="${y + 3.5}" text-anchor="end" class="chart-tooltip privacy-mask">\u2022\u2022\u2022</text>`);
   });
 
   const fillId = Math.random().toString(36).slice(2, 8);
@@ -528,7 +530,8 @@ function pieChartSVG(data) {
   // Shrink the type if even the short form would reach the ring (~0.6em a glyph).
   const label = data.format === "number" ? fmtNumber(sum) : fmtMoneyCompact(sum);
   const size = Math.min(23, Math.floor(((inner - 8) * 2) / (label.length * 0.6)));
-  parts.push(`<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`);
+  parts.push(`<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${size}" font-weight="600" class="pie-total" style="fill:var(--text)" font-family="Inter, sans-serif">${esc(label)}</text>`
+    + `<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="600" class="privacy-mask" style="fill:var(--muted)" font-family="Inter, sans-serif">\u2022\u2022\u2022\u2022</text>`);
   return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="pie chart">${parts.join("")}</svg>`, legend: legendHTML(labels, values, colors, total) };
 }
 // Short enough for the middle of a pie: pence only under £1,000, whole pounds

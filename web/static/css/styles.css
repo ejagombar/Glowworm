@@ -271,26 +271,69 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 .masthead-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: 12px; align-self: stretch; }
 .masthead-actions .icon-btn.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 
-body.privacy .stat-value,
-body.privacy .account-balance,
-body.privacy .cat-amount,
-body.privacy .num-value,
-body.privacy .num-caption,
-body.privacy .num-trend,
-body.privacy .stat-trend,
-body.privacy .account-row p,
-body.privacy .settings-account-balance,
-body.privacy .settings-account-opening,
-body.privacy .valuation-value,
-body.privacy .balance-panel-now,
-body.privacy .valuation-compare,
+/* Hidden amounts: the text stays (so nothing moves) but is see-through, with
+   the same "••••" over every value whatever its size. */
+body.privacy .stat-value:not(.no-blur):not(:empty),
+body.privacy .account-balance:not(.no-blur):not(:empty),
+body.privacy .cat-amount:not(.no-blur):not(:empty),
+body.privacy .num-value:not(.no-blur):not(:empty),
+body.privacy .num-caption:not(.no-blur):not(:empty),
+body.privacy .num-trend:not(.no-blur):not(:empty),
+body.privacy .stat-trend:not(.no-blur):not(:empty),
+body.privacy .account-row p:not(.no-blur):not(:empty),
+body.privacy .settings-account-balance:not(.no-blur):not(:empty),
+body.privacy .settings-account-opening:not(.no-blur):not(:empty),
+body.privacy .valuation-value:not(.no-blur):not(:empty),
+body.privacy .balance-panel-now:not(.no-blur):not(:empty),
+body.privacy .valuation-compare:not(.no-blur):not(:empty),
+body.privacy .table-widget td.num:not(.no-blur):not(:empty),
+body.privacy .chart-hover-tip .chart-tip-value:not(.no-blur):not(:empty) {
+  position: relative; color: transparent !important; text-shadow: none;
+}
+body.privacy .stat-value:not(.no-blur):not(:empty) *,
+body.privacy .account-balance:not(.no-blur):not(:empty) *,
+body.privacy .cat-amount:not(.no-blur):not(:empty) *,
+body.privacy .num-value:not(.no-blur):not(:empty) *,
+body.privacy .num-caption:not(.no-blur):not(:empty) *,
+body.privacy .num-trend:not(.no-blur):not(:empty) *,
+body.privacy .stat-trend:not(.no-blur):not(:empty) *,
+body.privacy .account-row p:not(.no-blur):not(:empty) *,
+body.privacy .settings-account-balance:not(.no-blur):not(:empty) *,
+body.privacy .settings-account-opening:not(.no-blur):not(:empty) *,
+body.privacy .valuation-value:not(.no-blur):not(:empty) *,
+body.privacy .balance-panel-now:not(.no-blur):not(:empty) *,
+body.privacy .valuation-compare:not(.no-blur):not(:empty) *,
+body.privacy .table-widget td.num:not(.no-blur):not(:empty) *,
+body.privacy .chart-hover-tip .chart-tip-value:not(.no-blur):not(:empty) * { color: transparent !important; visibility: hidden; }
+body.privacy .stat-value:not(.no-blur):not(:empty)::after,
+body.privacy .account-balance:not(.no-blur):not(:empty)::after,
+body.privacy .cat-amount:not(.no-blur):not(:empty)::after,
+body.privacy .num-value:not(.no-blur):not(:empty)::after,
+body.privacy .num-caption:not(.no-blur):not(:empty)::after,
+body.privacy .num-trend:not(.no-blur):not(:empty)::after,
+body.privacy .stat-trend:not(.no-blur):not(:empty)::after,
+body.privacy .account-row p:not(.no-blur):not(:empty)::after,
+body.privacy .settings-account-balance:not(.no-blur):not(:empty)::after,
+body.privacy .settings-account-opening:not(.no-blur):not(:empty)::after,
+body.privacy .valuation-value:not(.no-blur):not(:empty)::after,
+body.privacy .balance-panel-now:not(.no-blur):not(:empty)::after,
+body.privacy .valuation-compare:not(.no-blur):not(:empty)::after,
+body.privacy .table-widget td.num:not(.no-blur):not(:empty)::after,
+body.privacy .chart-hover-tip .chart-tip-value:not(.no-blur):not(:empty)::after {
+  content: "\2022\2022\2022\2022"; position: absolute; inset: 0; visibility: visible;
+  color: var(--muted); letter-spacing: 0.12em; white-space: nowrap; overflow: hidden;
+}
 body.privacy #accOpening,
-body.privacy #accValuation,
-body.privacy .table-widget td.num { filter: blur(5px); }
-body.privacy .stat-value.no-blur,
-body.privacy .stat-trend.no-blur { filter: none; }
+body.privacy #accValuation { -webkit-text-security: disc; }
+@supports not (-webkit-text-security: disc) {
+  body.privacy #accOpening,
+  body.privacy #accValuation { color: transparent; }
+}
+/* Svg text can't take ::after, so charts draw a masked copy beside the real one. */
+.privacy-mask { display: none; }
+body.privacy .privacy-mask { display: inline; }
 body.privacy .chart-y-label,
-body.privacy .pie-total { filter: blur(4px); }
+body.privacy .pie-total { display: none; }
 
 .icon-btn {
   position: relative; width: 32px; height: 32px;
@@ -742,7 +785,6 @@ body.dragging-widget { user-select: none; cursor: grabbing; }
 .chart-hover-tip.below::before { bottom: auto; top: -4px; border-top-color: transparent; border-bottom: 4px solid var(--surface); }
 .chart-hover-tip .chart-tip-label { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
 .chart-hover-tip .chart-tip-value { font-weight: 600; font-variant-numeric: tabular-nums; }
-body.privacy .chart-hover-tip .chart-tip-value { filter: blur(4px); }
 
 .pane-skeleton { display: flex; flex-direction: column; gap: 12px; }
 .sk-block {
