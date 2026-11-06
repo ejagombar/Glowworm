@@ -170,7 +170,16 @@ const (
 	aiConcurrency = 4
 	// Slow models (reasoning or free-tier) can take well over the provider's
 	// 30s default even for a five-item chunk.
-	aiChunkTimeout = 60 * time.Second
+	aiChunkTimeout = 90 * time.Second
+	// Reasoning models think before answering; at 4000 tokens some ran out
+	// and replied with nothing.
+	aiChunkMaxTokens = 12000
+	// A chunk is asked again for what it didn't answer; the run stops only
+	// once several chunks have failed outright, as the provider is then down.
+	aiChunkAttempts  = 3
+	aiFailedChunkCap = 3
+	// aiExamples caps the user's past choices sent with each chunk.
+	aiExamples = 60
 )
 
 func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Progress)) error {
@@ -201,17 +210,21 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 	catalogue := map[string]map[string]string{}
 	nameToID := map[string]map[string]string{}
 	descriptions := map[string]map[string]string{}
+	// canonical maps a lower-cased name to the category's own spelling.
+	canonical := map[string]map[string]string{}
 	add := func(txType string, c *core.Category) {
 		if catalogue[txType] == nil {
 			catalogue[txType] = map[string]string{}
 			nameToID[txType] = map[string]string{}
 			descriptions[txType] = map[string]string{}
+			canonical[txType] = map[string]string{}
 		}
 		if _, taken := nameToID[txType][c.Name]; taken {
 			return
 		}
 		catalogue[txType][c.ID] = c.Name
 		nameToID[txType][c.Name] = c.ID
+		canonical[txType][strings.ToLower(c.Name)] = c.Name
 		if c.Description != "" {
 			descriptions[txType][c.Name] = c.Description
 		}
@@ -265,8 +278,9 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 	// mu serialises emit (the SSE writer isn't goroutine-safe), DB writes and
 	// the shared counters below.
 	var mu sync.Mutex
-	aiCount, answered, finished := 0, 0, 0
+	aiCount, answered, finished, failedChunks := 0, 0, 0, 0
 	var fatal error
+	examples := s.pastChoices()
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	warnedTypes := map[string]bool{}
@@ -289,58 +303,106 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 			progress()
 			return
 		}
-		items := make([]aiItem, len(chunk))
-		for i, g := range chunk {
-			items[i] = aiItem{Index: i, Date: g.Date, Description: g.Description, Destination: g.Destination,
-				AmountMinor: g.AmountMinor, Type: g.Type, Count: len(g.RowIDs)}
+		type aiAnswer struct {
+			Index      int     `json:"index"`
+			Category   string  `json:"category"`
+			Confidence float64 `json:"confidence"`
 		}
-		prompt := map[string]any{"transactions": items, "allowed_categories": catalogue[txType]}
-		if len(descriptions[txType]) > 0 {
-			prompt["category_descriptions"] = descriptions[txType]
-		}
-		t0 := time.Now()
-		resp, usage, err := s.Cat.Provider.CompleteStructured(&ai.StructuredRequest{
-			Capability: "categorisation",
-			PromptJSON: prompt,
-			Timeout:    aiChunkTimeout,
-		})
-		var parsed struct {
-			Items []struct {
-				Index      int     `json:"index"`
-				Category   string  `json:"category"`
-				Confidence float64 `json:"confidence"`
-			} `json:"items"`
-		}
-		if err == nil {
-			if uerr := json.Unmarshal([]byte(resp), &parsed); uerr != nil {
-				err = &ai.ErrBadReply{Reason: "reply didn't match the categorisation schema: " + uerr.Error(), Reply: resp}
+		// ask sends the groups not yet answered, so a reply that leaves some
+		// out, or none at all, is followed by a request for just the rest.
+		answers := map[int]aiAnswer{}
+		var err error
+		for attempt := 1; attempt <= aiChunkAttempts && len(answers) < len(chunk) && runCtx.Err() == nil; attempt++ {
+			var ask []int
+			for i := range chunk {
+				if _, ok := answers[i]; !ok {
+					ask = append(ask, i)
+				}
 			}
+			items := make([]aiItem, len(ask))
+			for j, i := range ask {
+				g := chunk[i]
+				items[j] = aiItem{Index: j, Date: g.Date, Description: g.Description, Destination: g.Destination,
+					AmountMinor: g.AmountMinor, Type: g.Type, Count: len(g.RowIDs)}
+			}
+			prompt := map[string]any{"transactions": items, "allowed_categories": catalogue[txType]}
+			if len(descriptions[txType]) > 0 {
+				prompt["category_descriptions"] = descriptions[txType]
+			}
+			if len(examples[txType]) > 0 {
+				prompt["past_choices"] = examples[txType]
+			}
+			t0 := time.Now()
+			var resp string
+			var usage *ai.Usage
+			resp, usage, err = s.Cat.Provider.CompleteStructured(&ai.StructuredRequest{
+				Capability: "categorisation",
+				PromptJSON: prompt,
+				Timeout:    aiChunkTimeout,
+				MaxTokens:  aiChunkMaxTokens,
+			})
+			var parsed struct {
+				Items []aiAnswer `json:"items"`
+			}
+			if err == nil {
+				if uerr := json.Unmarshal([]byte(resp), &parsed); uerr != nil {
+					err = &ai.ErrBadReply{Reason: "reply didn't match the categorisation schema: " + uerr.Error(), Reply: resp}
+				}
+			}
+			attrs := []any{"attempt", attempt, "asked", len(ask), "ms", time.Since(t0).Milliseconds()}
+			if usage != nil {
+				attrs = append(attrs, "prompt_tokens", usage.PromptTokens, "completion_tokens", usage.CompletionTokens)
+			}
+			if err != nil {
+				attrs = append(attrs, "err", err)
+				var bad *ai.ErrBadReply
+				if errors.As(err, &bad) {
+					attrs = append(attrs, "reply", bad.Reply)
+				}
+				clog.Warn("ai categorise attempt failed", attrs...)
+				continue
+			}
+			// A category that isn't one of the user's (a near miss like
+			// "Eating out", or an invented one) is asked again.
+			var unknown []string
+			for _, it := range parsed.Items {
+				if it.Index < 0 || it.Index >= len(ask) {
+					continue
+				}
+				name, ok := canonical[txType][strings.ToLower(strings.TrimSpace(it.Category))]
+				if !ok {
+					unknown = append(unknown, it.Category)
+					continue
+				}
+				it.Index, it.Category = ask[it.Index], name
+				answers[it.Index] = it
+			}
+			if len(unknown) > 0 {
+				attrs = append(attrs, "unknown_categories", unknown)
+			}
+			clog.Info("ai categorise attempt done", append(attrs, "answered", len(parsed.Items))...)
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if err != nil {
-			attrs := []any{"ms", time.Since(t0).Milliseconds(), "err", err}
-			var bad *ai.ErrBadReply
-			if errors.As(err, &bad) {
-				attrs = append(attrs, "reply", bad.Reply)
-			}
-			clog.Error("ai categorise chunk failed", attrs...)
-			// A dead provider would fail every remaining chunk too.
-			if runCtx.Err() == nil {
-				emit(Progress{Phase: "warning", Message: "The AI request failed (" + err.Error() + "), so the remaining groups are left for you"})
+		if len(answers) == 0 {
+			clog.Error("ai categorise chunk failed", "err", err)
+			failedChunks++
+			// One bad chunk leaves only its groups for the user; several in a
+			// row mean the provider is failing, so the rest aren't sent.
+			if failedChunks >= aiFailedChunkCap && runCtx.Err() == nil {
+				msg := "The AI requests kept failing"
+				if err != nil {
+					msg += " (" + err.Error() + ")"
+				}
+				emit(Progress{Phase: "warning", Message: msg + ", so the remaining groups are left for you"})
 				stop()
 			}
 			progress()
 			return
 		}
-		attrs := []any{"ms", time.Since(t0).Milliseconds(), "answered", len(parsed.Items)}
-		if usage != nil {
-			attrs = append(attrs, "prompt_tokens", usage.PromptTokens, "completion_tokens", usage.CompletionTokens)
-		}
-		if len(parsed.Items) < len(chunk) {
-			clog.Warn("ai categorise chunk incomplete", append(attrs, "reply", resp)...)
-		} else {
-			clog.Info("ai categorise chunk done", attrs...)
+		parsed := struct{ Items []aiAnswer }{}
+		for _, a := range answers {
+			parsed.Items = append(parsed.Items, a)
 		}
 		if fatal != nil {
 			return
@@ -615,4 +677,56 @@ func (s *Service) catThresholds() (local, aiT float64, minExamples int) {
 	return s.Cat.Settings.GetFloat("cat_local_threshold", 0.75),
 		s.Cat.Settings.GetFloat("cat_ai_threshold", 0.8),
 		int(s.Cat.Settings.GetFloat("cat_min_examples", 3))
+}
+
+type pastChoice struct {
+	Description string `json:"description"`
+	Category    string `json:"category"`
+}
+
+// pastChoices is how the user categorised earlier transactions, by type:
+// the most recent distinct descriptions, taken in turn from each category
+// so every category has examples. The AI follows the user's habits from
+// them (pubs under Drinks, a gym under Health).
+func (s *Service) pastChoices() map[string][]pastChoice {
+	rows, err := s.DB.Query(`SELECT t.type, t.description, c.name FROM transactions t
+		JOIN categories c ON c.id = t.category_id AND c.deleted_at IS NULL
+		WHERE t.deleted_at IS NULL AND t.category_source = 'user' AND t.type IN ('expense', 'income')
+		GROUP BY t.type, t.description, c.name ORDER BY MAX(t.date) DESC`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	byCat := map[string]map[string][]pastChoice{}
+	var order = map[string][]string{}
+	for rows.Next() {
+		var typ string
+		var p pastChoice
+		if rows.Scan(&typ, &p.Description, &p.Category) != nil {
+			continue
+		}
+		if byCat[typ] == nil {
+			byCat[typ] = map[string][]pastChoice{}
+		}
+		if byCat[typ][p.Category] == nil {
+			order[typ] = append(order[typ], p.Category)
+		}
+		byCat[typ][p.Category] = append(byCat[typ][p.Category], p)
+	}
+	out := map[string][]pastChoice{}
+	for typ, cats := range order {
+		for i := 0; len(out[typ]) < aiExamples; i++ {
+			took := false
+			for _, c := range cats {
+				if i < len(byCat[typ][c]) && len(out[typ]) < aiExamples {
+					out[typ] = append(out[typ], byCat[typ][c][i])
+					took = true
+				}
+			}
+			if !took {
+				break
+			}
+		}
+	}
+	return out
 }

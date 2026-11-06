@@ -194,7 +194,7 @@ func TestSingleShotStillUsesCapabilityPrompt(t *testing.T) {
 	if strings.Contains(captured, transcriptSystem) {
 		t.Error("single-shot must not send an agent transcript")
 	}
-	if !strings.Contains(captured, "Categorise every transaction") {
+	if !strings.Contains(captured, "Categorise bank-statement transactions") {
 		t.Errorf("capability prompt missing:\n%s", captured)
 	}
 }
