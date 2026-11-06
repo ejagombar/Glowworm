@@ -2885,11 +2885,12 @@ document.addEventListener("DOMContentLoaded", () => {
               ${linked ? `<option selected>Internal transfer</option>` : `<option value="">Select category…</option>` + cats.map((c) => `<option value="${esc(c.id)}"${t.category && t.category.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
             </select>
           </label>
-          <label class="tx-field grow" id="txeTransferField" hidden>Transfer link
+          <div class="tx-field tx-link-field" id="txeTransferField" hidden>
+            <span>Transfer link${linked ? "" : ` <span class="tx-link-hint">the other side of this transfer, in another account</span>`}</span>
             ${linked
-              ? `<select class="field" id="txeCounterpart" disabled><option selected>Linked: ${esc(t.counterpart_tx ? t.counterpart_tx.description + " · " + (t.counterpart_tx.account_name || "") : "transfer leg")}</option></select>`
-              : `<select class="field" id="txeCounterpart"><option value="">Not a transfer</option></select>`}
-          </label>
+              ? `<div class="tx-link-linked"><svg class="icon"><use href="#i-check"/></svg>Linked to <strong>${esc(t.counterpart_tx ? t.counterpart_tx.description : "its other leg")}</strong>${t.counterpart_tx && t.counterpart_tx.account_name ? ` in ${esc(t.counterpart_tx.account_name)}` : ""}</div>`
+              : `<input type="hidden" id="txeCounterpart" value="" /><div class="tx-link-list" id="txeLinkList" role="radiogroup" aria-label="Transfer link"><div class="tx-link-empty">Looking for the other side…</div></div>`}
+          </div>
           <label class="tx-field">Amount
             <input class="field" type="number" step="0.01" id="txeAmount" value="${(t.amount_minor / 100).toFixed(2)}" />
           </label>
@@ -2905,24 +2906,62 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const cpField = document.getElementById("txeCounterpartField") || document.getElementById("txeTransferField");
       const catSel = document.getElementById("txeCategory");
+      // Likely other legs (same amount, within a week) are listed; the rest
+      // of the other direction's transactions within a month are behind
+      // "Show more". Picking one again clears it.
       const loadTransferSuggestions = async () => {
-        const sel = document.getElementById("txeCounterpart");
-        if (!sel) return;
+        const input = document.getElementById("txeCounterpart");
+        const list = document.getElementById("txeLinkList");
+        if (!input || !list) return;
+        let items;
         try {
           const resp = await fetch(`/api/v1/transactions/${id}/transfer-suggestions`);
-          const body = await resp.json();
-          const items = body.items || [];
-          if (!items.length) {
-            sel.innerHTML = `<option value="">No candidates - import the other statement first</option>`;
-            return;
-          }
-          sel.innerHTML = `<option value="">Not a transfer - choose a counterpart…</option>` + items.map((s) => {
-            const tx = s.tx;
-            return `<option value="${esc(tx.id)}">${esc(tx.date)} · ${esc(tx.description)} · ${fmtMoneyMinor(tx.amount_minor, tx.currency || "GBP")} (${esc(tx.account ? tx.account.name : "")})</option>`;
-          }).join("");
+          items = (await resp.json()).items || [];
         } catch (e2) {
-          toast("Could not load transfer suggestions");
+          list.innerHTML = `<div class="tx-link-empty">Couldn't load transactions to link to.</div>`;
+          return;
         }
+        const when = (s) => {
+          if (!s.days) return "same day";
+          const later = s.tx.date > t.date;
+          return `${s.days} day${s.days === 1 ? "" : "s"} ${later ? "later" : "earlier"}`;
+        };
+        const card = (s) => {
+          const tx = s.tx;
+          const exact = tx.amount_minor === -t.amount_minor;
+          return `<button type="button" class="tx-link-option" role="radio" aria-checked="false" data-link-id="${esc(tx.id)}">
+            <span class="tx-link-main">
+              <span class="tx-link-desc">${esc(tx.description)}</span>
+              <span class="tx-link-meta">${tx.account ? `<span class="tx-link-acct"><span class="tx-link-dot" style="background:${esc(tx.account.color || "var(--muted)")}"></span>${esc(tx.account.name)}</span> · ` : ""}${dateHTML(tx.date)} · <span class="${s.days <= 3 ? "tx-link-good" : ""}">${when(s)}</span></span>
+            </span>
+            <span class="tx-link-amt tx-amount ${tx.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(tx.amount_minor, tx.currency || "GBP")}${exact ? `<span class="tx-link-good">exact amount</span>` : ""}</span>
+          </button>`;
+        };
+        const close = items.filter((s) => s.close);
+        const rest = items.filter((s) => !s.close);
+        const render = (showAll) => {
+          const shown = showAll ? close.concat(rest) : close;
+          let html = shown.map(card).join("");
+          if (!close.length && !showAll) {
+            html = `<div class="tx-link-empty">Nothing in another account for ${esc(fmtMoneyMinor(Math.abs(t.amount_minor), t.currency || "GBP"))} within a week of this. ${rest.length ? "" : "Import the other account's statement, then try again."}</div>`;
+          }
+          if (!showAll && rest.length) {
+            html += `<button type="button" class="btn btn-ghost btn-xs tx-link-more" data-link-more>Show ${rest.length} other transaction${rest.length === 1 ? "" : "s"} from the month around it</button>`;
+          }
+          list.innerHTML = html;
+          const picked = input.value && list.querySelector(`[data-link-id="${CSS.escape(input.value)}"]`);
+          if (picked) picked.setAttribute("aria-checked", "true");
+        };
+        list.addEventListener("click", (e) => {
+          if (e.target.closest("[data-link-more]")) { render(true); return; }
+          const opt = e.target.closest("[data-link-id]");
+          if (!opt) return;
+          const on = opt.getAttribute("aria-checked") !== "true";
+          list.querySelectorAll("[data-link-id]").forEach((o) => o.setAttribute("aria-checked", "false"));
+          opt.setAttribute("aria-checked", on ? "true" : "false");
+          input.value = on ? opt.dataset.linkId : "";
+        });
+        render(false);
       };
       let suggestionsLoaded = false;
       const syncTransferField = () => {
@@ -2930,7 +2969,10 @@ document.addEventListener("DOMContentLoaded", () => {
         cpField.hidden = !show;
         if (!show) {
           const cpSel = document.getElementById("txeCounterpart");
-          if (cpSel && !linked) cpSel.value = "";
+          if (cpSel && !linked) {
+            cpSel.value = "";
+            document.querySelectorAll("#txeLinkList [aria-checked=true]").forEach((o) => o.setAttribute("aria-checked", "false"));
+          }
         } else if (!linked && !suggestionsLoaded) {
           suggestionsLoaded = true;
           loadTransferSuggestions();

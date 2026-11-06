@@ -97,3 +97,43 @@ func TestDetectLeavesAmbiguousPairs(t *testing.T) {
 		t.Error("ambiguous transfer was linked")
 	}
 }
+
+// A card payment lands on the card a couple of days before or after it
+// leaves the current account, and still pairs; a week apart doesn't.
+func TestDetectPairsLegsAFewDaysApart(t *testing.T) {
+	s, current, card := newService(t)
+	out := addTx(t, s, current, "2026-06-24", "American Express - 3773", -77396, core.TypeTransfer)
+	in := addTx(t, s, card, "2026-06-22", "PAYMENT RECEIVED - THANK YOU", 77396, core.TypeTransfer)
+	far := addTx(t, s, current, "2026-08-30", "American Express - 3773", -16870, core.TypeTransfer)
+	addTx(t, s, card, "2026-08-22", "PAYMENT RECEIVED - THANK YOU", 16870, core.TypeTransfer)
+
+	if _, err := s.Detect(); err != nil {
+		t.Fatal(err)
+	}
+	if !linked(t, s, out) || !linked(t, s, in) {
+		t.Error("legs two days apart were not linked")
+	}
+	if linked(t, s, far) {
+		t.Error("legs eight days apart were linked")
+	}
+}
+
+// Suggestions are other-direction transactions, the likely legs first.
+func TestSuggestions(t *testing.T) {
+	s, current, card := newService(t)
+	out := addTx(t, s, current, "2026-06-24", "American Express", -77396, core.TypeExpense)
+	leg := addTx(t, s, card, "2026-06-22", "PAYMENT RECEIVED", 77396, core.TypeIncome)
+	addTx(t, s, card, "2026-06-23", "Shop", -77396, core.TypeExpense) // same direction
+	other := addTx(t, s, card, "2026-07-10", "Refund", 1200, core.TypeIncome)
+
+	got, err := s.Suggestions(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Tx.ID != leg || !got[0].Close || got[1].Tx.ID != other || got[1].Close {
+		for _, g := range got {
+			t.Logf("%s %s close=%v", g.Tx.ID, g.Tx.Description, g.Close)
+		}
+		t.Fatal("unexpected suggestions")
+	}
+}

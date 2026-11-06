@@ -35,6 +35,10 @@ const (
 	scoreKeywords   = 0.3
 	scoreAmount     = 0.3
 	scoreDateClose  = 0.2
+	// A payment can take a few days to land: a card payment made on a
+	// Friday is on the card statement on Monday.
+	scoreDateNear = 0.1
+	nearDays      = 3
 )
 
 func (s *Service) Detect() (int, error) {
@@ -95,6 +99,8 @@ func (s *Service) Detect() (int, error) {
 			method := "amount-date"
 			if gapDays <= 1 {
 				score += scoreDateClose
+			} else if gapDays <= nearDays {
+				score += scoreDateNear
 			}
 			text := normalize.Text(a.Description + " " + b.Description + " " + a.SourceText + " " + a.DestinationText)
 			if matchesIdentifier(text, idents[b.AccountID]) || matchesIdentifier(text, idents[a.AccountID]) {
@@ -355,6 +361,8 @@ type Suggestion struct {
 	Tx    *core.Transaction `json:"tx"`
 	Score float64           `json:"score"`
 	Days  int               `json:"days"`
+	// Close is the same amount (within 1%) within a week: a likely other leg.
+	Close bool `json:"close"`
 }
 
 func (s *Service) Suggestions(txID string) ([]*Suggestion, error) {
@@ -370,20 +378,22 @@ func (s *Service) Suggestions(txID string) ([]*Suggestion, error) {
 	}
 	out := []*Suggestion{}
 	for _, c := range candidates {
+		// The other leg moves money the other way.
+		if c.TransferID != nil || t.TransferID != nil || (c.AmountMinor < 0) == (t.AmountMinor < 0) {
+			continue
+		}
 		gap := dateGap(t.Date, c.Date)
 		score := 0.0
 		amountDiff := math.Abs(float64(c.AmountMinor + t.AmountMinor))
 		amountRef := math.Max(math.Abs(float64(t.AmountMinor)), 1)
+		sameAmount := amountDiff/amountRef <= 0.01
 		if amountDiff == 0 {
 			score += 2.0
-		} else if amountDiff/amountRef <= 0.01 {
+		} else if sameAmount {
 			score += 1.0
 		}
 		score += 1 - math.Min(float64(gap), 30)/30
-		if c.TransferID != nil || t.TransferID != nil {
-			continue
-		}
-		out = append(out, &Suggestion{Tx: c, Score: score, Days: gap})
+		out = append(out, &Suggestion{Tx: c, Score: score, Days: gap, Close: sameAmount && gap <= 7})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Score != out[j].Score {

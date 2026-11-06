@@ -1013,7 +1013,30 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
   user-select: none; white-space: nowrap;
 }
 .tx-check input { accent-color: var(--primary); }
-.tx-editor-actions { display: flex; gap: 6px; margin-left: auto; }
+.tx-editor-actions { display: flex; gap: 6px; margin-left: auto; order: 11; }
+/* The transfer link: a list of the likely other legs to pick from. */
+.tx-link-field { flex-basis: 100%; order: 10; }
+.tx-link-hint { font-weight: 400; color: var(--muted-2); margin-left: 4px; }
+.tx-link-list { display: flex; flex-direction: column; gap: 6px; }
+.tx-link-option {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 9px 12px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+}
+.tx-link-option:hover { border-color: var(--line-2); background: var(--surface-2); }
+.tx-link-option[aria-checked="true"] { border-color: var(--primary); background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
+.tx-link-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tx-link-desc { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-link-meta { font-size: 11.5px; color: var(--muted); }
+.tx-link-acct { display: inline-flex; align-items: center; gap: 5px; }
+.tx-link-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.tx-link-amt { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; white-space: nowrap; }
+.tx-link-amt .tx-link-good { font-family: var(--font); font-size: 10.5px; }
+.tx-link-good { color: var(--primary); }
+.tx-link-empty { font-size: 12.5px; font-weight: 400; color: var(--muted); padding: 8px 0; }
+.tx-link-more { align-self: flex-start; }
+.tx-link-linked { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 400; color: var(--text-2); padding: 6px 0; }
+.tx-link-linked .icon { width: 14px; height: 14px; color: var(--primary); }
 .tx-table tr.linked .cell-merchant { font-weight: 500; }
 
 .category-grid {
