@@ -24,6 +24,7 @@ import (
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/setup"
 	"glowworm/internal/core/transactions"
+	"glowworm/internal/core/transfers"
 	"glowworm/internal/crypto"
 	"glowworm/internal/importer"
 	"glowworm/internal/store/repos"
@@ -219,6 +220,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/transactions/{id}/unlink", j(a.apiTransferUnlink))
 	mux.HandleFunc("GET /api/v1/transactions/{id}/transfer-suggestions", j(a.apiTransferSuggestions))
 	mux.HandleFunc("POST /api/v1/transfers/detect", j(a.apiTransferDetect))
+	mux.HandleFunc("GET /api/v1/transfers/pending", j(a.apiTransferPending))
 
 	mux.HandleFunc("GET /api/v1/group-rules", j(a.apiGroupRulesList))
 	mux.HandleFunc("POST /api/v1/group-rules/preview", j(a.apiGroupRulesPreview))
@@ -965,6 +967,19 @@ func (a *App) apiTransferSuggestions(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	writeJSON(w, map[string]any{"items": sugs})
+	return nil
+}
+
+// apiTransferPending lists the pairs detection would link now.
+func (a *App) apiTransferPending(w http.ResponseWriter, r *http.Request) error {
+	pairs, err := a.Transfers.Pending()
+	if err != nil {
+		return err
+	}
+	if pairs == nil {
+		pairs = []*transfers.Pair{}
+	}
+	writeJSON(w, map[string]any{"items": pairs})
 	return nil
 }
 

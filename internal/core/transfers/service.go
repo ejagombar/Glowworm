@@ -41,16 +41,50 @@ const (
 	nearDays      = 3
 )
 
+// Pair is two transactions detection would link: money out of one account
+// and the same money into another.
+type Pair struct {
+	Source      *core.Transaction `json:"source"`
+	Destination *core.Transaction `json:"destination"`
+	Score       float64           `json:"score"`
+	Method      string            `json:"method"`
+}
+
+// Pending is what Detect would link now, without linking it.
+func (s *Service) Pending() ([]*Pair, error) {
+	return s.find()
+}
+
+// Detect links every pair find finds, each with its own History entry.
 func (s *Service) Detect() (int, error) {
+	pairs, err := s.find()
+	if err != nil {
+		return 0, err
+	}
+	internalCat, err := s.InternalCat()
+	if err != nil {
+		return 0, err
+	}
+	made := 0
+	for _, p := range pairs {
+		if err := s.linkDetected(p, internalCat); err != nil {
+			return made, err
+		}
+		made++
+	}
+	return made, nil
+}
+
+func (s *Service) find() ([]*Pair, error) {
 	threshold := s.Settings.GetFloat("transfer_threshold", 0.7)
 	txs, err := s.Txs.UnlinkedTxs()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	idents := map[string][]string{}
 	accounts, err := s.Accounts.List()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	for _, a := range accounts {
 		fragments := []string{}
@@ -68,12 +102,8 @@ func (s *Service) Detect() (int, error) {
 	lexicon := []string{"transfer", "tfr", "standing order", "faster payment", "to savings", "from savings",
 		"to current", "from current", "credit card payment", "payment to", "payment from"}
 
-	made := 0
+	var pairs []*Pair
 	used := map[string]bool{}
-	internalCat, err := s.InternalCat()
-	if err != nil {
-		return 0, err
-	}
 	for _, a := range txs {
 		if used[a.ID] {
 			continue
@@ -147,45 +177,46 @@ func (s *Service) Detect() (int, error) {
 		if src.AmountMinor > 0 {
 			src, dst = dst, src
 		}
-		conf := bestScore
-		tr := &core.Transfer{SourceTxID: src.ID, DestinationTxID: dst.ID,
-			Detected: "auto", Method: bestMethod, Confidence: &conf}
-		preSrcType, preSrcCat := src.Type, deref(src.CategoryID)
-		preDstType, preDstCat := dst.Type, deref(dst.CategoryID)
-		err := s.DB.WithTx(func(tx *sql.Tx) error {
-			if err := s.Txs.CreateTransfer(tx, tr, src, dst, internalCat); err != nil {
-				return err
-			}
-			_, err := s.Audit.Write(tx, audit.Input{
-				Actor: core.ActorSystem, Action: "transfer.linked",
-				EntityType: "transfer", EntityID: tr.ID,
-				Title: fmt.Sprintf("Detected transfer: %s → %s", src.AccountName(), dst.AccountName()),
-				Sub:   fmt.Sprintf("£%.2f · %s match", math.Abs(float64(src.AmountMinor))/100, bestMethod),
-				Before: map[string]any{
-					"legs": []map[string]any{
-						{"id": src.ID, "type": preSrcType, "category_id": preSrcCat, "category_source": src.CategorySource},
-						{"id": dst.ID, "type": preDstType, "category_id": preDstCat, "category_source": dst.CategorySource},
-					},
-				},
-				After: map[string]any{
-					"transfer_id": tr.ID,
-					"legs": []map[string]any{
-						{"id": src.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
-						{"id": dst.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
-					},
-				},
-				Revert: map[string]any{"transfer_id": tr.ID},
-			})
-			return err
-		})
-		if err != nil {
-			return made, err
-		}
+		pairs = append(pairs, &Pair{Source: src, Destination: dst, Score: bestScore, Method: bestMethod})
 		used[src.ID] = true
 		used[dst.ID] = true
-		made++
 	}
-	return made, nil
+	return pairs, nil
+}
+
+func (s *Service) linkDetected(p *Pair, internalCat string) error {
+	src, dst, bestMethod := p.Source, p.Destination, p.Method
+	conf := p.Score
+	tr := &core.Transfer{SourceTxID: src.ID, DestinationTxID: dst.ID,
+		Detected: "auto", Method: bestMethod, Confidence: &conf}
+	preSrcType, preSrcCat := src.Type, deref(src.CategoryID)
+	preDstType, preDstCat := dst.Type, deref(dst.CategoryID)
+	return s.DB.WithTx(func(tx *sql.Tx) error {
+		if err := s.Txs.CreateTransfer(tx, tr, src, dst, internalCat); err != nil {
+			return err
+		}
+		_, err := s.Audit.Write(tx, audit.Input{
+			Actor: core.ActorSystem, Action: "transfer.linked",
+			EntityType: "transfer", EntityID: tr.ID,
+			Title: fmt.Sprintf("Detected transfer: %s → %s", src.AccountName(), dst.AccountName()),
+			Sub:   fmt.Sprintf("£%.2f · %s match", math.Abs(float64(src.AmountMinor))/100, bestMethod),
+			Before: map[string]any{
+				"legs": []map[string]any{
+					{"id": src.ID, "type": preSrcType, "category_id": preSrcCat, "category_source": src.CategorySource},
+					{"id": dst.ID, "type": preDstType, "category_id": preDstCat, "category_source": dst.CategorySource},
+				},
+			},
+			After: map[string]any{
+				"transfer_id": tr.ID,
+				"legs": []map[string]any{
+					{"id": src.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
+					{"id": dst.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
+				},
+			},
+			Revert: map[string]any{"transfer_id": tr.ID},
+		})
+		return err
+	})
 }
 
 func normalizeIdentifier(s string) string {

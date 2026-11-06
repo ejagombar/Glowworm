@@ -680,6 +680,22 @@ func TestAgentDraftsValuation(t *testing.T) {
 	}
 }
 
+// "Run transaction linking" becomes a link_transfers widget, which needs
+// no query and links nothing until pressed.
+func TestAgentDraftsTransferLinking(t *testing.T) {
+	svc := newAgentService(t, &ai.MockAgent{Replies: []string{
+		`{"action":"final","text":"Press Link to link them.","widgets":[{"type":"link_transfers"}]}`,
+	}})
+	defer func() { _ = svc.DB.Close() }()
+	ans, err := svc.Ask("run transaction linking")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ans.Widgets) != 1 || ans.Widgets[0].Type != "link_transfers" || ans.Widgets[0].Title != "Link transfers" {
+		t.Fatalf("widgets = %+v", ans.Widgets)
+	}
+}
+
 func TestGrainFor(t *testing.T) {
 	for _, c := range []struct{ from, to, want string }{
 		{"2026-01-01", "2026-01-31", "day"},

@@ -107,6 +107,14 @@ func TestDetectPairsLegsAFewDaysApart(t *testing.T) {
 	far := addTx(t, s, current, "2026-08-30", "American Express - 3773", -16870, core.TypeTransfer)
 	addTx(t, s, card, "2026-08-22", "PAYMENT RECEIVED - THANK YOU", 16870, core.TypeTransfer)
 
+	// Pending lists what Detect would link, and links nothing.
+	pending, err := s.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Source.ID != out || pending[0].Destination.ID != in || linked(t, s, out) {
+		t.Fatalf("pending = %+v", pending)
+	}
 	if _, err := s.Detect(); err != nil {
 		t.Fatal(err)
 	}

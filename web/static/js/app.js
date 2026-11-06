@@ -1132,6 +1132,7 @@ function widgetBodyHTML(widget) {
   if (widget.type === "group_rule") return `<div class="rules-host" data-rules-kind="draft" data-draft="${esc(JSON.stringify(data))}"></div>`;
   if (widget.type === "change") return `<div class="rules-host" data-rules-kind="change" data-draft="${esc(JSON.stringify(data))}"></div>`;
   if (widget.type === "valuation") return `<div class="rules-host" data-rules-kind="valuation" data-draft="${esc(JSON.stringify(data))}"></div>`;
+  if (widget.type === "link_transfers") return `<div class="rules-host" data-rules-kind="link_transfers"></div>`;
   if (data.transactions) {
     data.transactions = data.transactions.map((tx) => {
       const v = tx.amount_minor ?? tx.amount ?? 0;
@@ -1753,7 +1754,7 @@ function recurringSearchHref(txs) {
 }
 // ---- Grouping rules, shown only in the query window. Both widgets read the
 // rules live, so an old answer still shows what's true now.
-function isRulesWidget(type) { return type === "group_rule" || type === "group_rules" || type === "change" || type === "valuation"; }
+function isRulesWidget(type) { return type === "group_rule" || type === "group_rules" || type === "change" || type === "valuation" || type === "link_transfers"; }
 function ruleText(r) {
   return `${r.match === "is" ? "is" : "contains"} “${r.text}”`;
 }
@@ -1762,6 +1763,7 @@ function hydrateRules(root) {
     if (host.dataset.rulesKind === "list") loadRulesList(host);
     else if (host.dataset.rulesKind === "change") loadChange(host);
     else if (host.dataset.rulesKind === "valuation") loadValuationDraft(host);
+    else if (host.dataset.rulesKind === "link_transfers") loadPendingTransfers(host);
     else loadRuleDraft(host);
   });
 }
@@ -1864,6 +1866,41 @@ function loadValuationDraft(host) {
       </div></div>`;
   }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not load the account.")}</p>`; });
 }
+// Transfer linking from Queries: the pairs detection would link now, read
+// live, linked with one press. done is how many the press linked.
+function loadPendingTransfers(host, done) {
+  fetch("/api/v1/transfers/pending").then((r) => jsonOk(r)).then((body) => {
+    const pairs = body.items || [];
+    const leg = (tx) => `${esc(tx.description)}<div class="cell-sub">${esc(tx.account ? tx.account.name : "")} · ${dateHTML(tx.date)}</div>`;
+    const head = done
+      ? `<strong>Linked ${done} transfer${done === 1 ? "" : "s"}.</strong>${pairs.length ? ` ${pairs.length} more found:` : ""}`
+      : pairs.length
+        ? `<strong>${pairs.length} transfer${pairs.length === 1 ? "" : "s"}</strong> to link, money out of one account matched with the same money into another:`
+        : "Every transfer with both sides imported is already linked.";
+    host.innerHTML = `<div class="rule-draft">
+      <p class="rule-draft-head">${head}</p>
+      ${pairs.length ? `<div class="table-widget change-rows"><table class="rules-table">
+        <thead><tr><th>Out</th><th>In</th><th class="num">Amount</th></tr></thead>
+        <tbody>${pairs.map((p) => `<tr><td>${leg(p.source)}</td><td>${leg(p.destination)}</td>
+          <td class="num">${esc(fmtMoneyMinor(-p.source.amount_minor, p.source.currency || "GBP"))}</td></tr>`).join("")}</tbody>
+      </table></div>` : ""}
+      <div class="rule-draft-foot">
+        <span class="cell-sub">${done ? `Linked · <a href="/history?mode=audit">undo in History</a>` : pairs.length ? "Nothing changes until you link them." : "Linking also runs after every import."}</span>
+        ${pairs.length ? `<button class="btn btn-primary btn-xs" data-link-transfers>Link ${pairs.length === 1 ? "it" : `all ${pairs.length}`}</button>` : ""}
+      </div></div>`;
+  }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not look for transfers.")}</p>`; });
+}
+function linkTransfers(btn) {
+  const host = btn.closest(".rules-host");
+  btn.disabled = true;
+  fetch("/api/v1/transfers/detect", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
+    .then(async (r) => {
+      if (!r.ok) { toast(await apiErrorText(r, "Could not link the transfers")); btn.disabled = false; return; }
+      const n = (await r.json().catch(() => ({}))).linked || 0;
+      toast(`Linked ${n} transfer${n === 1 ? "" : "s"}`);
+      loadPendingTransfers(host, n);
+    }).catch(() => { toast("Could not link the transfers"); btn.disabled = false; });
+}
 function recordValuation(btn) {
   const host = btn.closest(".rules-host");
   let d;
@@ -1903,6 +1940,8 @@ document.addEventListener("click", (e) => {
   }
   const record = e.target.closest("[data-record-valuation]");
   if (record) { recordValuation(record); return; }
+  const linkAll = e.target.closest("[data-link-transfers]");
+  if (linkAll) { linkTransfers(linkAll); return; }
   const create = e.target.closest("[data-create-rule]");
   if (create) {
     const host = create.closest(".rules-host");

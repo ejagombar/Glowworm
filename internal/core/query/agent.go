@@ -477,6 +477,12 @@ touch and nothing happens until they press Apply. It can be undone from History.
     and the same money into another — as an internal transfer. Use this
     (not a category) to make transactions internal transfers.
   - unlink_transfer: breaks the transfer link on the selected transactions.
+- Transfer linking (pairing every transfer's two sides automatically, which
+  normally runs after each import): when the user asks to run it, find
+  transfers, link transactions, check for unlinked transfers and the like,
+  answer with {"type":"link_transfers"} and no sql or query. It lists the
+  pairs it would link and links them all when the user presses Link. Text:
+  one sentence saying pressing Link links them — never claim it is done.
 - Recurring series are detected automatically from the data and can't be
   set by hand; say so if asked. Account settings (other than a recorded
   balance, below), categories, imports and
@@ -518,7 +524,8 @@ PROTOCOL — every reply is ONE JSON object, no prose outside it:
    - "widgets": 0-3 live query widgets as described under WIDGETS ARE LIVE
      QUERIES, type one of number, bar, line, pie, table, transactions, text;
      or the group_rule / group_rules widgets under GROUPING (these have no sql),
-     or a change widget under CHANGES, or a valuation widget under BALANCES.
+     or a change or link_transfers widget under CHANGES, or a valuation
+     widget under BALANCES.
      Test a widget's sql with run_query first when unsure.
    - Use at most one widget unless the question clearly needs more.
 3. If the user names something that isn't in their categories/accounts/merchants,
@@ -739,6 +746,12 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 		case "group_rules":
 			if title == "" {
 				title = "Grouping rules"
+			}
+			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: map[string]any{}})
+			continue
+		case "link_transfers":
+			if title == "" {
+				title = "Link transfers"
 			}
 			out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title, Data: map[string]any{}})
 			continue
