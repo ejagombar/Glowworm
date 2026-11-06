@@ -1383,6 +1383,7 @@ func (a *App) apiGroupRulesCreate(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
+	a.afterGroupRulesChange()
 	writeJSON(w, map[string]any{"created": created})
 	return nil
 }
@@ -1391,6 +1392,7 @@ func (a *App) apiGroupRuleDelete(w http.ResponseWriter, r *http.Request) error {
 	if err := a.Grouping.Delete(r.PathValue("id")); err != nil {
 		return err
 	}
+	a.afterGroupRulesChange()
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }

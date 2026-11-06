@@ -182,10 +182,11 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	if err := app.Cat.RefreshRules(); err != nil {
 		log.Error("rules refresh", "err", err)
 	}
+	// Grouping first: recurring series follow the groups.
+	app.regroup()
 	if _, err := app.Recurring.Detect(); err != nil {
 		log.Error("recurring detection", "err", err)
 	}
-	app.regroup()
 	return app, nil
 }
 
@@ -558,11 +559,21 @@ func (a *App) afterHistoryChange() {
 	if err := a.Cat.RefreshRules(); err != nil {
 		a.Log.Error("rules refresh", "err", err)
 	}
+	a.regroupLocked()
 	if _, err := a.Recurring.Detect(); err != nil {
 		a.Log.Error("recurring detection", "err", err)
 	}
-	a.regroupLocked()
 	a.Cat.RetrainQuiet()
+}
+
+// afterGroupRulesChange finds recurring series again, as they follow the
+// groups a rule change has just moved transactions between.
+func (a *App) afterGroupRulesChange() {
+	a.derivedMu.Lock()
+	defer a.derivedMu.Unlock()
+	if _, err := a.Recurring.Detect(); err != nil {
+		a.Log.Error("recurring detection", "err", err)
+	}
 }
 
 // regroup puts transactions in their groups by the grouping rules, after

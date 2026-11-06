@@ -57,7 +57,7 @@ func (s *Service) Detect() (int, error) {
 	// same amount: a series repeats an amount, give or take amountTolerance.
 	payees := map[string]*group{}
 	for _, t := range pool {
-		label := normalize.Text(t.Description)
+		label := seriesLabel(t)
 		if label == "" {
 			continue
 		}
@@ -198,6 +198,17 @@ func (s *Service) Detect() (int, error) {
 	return len(keysDetected), err
 }
 
+// seriesLabel is what a payment's payee is compared by: the group the user's
+// grouping rules put it in ("Rent and water" for both "To Jaeren Rodrigues -
+// rent and water" and "Jaeren Rodrigues - Rent and water"), else its
+// description.
+func seriesLabel(t *core.Transaction) string {
+	if t.Merchant != nil && *t.Merchant != "" {
+		return normalize.Text(*t.Merchant)
+	}
+	return normalize.Text(t.Description)
+}
+
 // amountTolerance is how far a payment may stray from the run's smallest and
 // still be the same amount: 3%, and at least 5p for small sums.
 func amountTolerance(minor int64) int64 {
@@ -291,7 +302,11 @@ func medianAmount(txs []*core.Transaction) int64 {
 	return vals[len(vals)/2]
 }
 
+// mostCommonLabel names a series: its group, else its most common description.
 func mostCommonLabel(txs []*core.Transaction) string {
+	if m := txs[0].Merchant; m != nil && *m != "" {
+		return *m
+	}
 	counts := map[string]int{}
 	best, bestN := "", 0
 	for _, t := range txs {
