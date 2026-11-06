@@ -272,7 +272,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 .masthead-actions .icon-btn.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 
 /* Hidden amounts: the text stays (so nothing moves) but is see-through, with
-   the same "••••" over every value whatever its size. */
+   the same redaction bar over every value whatever its size. */
 body.privacy .stat-value:not(.no-blur):not(:empty),
 body.privacy .account-balance:not(.no-blur):not(:empty),
 body.privacy .cat-amount:not(.no-blur):not(:empty),
@@ -320,8 +320,12 @@ body.privacy .balance-panel-now:not(.no-blur):not(:empty)::after,
 body.privacy .valuation-compare:not(.no-blur):not(:empty)::after,
 body.privacy .table-widget td.num:not(.no-blur):not(:empty)::after,
 body.privacy .chart-hover-tip .chart-tip-value:not(.no-blur):not(:empty)::after {
-  content: "\2022\2022\2022\2022"; position: absolute; inset: 0; visibility: visible;
-  color: var(--muted); letter-spacing: 0.12em; white-space: nowrap; overflow: hidden;
+  /* Figure spaces struck through with a thick line: a bar of fixed width that
+     follows the value's own alignment and size. */
+  content: "\2007\2007\2007\2007\2007"; position: absolute; inset: 0; visibility: visible;
+  white-space: pre; overflow: hidden;
+  text-decoration: line-through; text-decoration-thickness: 0.62em; text-decoration-color: var(--line-2);
+  text-decoration-skip-ink: none;
 }
 body.privacy #accOpening,
 body.privacy #accValuation { -webkit-text-security: disc; }
@@ -329,9 +333,10 @@ body.privacy #accValuation { -webkit-text-security: disc; }
   body.privacy #accOpening,
   body.privacy #accValuation { color: transparent; }
 }
-/* Svg text can't take ::after, so charts draw a masked copy beside the real one. */
+/* Svg text can't take ::after, so charts draw a bar beside the real text. */
 .privacy-mask { display: none; }
 body.privacy .privacy-mask { display: inline; }
+.privacy-mask { fill: var(--line-2); }
 body.privacy .chart-y-label,
 body.privacy .pie-total { display: none; }
 
