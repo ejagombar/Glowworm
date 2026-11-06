@@ -9,6 +9,18 @@ function esc(str) {
   }[c]));
 }
 let WIDGET_CURRENCY = "GBP";
+
+// A date with the month written out, plus a short form that tables swap in
+// when they're too narrow for it (see .date-short in the css).
+function dateHTML(iso) {
+  const s = String(iso ?? "");
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + "T00:00:00") : null;
+  if (!d || isNaN(d)) return esc(s);
+  const long = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  // Spelt out: en-GB gives "Sept", the server's tables "Sep".
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()];
+  return `<time class="date" datetime="${s}"><span class="date-long">${long}</span><span class="date-short">${d.getDate()} ${mon} ${d.getFullYear()}</span></time>`;
+}
 function fmtMoney(v) {
   const n = Number(v) / 100;
   const sym = ({ GBP: "£", USD: "$", EUR: "€" })[WIDGET_CURRENCY] || WIDGET_CURRENCY + " ";
@@ -854,7 +866,7 @@ function widgetBody(widget) {
   }
   if (t === "transactions") {
     const rows = (data.transactions || []).map((tx) => `<tr>
-      <td class="cell-sub">${esc(String(tx.date).slice(8))} ${esc(monthName(String(tx.date).slice(5, 7)))}</td>
+      <td class="cell-sub cell-date">${dateHTML(String(tx.date).slice(0, 10))}</td>
       <td><div class="cell-merchant">${esc(tx.description || tx.merchant)}</div></td>
       <td>${esc(tx.category)}</td>
       <td class="num tx-amount ${tx.type === "transfer" ? "transfer" : tx.amount >= 0 ? "pos" : "neg"}">${tx.type === "transfer" ? "⇄ " + fmtMoney(tx.amount) : (tx.amount >= 0 ? "+" : "−") + fmtMoney(tx.amount)}</td>

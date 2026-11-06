@@ -1149,18 +1149,14 @@ function widgetBodyHTML(widget) {
       <tbody>${(data.rows || []).map((r) => `<tr>${r.map((c, i) => `<td class="${i === r.length - 1 ? "num" : ""}">${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   }
   if (widget.type === "transactions") {
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const rows = (data.transactions || []).map((tx) => {
-      const d = String(tx.date || "");
-      const day = d.slice(8, 10);
-      const mon = monthNames[Number(d.slice(5, 7)) - 1] || "";
       const cur = tx.currency || "GBP";
       const sym = ({ GBP: "£", USD: "$", EUR: "€" })[cur] || cur + " ";
       const amt = Number(tx.amount || 0) / 100;
       const amtStr = (tx.type === "transfer" ? "⇄ " : tx.amount >= 0 ? "+" : "−") +
         sym + Math.abs(amt).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const cls = tx.type === "transfer" ? "transfer" : tx.amount >= 0 ? "pos" : "neg";
-      return `<tr><td class="cell-sub">${esc(day)} ${esc(mon)}</td>` +
+      return `<tr><td class="cell-sub cell-date">${dateHTML(String(tx.date || "").slice(0, 10))}</td>` +
         `<td><div class="cell-merchant">${esc(tx.description || tx.merchant || "")}</div></td>` +
         `<td>${esc(tx.category || "")}</td>` +
         `<td class="num tx-amount ${cls}">${esc(amtStr)}</td></tr>`;
@@ -1826,7 +1822,7 @@ function loadChange(host) {
       <div class="table-widget change-rows"><table class="rules-table">
         <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
         <tbody>${rows.map((t) => `<tr class="${t.skip ? "change-skip" : ""}">
-          <td class="cell-sub">${esc(t.date)}</td>
+          <td class="cell-sub cell-date">${dateHTML(t.date)}</td>
           <td>${esc(t.description)} <span class="cell-sub">· ${esc(t.account)}</span></td>
           <td class="cell-sub">${t.skip ? `Skipped: ${esc(t.skip)}` : t.deleted ? "Deleted" : esc(t.category || (t.linked ? "Transfer" : "Uncategorised"))}</td>
           <td class="num">${fmtMoneySigned(t.amount_minor, t.currency)}</td></tr>`).join("")}</tbody>
@@ -3570,7 +3566,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function groupHTML(g, R) {
     const n = g.rows.length;
     const dates = g.rows.map((r) => r.date).sort();
-    const when = n > 1 && dates[0] !== dates[n - 1] ? `${dates[0]} – ${dates[n - 1]}` : dates[0];
+    const when = n > 1 && dates[0] !== dates[n - 1] ? `${dateHTML(dates[0])} – ${dateHTML(dates[n - 1])}` : dateHTML(dates[0]);
     const opts = catsFor(g.type);
     if (g.categoryId && !opts.some((c) => c.id === g.categoryId)) {
       opts.push({ id: g.categoryId, name: g.categoryName || "Current category" });
@@ -3593,12 +3589,12 @@ document.addEventListener("DOMContentLoaded", () => {
       status = sourceBadge(g);
     }
     const rowsTable = n > 1 ? `<details class="review-group-rows"><summary>Show ${n} transactions</summary><table>
-        ${g.rows.map((r) => `<tr><td>${esc(r.date)}</td><td class="num tx-amount ${r.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(r.amount_minor, r.currency || g.currency)}</td></tr>`).join("")}
+        ${g.rows.map((r) => `<tr><td class="cell-date">${dateHTML(r.date)}</td><td class="num tx-amount ${r.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(r.amount_minor, r.currency || g.currency)}</td></tr>`).join("")}
       </table></details>` : "";
     return `<div class="review-group" data-group="${g.id}" data-order="${g.order}" data-state="${g.state}">
         <div class="review-group-main">
           <div class="review-group-desc"><span class="review-group-name" title="${esc(g.description)}">${esc(g.description)}</span>${n > 1 ? `<span class="badge badge-soft">×${n}</span>` : ""}${g.state === "review" ? searchLink(g.description) : ""}</div>
-          <div class="review-group-sub">${g.destination ? `→ ${esc(g.destination)} · ` : ""}${esc(when)}</div>
+          <div class="review-group-sub">${g.destination ? `→ ${esc(g.destination)} · ` : ""}${when}</div>
         </div>
         <div class="tx-amount ${g.total >= 0 ? "pos" : "neg"}" title="${n > 1 ? "Total of the group" : ""}">${fmtMoneySigned(g.total, g.currency)}${originalOf(g)}</div>
         <div class="review-group-cat">${select}${status}</div>
@@ -3633,7 +3629,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const defaultAcc = b.account_id || document.getElementById("importAccount")?.value || (accounts[0] && accounts[0].id) || "";
     const remembersSchema = kind === "csv" || kind === "xlsx";
     const dupRows = R.dups.map((row) => `<tr data-row-id="${esc(row.id)}">
-        <td class="cell-sub">${esc(row.date)}</td><td>${esc(row.description)}</td>
+        <td class="cell-sub cell-date">${dateHTML(row.date)}</td><td>${esc(row.description)}</td>
         <td class="num tx-amount ${row.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(row.amount_minor, row.currency || "GBP")}</td>
         <td><button class="btn btn-ghost btn-xs" type="button" data-force>Import anyway</button></td></tr>`).join("");
     openFlow(`

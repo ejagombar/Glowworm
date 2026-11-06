@@ -40,7 +40,7 @@
 {{else if eq $w.Type "transactions"}}
 <div class="table-widget tx-widget"><table class="tx-table">
   <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
-  <tbody>{{range $w.Transactions}}<tr><td class="cell-sub">{{.Date}}</td><td><div class="cell-merchant">{{.Description}}</div></td><td>{{.Category}}</td><td class="num tx-amount {{.Class}}">{{.Amount}}</td></tr>{{end}}</tbody>
+  <tbody>{{range $w.Transactions}}<tr><td class="cell-sub cell-date">{{dateCell .Date}}</td><td><div class="cell-merchant">{{.Description}}</div></td><td>{{.Category}}</td><td class="num tx-amount {{.Class}}">{{.Amount}}</td></tr>{{end}}</tbody>
 </table></div>
 {{else}}
 <div class="chart-host" data-chart-type="{{$w.Type}}" data-chart-data="{{jsonAttr $w.DataJSON}}"></div>

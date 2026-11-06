@@ -4,12 +4,12 @@
 {{$cat := "Uncategorised"}}
 {{if $t.Category}}{{$cat = $t.Category.Name}}{{end}}
 <tr{{if eq $row.Kind "linked"}} class="linked"{{end}} data-tx-id="{{$t.ID}}">
-  <td class="cell-sub">{{$t.Date}}</td>
+  <td class="cell-sub cell-date">{{dateCell $t.Date}}</td>
   <td><div class="cell-merchant">{{$t.Description}}
     {{if eq $row.Kind "linked"}}<span class="badge badge-linked" title="Matched with the other side of this transfer">Linked</span>{{end}}
     {{if and $stmt $t.TransferID}}<span class="badge badge-linked" tabindex="0" title="{{if $t.Counterparty}}{{$t.Counterparty}}{{else}}Transfer between your accounts{{end}}">Transfer</span>{{end}}
     {{if $t.RecurringKey}}<button type="button" class="badge badge-recurring badge-btn" data-recurring-key="{{$t.RecurringKey}}" title="View all related transactions">Recurring</button>{{end}}
-  </div><div class="cell-cat-inline">{{$t.Date}} · {{$cat}}</div></td>
+  </div><div class="cell-cat-inline">{{dateCell $t.Date}} · {{$cat}}</div></td>
   <td class="cell-cat">{{$cat}}</td>
   {{if not $stmt}}
   <td>{{if eq $row.Kind "linked"}}{{$row.Source}} → {{$row.Destination}}{{else}}{{$t.AccountName}}{{end}}</td>

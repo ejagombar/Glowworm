@@ -389,6 +389,14 @@ body.privacy .pie-total { display: none; }
 .tabnav-item.active .tab-index { color: var(--primary); }
 .tab-icon { display: none; }
 .cell-cat-inline { display: none; }
+/* Dates have the month written out, and the short form when the table is narrow. */
+.date { white-space: nowrap; }
+.date-short { display: none; }
+.table-widget, .table-panel, .import-review { container-type: inline-size; }
+@container (max-width: 640px) {
+  .date-long { display: none; }
+  .date-short { display: inline; }
+}
 .tabnav-spacer { flex: 1; }
 .tabnav-item.tabnav-icon { height: 100%; padding: 0 8px; }
 .tabnav-item.tabnav-icon .icon { width: 16px; height: 16px; }

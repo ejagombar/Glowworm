@@ -62,6 +62,7 @@ func New() (*Renderer, error) {
 		"symbol":       money.Symbol,
 		"dayMonth":     func(iso string) string { return fmtDate(iso, "2 Jan") },
 		"dayMonthYear": func(iso string) string { return fmtDate(iso, "2 Jan 2006") },
+		"dateCell":     dateCell,
 		"monthName": func(mm string) string {
 			months := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 			i := 0
@@ -162,6 +163,17 @@ func fmtDate(iso, layout string) string {
 		return iso
 	}
 	return t.Format(layout)
+}
+
+// dateCell is a date with the month written out, plus a short form that
+// tables swap in when they're too narrow for it (see .date-short in the css).
+func dateCell(iso string) template.HTML {
+	t, err := time.Parse("2006-01-02", iso)
+	if err != nil {
+		return template.HTML(template.HTMLEscapeString(iso))
+	}
+	return template.HTML(fmt.Sprintf(`<time class="date" datetime="%s"><span class="date-long">%s</span><span class="date-short">%s</span></time>`,
+		iso, t.Format("2 January 2006"), t.Format("2 Jan 2006")))
 }
 
 func firstRune(s string) string {
