@@ -57,7 +57,7 @@ func (s *Service) Detect() (int, error) {
 	// same amount: a series repeats an amount, give or take amountTolerance.
 	payees := map[string]*group{}
 	for _, t := range pool {
-		label := payeeLabel(t.Description)
+		label := normalize.Text(t.Description)
 		if label == "" {
 			continue
 		}
@@ -196,20 +196,6 @@ func (s *Service) Detect() (int, error) {
 		return nil
 	})
 	return len(keysDetected), err
-}
-
-// payeeLabel is the description as compared between payments. Banks put
-// "To"/"From" in front of some payments to a person and not others (Chase's
-// "To Jo Bloggs - rent" one month, "Jo Bloggs - rent" the next); the
-// direction is kept apart anyway, so the word is dropped.
-func payeeLabel(desc string) string {
-	label := normalize.Text(desc)
-	for _, p := range []string{"to ", "from "} {
-		if rest := strings.TrimPrefix(label, p); rest != label && rest != "" {
-			return rest
-		}
-	}
-	return label
 }
 
 // amountTolerance is how far a payment may stray from the run's smallest and

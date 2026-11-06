@@ -55,15 +55,6 @@ func TestDetect(t *testing.T) {
 	for i, d := range []string{"2026-01-05", "2026-02-05", "2026-03-05"} {
 		bill = append(bill, add(d, "Thames Water", -3200-int64(i)*20))
 	}
-	// Rent to a person, with "To" in front only some months.
-	var rent []string
-	for i, d := range []string{"2026-01-28", "2026-02-27", "2026-03-28", "2026-04-28", "2026-05-28"} {
-		desc := "Jo Bloggs - rent and water"
-		if i%2 == 1 {
-			desc = "To Jo Bloggs - Rent and water"
-		}
-		rent = append(rent, add(d, desc, -101266))
-	}
 	// A tag left from an older detection is cleared.
 	must(`UPDATE transactions SET recurring_key = 'stale' WHERE id = ?`, shop[0])
 
@@ -72,8 +63,8 @@ func TestDetect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 3 {
-		t.Errorf("detected %d series, want 3 (gym, water and rent)", got)
+	if got != 2 {
+		t.Errorf("detected %d series, want 2 (gym and water)", got)
 	}
 	tagged := func(id string) bool {
 		var k *string
@@ -82,7 +73,7 @@ func TestDetect(t *testing.T) {
 		}
 		return k != nil
 	}
-	for _, id := range append(append(gym, bill...), rent...) {
+	for _, id := range append(gym, bill...) {
 		if !tagged(id) {
 			t.Errorf("%s should be in a series", id)
 		}
