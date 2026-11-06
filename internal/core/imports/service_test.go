@@ -2,6 +2,7 @@ package imports
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -679,5 +680,127 @@ func TestMoveImportToAccountAndUndo(t *testing.T) {
 	}
 	if _, err := s.MoveToAccount(b.ID, "nope"); err == nil {
 		t.Error("moving to a missing account should fail")
+	}
+}
+
+// flakyAI fails the first categorisation request, then leaves the last item
+// out of every reply and lower-cases the category names.
+type flakyAI struct {
+	ai.Mock
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *flakyAI) CompleteStructured(req *ai.StructuredRequest) (string, *ai.Usage, error) {
+	if req.Capability != "categorisation" {
+		return f.Mock.CompleteStructured(req)
+	}
+	f.mu.Lock()
+	f.calls++
+	first := f.calls == 1
+	f.mu.Unlock()
+	if first {
+		return "", nil, &ai.ErrBadReply{Reason: "no JSON in reply"}
+	}
+	resp, usage, err := f.Mock.CompleteStructured(req)
+	if err != nil {
+		return resp, usage, err
+	}
+	var parsed struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(resp), &parsed); err != nil || len(parsed.Items) == 0 {
+		return resp, usage, err
+	}
+	part := parsed.Items
+	if len(part) > 1 {
+		part = part[:len(part)-1]
+	}
+	for _, it := range part {
+		it["category"] = strings.ToLower(fmt.Sprint(it["category"]))
+	}
+	b, _ := json.Marshal(map[string]any{"items": part})
+	return string(b), usage, nil
+}
+
+// A chunk that fails or answers in part is asked again for the rest, and a
+// category named in the wrong case still counts; one failure doesn't stop
+// the other chunks.
+func TestCategoriseAIRetriesChunks(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	s.Cat.Provider = &flakyAI{}
+	var csv strings.Builder
+	csv.WriteString("Date,Description,Payee,Amount\n")
+	for i, w := range strings.Fields("alpha bravo charlie delta echo foxtrot golf") {
+		fmt.Fprintf(&csv, "2026-06-%02d,TESCO %s,,-1.00\n", i+1, w)
+	}
+	acc := "acc-main"
+	b, err := s.Upload("flaky.csv", []byte(csv.String()), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.ApplySchemaPublic(b.ID, userMapping(), []byte(csv.String())); err != nil {
+		t.Fatal(err)
+	}
+	var placed int
+	if err := s.CategoriseAI(context.Background(), b.ID, func(p Progress) {
+		if p.Phase == "warning" {
+			t.Errorf("unexpected warning: %s", p.Message)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for desc, rs := range stagedByDesc(t, s, b.ID) {
+		if rs[0].category == "c-food" {
+			placed++
+		} else {
+			t.Errorf("%s not placed: %+v", desc, rs[0])
+		}
+	}
+	if placed != 7 {
+		t.Errorf("placed %d of 7", placed)
+	}
+}
+
+// Changing the account under review checks for duplicates in the new one.
+func TestSetReviewAccountRechecksDuplicates(t *testing.T) {
+	s := newTestService(t)
+	seedImportFixtures(t, s)
+	mustExec(t, s, `INSERT INTO accounts (id, name, type, color, currency, created_at, updated_at)
+		VALUES ('acc-other','Other','debit','#000','GBP','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`)
+	acc := "acc-main"
+	b, err := s.Upload("statement.csv", []byte(statementCSV), &acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.ApplySchemaPublic(b.ID, userMapping(), []byte(statementCSV)); err != nil {
+		t.Fatal(err)
+	}
+	dups := func() int {
+		var n int
+		_ = s.DB.QueryRow(`SELECT COUNT(*) FROM import_staging WHERE batch_id = ? AND duplicate_of IS NOT NULL`, b.ID).Scan(&n)
+		return n
+	}
+	before := dups()
+	// One of the rows is already in the other account.
+	var date, desc string
+	var amount int64
+	_ = s.DB.QueryRow(`SELECT date, description, amount_minor FROM import_staging WHERE batch_id = ? AND duplicate_of IS NULL LIMIT 1`, b.ID).
+		Scan(&date, &desc, &amount)
+	mustExec(t, s, `INSERT INTO transactions (id, account_id, date, description, amount_minor, currency, type, dedupe_hash, created_at, updated_at)
+		VALUES ('t-there','acc-other',?,?,?,'GBP','expense',?,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+		date, desc, amount, repos.DedupeHash("acc-other", date, amount, desc))
+	if err := s.SetReviewAccount(b.ID, "acc-other"); err != nil {
+		t.Fatal(err)
+	}
+	if got := dups(); got != 1 {
+		t.Errorf("duplicates in the other account = %d, want 1 (were %d in the first)", got, before)
+	}
+	if got, _ := s.Get(b.ID); got == nil || got.AccountID == nil || *got.AccountID != "acc-other" {
+		t.Errorf("batch account = %+v", got)
+	}
+	if err := s.SetReviewAccount(b.ID, "nope"); err == nil {
+		t.Error("an unknown account was accepted")
 	}
 }

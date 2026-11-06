@@ -3,7 +3,6 @@
   <div class="view-head">
     <div>
       <h1>Import</h1>
-      <p class="sub">Drop in a statement exported from your bank and Glowworm works out its layout.</p>
     </div>
   </div>
 
@@ -11,20 +10,14 @@
     <div class="dropzone" id="dropzone">
       <svg class="icon big"><use href="#i-import"/></svg>
       <p><strong>Drop a statement here</strong> or <button class="link" id="dropzoneBrowse">browse files</button></p>
-      <p class="muted">CSV, Excel (.xlsx), OFX or QIF exports, including dividend &amp; interest payment history. PDF statements can't be read.</p>
+      <p class="muted">CSV, Excel, OFX or QIF</p>
       <input type="file" id="fileInput" hidden multiple />
     </div>
 
-    <div class="field-row" style="max-width:320px">
-      <label>Default account for imports</label>
-      <select class="field select" id="importAccount">
-        {{range .Accounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-      </select>
-    </div>
   </div>
   <script>
     window.__IMPORT_CURRENCY__ = "{{.Currency}}";
-    window.__IMPORT_ACCOUNTS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];
+    window.__IMPORT_ACCOUNTS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}", color: "{{.Color}}"},{{end}}];
     window.__IMPORT_CATS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", type: "{{.Type}}", color: "{{.Color}}"},{{end}}];
   </script>
 
@@ -32,8 +25,7 @@
 
   <div class="import-idle">
     <div class="section-head">
-      <h2>Saved schemas</h2>
-      <span class="muted">File formats remembered from past imports - a matching upload skips straight to review</span>
+      <h2>Saved formats</h2>
     </div>
     <div class="schema-list" id="schemasList">
       {{range .Schemas}}
@@ -47,8 +39,7 @@
       </div>
       {{end}}
       {{if not .Schemas}}
-      <div class="schema-card"><div class="schema-main"><div class="schema-name">No schemas saved yet</div>
-        <div class="schema-cols">Formats are saved automatically when an import completes.</div></div></div>
+      <div class="schema-card"><div class="schema-main"><div class="schema-name">No saved formats yet</div></div></div>
       {{end}}
     </div>
   </div>

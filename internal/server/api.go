@@ -211,6 +211,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/imports/{id}/review", j(a.apiImportReview))
 	mux.HandleFunc("PATCH /api/v1/imports/{id}/review", j(a.apiImportReviewPatch))
 	mux.HandleFunc("POST /api/v1/imports/{id}/confirm", j(a.apiImportConfirm))
+	mux.HandleFunc("PUT /api/v1/imports/{id}/account", j(a.apiImportReviewAccount))
 	mux.HandleFunc("POST /api/v1/imports/{id}/cancel", j(a.apiImportCancel))
 	mux.HandleFunc("PATCH /api/v1/imports/{id}", j(a.apiImportEdit))
 	mux.HandleFunc("GET /api/v1/schemas", j(a.apiSchemasList))
@@ -835,6 +836,24 @@ func (a *App) apiImportReview(w http.ResponseWriter, r *http.Request) error {
 		"ai_available": a.Imports.AIAvailable(),
 	})
 	return nil
+}
+
+// apiImportReviewAccount changes the account an import under review goes
+// into, and returns the review with duplicates checked against it.
+func (a *App) apiImportReviewAccount(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	if err := a.Imports.SetReviewAccount(r.PathValue("id"), in.AccountID); err != nil {
+		if serviceError(w, err) {
+			return nil
+		}
+		return err
+	}
+	return a.apiImportReview(w, r)
 }
 
 func (a *App) apiImportReviewPatch(w http.ResponseWriter, r *http.Request) error {

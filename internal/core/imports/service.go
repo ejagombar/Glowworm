@@ -510,20 +510,7 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 			r.Description = html.UnescapeString(r.Description)
 			r.SourceText = html.UnescapeString(r.SourceText)
 			r.DestinationText = html.UnescapeString(r.DestinationText)
-			hash := repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, r.Description)
-			// Transactions imported before that keep the hash of their escaped
-			// description, so a re-import must match that too.
-			hashes := []any{hash}
-			if escaped := strings.ReplaceAll(r.Description, "&", "&amp;"); escaped != r.Description {
-				hashes = append(hashes, repos.DedupeHash(deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, escaped))
-			}
-			var dup any
-			var existing string
-			err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash IN (?`+strings.Repeat(",?", len(hashes)-1)+`)
-				AND deleted_at IS NULL LIMIT 1`, append([]any{deref(s.batchAccountID(tx, batchID))}, hashes...)...).Scan(&existing)
-			if err == nil {
-				dup = existing
-			}
+			dup := duplicateOf(tx, deref(s.batchAccountID(tx, batchID)), r.Date, r.AmountMinor, r.Description)
 			raw, _ := json.Marshal(r.Raw)
 			var origAmount, origCur any
 			if r.OrigCurrency != "" {
@@ -543,6 +530,73 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 		return nil
 	})
 	return count, err
+}
+
+// duplicateOf is the id of a transaction already in the account that a
+// staged row repeats, or nil.
+func duplicateOf(tx *sql.Tx, accountID, date string, amount int64, desc string) any {
+	// Transactions imported before descriptions were unescaped keep the hash
+	// of their escaped description, so a re-import must match that too.
+	hashes := []any{repos.DedupeHash(accountID, date, amount, desc)}
+	if escaped := strings.ReplaceAll(desc, "&", "&amp;"); escaped != desc {
+		hashes = append(hashes, repos.DedupeHash(accountID, date, amount, escaped))
+	}
+	var existing string
+	err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash IN (?`+strings.Repeat(",?", len(hashes)-1)+`)
+		AND deleted_at IS NULL LIMIT 1`, append([]any{accountID}, hashes...)...).Scan(&existing)
+	if err != nil {
+		return nil
+	}
+	return existing
+}
+
+// SetReviewAccount changes the account an import under review goes into,
+// and checks its rows for duplicates in that account instead.
+func (s *Service) SetReviewAccount(batchID, accountID string) error {
+	batch, err := s.getBatch(batchID)
+	if err != nil {
+		return err
+	}
+	if batch.Status != "awaiting_review" {
+		return &ValidationError{Message: "This import is no longer being reviewed"}
+	}
+	var n int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM accounts WHERE id = ? AND deleted_at IS NULL`, accountID).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return &ValidationError{Message: "That account no longer exists"}
+	}
+	return s.DB.WithTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE import_batches SET account_id = ? WHERE id = ?`, accountID, batchID); err != nil {
+			return err
+		}
+		rows, err := tx.Query(`SELECT id, date, amount_minor, description FROM import_staging WHERE batch_id = ?`, batchID)
+		if err != nil {
+			return err
+		}
+		type staged struct {
+			id, date, desc string
+			amount         int64
+		}
+		var all []staged
+		for rows.Next() {
+			var r staged
+			if err := rows.Scan(&r.id, &r.date, &r.amount, &r.desc); err != nil {
+				rows.Close()
+				return err
+			}
+			all = append(all, r)
+		}
+		rows.Close()
+		for _, r := range all {
+			if _, err := tx.Exec(`UPDATE import_staging SET duplicate_of = ? WHERE id = ?`,
+				duplicateOf(tx, accountID, r.date, r.amount, r.desc), r.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Service) batchAccountID(tx *sql.Tx, batchID string) *string {

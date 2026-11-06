@@ -3116,11 +3116,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const jsonHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrfToken() });
   const errMessage = (b, status) => apiErrorFrom({ status }, b, `The server couldn't do that (error ${status}). Try again.`);
 
+  // The account an upload starts in: the last one imported into, else the
+  // first. A saved format's own account wins on the server.
+  const lastImportAccount = () => {
+    const accounts = window.__IMPORT_ACCOUNTS__ || [];
+    let id = "";
+    try { id = localStorage.getItem("glowworm-import-account") || ""; } catch (e) {}
+    return accounts.some((a) => a.id === id) ? id : (accounts[0] ? accounts[0].id : "");
+  };
   const upload = (file) => {
     const fd = new FormData();
     fd.append("file", file);
-    const accSel = document.getElementById("importAccount");
-    if (accSel && accSel.value) fd.append("account_id", accSel.value);
+    const acc = lastImportAccount();
+    if (acc) fd.append("account_id", acc);
     flowMessage(`<span class="spinner"></span> Reading ${esc(file.name)}…`);
     dataVersion.hold(); // the import's review lives only on this page
     fetch("/api/v1/imports", {
@@ -3177,10 +3185,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // from the file. ----
   const DEFAULT_OUT = ["DR", "D", "DEBIT", "OUT", "PAYMENT", "WITHDRAWAL", "PURCHASE"];
   const AMOUNT_MODES = [
-    ["signed", "One column - money out is negative", "Most current accounts: −12.50 is a payment."],
-    ["inverted", "One column - money out is positive", "Common on credit cards: 12.50 is a purchase, −12.50 a refund or payment."],
-    ["split", "Separate money in and money out columns", "Signs inside these columns are ignored."],
-    ["direction", "One amount column plus a debit/credit column", "The amount is always positive; another column says which way it went."],
+    ["signed", "Money out is negative (−12.50)"],
+    ["inverted", "Money out is positive (12.50)"],
+    ["split", "Separate money in and money out columns"],
+    ["direction", "Amount plus a debit/credit column"],
   ];
 
   function selectionsFrom(det) {
@@ -3219,35 +3227,34 @@ document.addEventListener("DOMContentLoaded", () => {
           ${changed.has(key) ? '<span class="badge badge-transfer">AI changed</span>' : ""}</div>
         <div class="map-field-body">${body}</div>
       </div>`;
-    const modes = AMOUNT_MODES.map(([v, label, hint]) => `<label class="map-radio">
+    const modes = AMOUNT_MODES.map(([v, label]) => `<label class="map-radio">
         <input type="radio" name="mapAmountMode" value="${v}"${sel.amountMode === v ? " checked" : ""} />
-        <span><span>${label}</span><span class="muted">${hint}</span></span></label>`).join("");
+        <span><span>${label}</span></span></label>`).join("");
     return `<div class="map-fields" id="mapFields">
-      ${row("date", "Date", "Required", `${columnSelectHTML("mapDate", headers, sel.date, { optional: false })}
+      ${row("date", "Date", "", `${columnSelectHTML("mapDate", headers, sel.date, { optional: false })}
         <div class="map-sub">
           <label class="map-sub-label" for="mapDateFormat">Format
             <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button></label>
-          <input class="field" id="mapDateFormat" placeholder="blank = auto-detect, or e.g. DD/MM/YYYY" />
+          <input class="field" id="mapDateFormat" placeholder="Auto-detect" />
         </div>
         <div class="date-preview muted" id="datePreview"></div>`)}
-      ${row("description", "Description", "Required", `${columnSelectHTML("mapDescription", headers, sel.description, { optional: false })}
+      ${row("description", "Description", "", `${columnSelectHTML("mapDescription", headers, sel.description, { optional: false })}
         <div class="map-sub"><label class="map-sub-label" for="mapMemo">Add details from</label>${columnSelectHTML("mapMemo", headers, sel.memo)}</div>`)}
-      ${row("amount", "Amount", "How the file shows money in and out", `<div class="map-radios">${modes}</div>
+      ${row("amount", "Amount", "", `<div class="map-radios">${modes}</div>
         <div class="map-sub" data-mode-show="signed inverted direction"><label class="map-sub-label" for="mapAmount">Amount column</label>${columnSelectHTML("mapAmount", headers, sel.amount, { optional: false })}</div>
         <div class="map-sub" data-mode-show="split"><label class="map-sub-label" for="mapAmountIn">Money in</label>${columnSelectHTML("mapAmountIn", headers, sel.amountIn)}</div>
         <div class="map-sub" data-mode-show="split"><label class="map-sub-label" for="mapAmountOut">Money out</label>${columnSelectHTML("mapAmountOut", headers, sel.amountOut)}</div>
         <div class="map-sub" data-mode-show="direction"><label class="map-sub-label" for="mapDirection">Debit/credit column</label>${columnSelectHTML("mapDirection", headers, sel.direction, { optional: false })}</div>
         <div class="map-sub" data-mode-show="direction" id="mapOutValuesRow"><span class="map-sub-label">Values meaning money out</span><div class="map-checks" id="mapOutValues"></div></div>
         <div class="map-amount-preview" id="mapAmountPreview"></div>`)}
-      ${row("currency", "Currency", `Rows in another currency are converted to ${esc(target)}`, `
+      ${row("currency", "Currency", "", `
         <div class="map-sub"><label class="map-sub-label" for="mapCurrency">Currency column</label>${columnSelectHTML("mapCurrency", headers, sel.currency, { none: `— everything is in ${target} —` })}</div>
         <div class="map-fx" id="mapFx"></div>
-        <details class="map-orig"${sel.origAmount ? " open" : ""}><summary>The file also shows the amount paid abroad (optional)</summary>
-          <p class="muted">Some banks give the amount in ${esc(target)} plus what was paid locally (e.g. “Local amount”). Pick those columns to keep the local amount alongside.</p>
+        <details class="map-orig"${sel.origAmount ? " open" : ""}><summary>Amount paid in another currency</summary>
           <div class="map-sub"><label class="map-sub-label" for="mapOrigAmount">Amount paid</label>${columnSelectHTML("mapOrigAmount", headers, sel.origAmount)}</div>
           <div class="map-sub"><label class="map-sub-label" for="mapOrigCurrency">Its currency</label>${columnSelectHTML("mapOrigCurrency", headers, sel.origCurrency)}</div>
         </details>`)}
-      ${row("payee", "Payee", "Optional - who the money went to or came from", columnSelectHTML("mapPayee", headers, sel.payee))}
+      ${row("payee", "Payee", "", columnSelectHTML("mapPayee", headers, sel.payee))}
     </div>`;
   }
 
@@ -3405,20 +3412,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const sampleBody = (d.sample || []).slice(1, 5);
     const headerHTML = sampleHeader.map((c) => `<th>${esc(c)}</th>`).join("");
     const sample = sampleBody.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("");
-    const title = d.matched_schema ? `Matched saved schema “${esc(d.matched_schema)}”`
-      : aiProposal ? `AI proposal${d.proposed_name ? `: ${esc(d.proposed_name)}` : ""}`
-      : "Detected schema (local)";
+    const title = d.matched_schema ? `Columns · saved format “${esc(d.matched_schema)}”`
+      : aiProposal ? "Columns suggested by the AI"
+      : `Columns in ${esc(b.filename || "the file")}`;
     const dateSampleFor = (column) => {
       const i = sampleHeader.indexOf(column);
       return i < 0 ? "" : (sampleBody.find((r) => r[i]) || [])[i] || "";
     };
-    const intro = aiProposal
-      ? `<div class="ai-review-banner">
-          <strong>Review the AI's mapping before continuing.</strong>
-          ${prev ? (nChanged ? `It changed ${nChanged} field${nChanged === 1 ? "" : "s"} (highlighted).` : "It agreed with the existing mapping.") : ""}
-          Nothing is parsed or imported until you accept — fix anything that looks wrong first.
-        </div>`
-      : `<p class="muted">Pick which column of your file holds each piece of information. If it looks wrong, fix it here or ask the AI to suggest a mapping (uses tokens).</p>`;
+    const intro = aiProposal && prev
+      ? `<div class="ai-review-banner">${nChanged ? `The AI changed ${nChanged} field${nChanged === 1 ? "" : "s"} (highlighted).` : "The AI agreed with the existing mapping."}</div>`
+      : "";
     openFlow(`
       <div class="panel category-form">
         <h3 class="category-form-title">${title}</h3>
@@ -3442,7 +3445,7 @@ document.addEventListener("DOMContentLoaded", () => {
           </ul>
         </div>
         ${sheets ? `<div class="field-row"><label>Sheet</label><select class="field select" id="mapSheet">${sheets}</select></div>` : ""}
-        <div class="section-head"><h2>Sample rows <span class="muted" style="font-weight:normal">(raw text from the file)</span></h2></div>
+        <div class="section-head"><h2>From the file</h2></div>
         <div style="overflow-x:auto"><table class="tx-table"><thead><tr>${headerHTML}</tr></thead><tbody>${sample}</tbody></table></div>
         <div class="category-form-actions">
           ${aiProposal
@@ -3450,7 +3453,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : '<button class="btn btn-ghost" id="mapAI" type="button">Ask AI to detect</button>'}
           <span class="spacer"></span>
           <button class="btn btn-ghost" id="mapCancel" type="button">Cancel</button>
-          <button class="btn btn-primary" id="mapApply" type="button">${aiProposal ? "Accept &amp; continue" : "Parse &amp; continue"}</button>
+          <button class="btn btn-primary" id="mapApply" type="button">Continue</button>
         </div>
       </div>`);
     document.getElementById("mapCancel").addEventListener("click", closeFlow);
@@ -3707,7 +3710,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const kind = d && d.kind ? d.kind : "";
     const nRows = R.groups.reduce((s, g) => s + g.rows.length, 0);
     const accounts = window.__IMPORT_ACCOUNTS__ || [];
-    const defaultAcc = b.account_id || document.getElementById("importAccount")?.value || (accounts[0] && accounts[0].id) || "";
+    const defaultAcc = b.account_id || lastImportAccount();
     const remembersSchema = kind === "csv" || kind === "xlsx";
     const dupRows = R.dups.map((row) => `<tr data-row-id="${esc(row.id)}">
         <td class="cell-sub cell-date">${dateHTML(row.date)}</td><td>${esc(row.description)}</td>
@@ -3716,22 +3719,25 @@ document.addEventListener("DOMContentLoaded", () => {
     openFlow(`
       <div class="panel import-review" id="importReview">
         <div class="import-review-head">
-          <div>
-            <h3 class="category-form-title">Review categories</h3>
-            <p class="muted">${esc(b.filename || "")} · ${plural(nRows, "transaction")} in ${plural(R.groups.length, "group")}${R.dups.length ? ` · ${plural(R.dups.length, "duplicate")} skipped` : ""}</p>
+          <div class="review-into">
+            <h3 class="category-form-title">Import ${plural(nRows, "transaction")} into</h3>
+            <input type="hidden" id="reviewAccount" value="${esc(defaultAcc)}" />
+            <div class="account-pick" role="radiogroup" aria-label="Account to import into">
+              ${accounts.map((a) => `<button type="button" class="account-pick-option" role="radio" data-account-id="${esc(a.id)}" aria-checked="${a.id === defaultAcc}">
+                <span class="account-pick-dot" style="background:${esc(a.color || "var(--muted)")}"></span>${esc(a.name)}</button>`).join("")}
+            </div>
           </div>
-          ${b.schema_name ? `<span class="badge badge-income review-schema-badge" title="The column layout came from this saved schema">Saved schema · ${esc(b.schema_name)}</span>` : ""}
+          <p class="muted review-file">${esc(b.filename || "")}${b.schema_name ? ` · ${esc(b.schema_name)}` : ""}</p>
         </div>
         <ol class="cat-pipeline">
-          <li data-step="local"><span class="step-num">1</span><div><strong>Quick match</strong><span class="step-note">Your rules and trained classifier</span></div></li>
-          <li data-step="ai"><span class="step-num">2</span><div><strong>AI</strong><span class="step-note">${R.aiAvailable ? "Categorises what's left" : "Not configured. Add a provider in Settings → AI"}</span></div></li>
-          <li data-step="you"><span class="step-num">3</span><div><strong>Your review</strong><span class="step-note">Anything the AI wasn't sure about</span></div></li>
+          <li data-step="local"><span class="step-num">1</span><div><strong>Quick match</strong><span class="step-note"></span></div></li>
+          <li data-step="ai"><span class="step-num">2</span><div><strong>AI</strong><span class="step-note">${R.aiAvailable ? "" : `Not set up · <a href="/settings">Settings</a>`}</span></div></li>
+          <li data-step="you"><span class="step-num">3</span><div><strong>Your review</strong><span class="step-note"></span></div></li>
         </ol>
         <div class="progress-bar" id="catProgress"><div class="progress-fill" id="catBar" style="width:0%"></div></div>
-        ${R.dups.length ? `<details class="review-dups" role="note">
+        ${R.dups.length ? `<details class="review-dups">
           <summary><svg class="icon"><use href="#i-alert"/></svg>
-            <span><strong>${plural(R.dups.length, "duplicate transaction")} skipped</strong>
-            <span class="review-dups-sub">Already in your account, so they won't be imported again. Check them and choose “Import anyway” for any that are real.</span></span>
+            <span><strong>${plural(R.dups.length, "duplicate")} already in this account, not imported</strong></span>
             <svg class="icon review-dups-chev"><use href="#i-chevron-down"/></svg></summary>
           <div style="overflow-x:auto"><table class="tx-table"><tbody>${dupRows}</tbody></table></div></details>` : ""}
         <div class="review-cols">
@@ -3744,23 +3750,17 @@ document.addEventListener("DOMContentLoaded", () => {
           <section class="review-col review-col-done" aria-label="Categorised">
             <header class="review-col-head"><h4>Categorised</h4><span class="count" id="doneCount"></span></header>
             <div class="review-list" id="doneList"></div>
-            <div class="review-empty" id="doneEmpty" hidden>Categorised transactions will appear here.</div>
+            <div class="review-empty" id="doneEmpty" hidden></div>
           </section>
         </div>
         <div class="review-footer">
-          <div class="field-row">
-            <label for="reviewAccount">Import into</label>
-            <select class="field select" id="reviewAccount">
-              ${accounts.map((a) => `<option value="${esc(a.id)}"${a.id === defaultAcc ? " selected" : ""}>${esc(a.name)}</option>`).join("")}
-            </select>
-          </div>
           ${remembersSchema ? `<div class="field-row review-schema-name">
             <label for="reviewSchemaName">Remember this format as</label>
             <input class="field" id="reviewSchemaName" maxlength="80" />
           </div>` : ""}
           <span class="spacer"></span>
           <button class="btn btn-ghost" id="reviewCancel" type="button">Cancel</button>
-          <button class="btn btn-primary" id="reviewConfirm" type="button">Finalise import</button>
+          <button class="btn btn-primary" id="reviewConfirm" type="button">Import</button>
         </div>
       </div>`);
 
@@ -3792,6 +3792,26 @@ document.addEventListener("DOMContentLoaded", () => {
       nameInput.addEventListener("input", () => { nameInput.dataset.touched = "1"; });
       accSel.addEventListener("change", () => { if (!nameInput.dataset.touched) nameInput.value = defaultName(); });
     }
+    // Picking the account checks the rows for duplicates in it; the review
+    // is redrawn only when that changes which rows are duplicates.
+    R.el.root.querySelector(".account-pick").addEventListener("click", (e) => {
+      const opt = e.target.closest("[data-account-id]");
+      if (!opt || R.running || opt.getAttribute("aria-checked") === "true") return;
+      const prev = accSel.value;
+      const pick = (id) => {
+        accSel.value = id;
+        R.el.root.querySelectorAll("[data-account-id]").forEach((o) => o.setAttribute("aria-checked", String(o.dataset.accountId === id)));
+        accSel.dispatchEvent(new Event("change"));
+        updateCounts(R);
+      };
+      pick(opt.dataset.accountId);
+      fetch(`/api/v1/imports/${R.batchID}/account`, {
+        method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ account_id: opt.dataset.accountId }),
+      }).then((r) => jsonOk(r)).then((body) => {
+        const dups = (body.rows || []).filter((row) => row.duplicate_of).map((row) => row.id).sort().join();
+        if (dups !== R.dups.map((row) => row.id).sort().join()) openReview(R.batchID, false);
+      }).catch((err) => { pick(prev); toast(err.message); });
+    });
 
     R.el.root.addEventListener("change", (e) => {
       const sel = e.target.closest("[data-cat]");
@@ -3914,7 +3934,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const btn = document.getElementById("reviewConfirm");
     const total = sum(R.groups);
     btn.disabled = R.running || total === 0;
-    btn.textContent = R.running ? "Categorising…" : `Finalise import · ${plural(total, "transaction")}`;
+    const acc = (window.__IMPORT_ACCOUNTS__ || []).find((a) => a.id === document.getElementById("reviewAccount").value);
+    btn.textContent = R.running ? "Categorising…" : `Import ${plural(total, "transaction")}${acc ? ` into ${acc.name}` : ""}`;
+    R.el?.root.querySelector(".account-pick")?.classList.toggle("busy", R.running);
   }
 
   function setStep(name, state, note) {
@@ -4028,6 +4050,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const btn = document.getElementById("reviewConfirm");
     const accountID = document.getElementById("reviewAccount").value;
     if (!accountID) { toast("Choose the account to import into"); return; }
+    try { localStorage.setItem("glowworm-import-account", accountID); } catch (e) {}
     const nameInput = document.getElementById("reviewSchemaName");
     btn.disabled = true;
     btn.textContent = "Importing…";
@@ -4042,14 +4065,11 @@ document.addEventListener("DOMContentLoaded", () => {
         updateCounts(R);
         return;
       }
+      // Back to the import page, ready for the next file; reloading shows a
+      // newly saved format in its list.
       const acc = (window.__IMPORT_ACCOUNTS__ || []).find((a) => a.id === accountID);
       const imported = R.groups.reduce((s, g) => s + g.rows.length, 0);
-      openFlow(`<div class="thinking-card panel"><div class="head">
-          <svg class="icon" style="color:var(--income)"><use href="#i-check"/></svg>
-          Imported ${plural(imported, "transaction")}${acc ? ` into ${esc(acc.name)}` : ""} — see the <a href="/transactions">transactions</a> and <a href="/history?mode=audit">audit log</a>.</div>
-        ${b.schema_name ? `<p class="muted">Saved the format as “${esc(b.schema_name)}”${acc ? ` for ${esc(acc.name)}` : ""} — next time this file shape skips straight to review.</p>` : ""}
-        <button class="btn btn-ghost btn-xs" type="button" data-close-flow>Import another file</button></div>`);
-      toast("Import complete");
+      reloadWithToast(`Imported ${plural(imported, "transaction")}${acc ? ` into ${acc.name}` : ""}`);
     }).catch(() => { toast("Import failed: network error"); updateCounts(R); });
   }
 });

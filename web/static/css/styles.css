@@ -1857,7 +1857,20 @@ html.app-covered body > * { visibility: hidden; }
 .import-review-head { margin-bottom: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .review-schema-badge { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #view-import.import-reviewing .view-head { display: none; }
-.import-review-head .category-form-title { margin-bottom: 2px; }
+.import-review-head .category-form-title { margin-bottom: 8px; font-size: 16px; }
+.review-into { min-width: 0; }
+.review-file { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The account an import goes into: one large button per account. */
+.account-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-pick-option {
+  display: inline-flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 16px;
+  border: 1px solid var(--line-2); border-radius: 3px; background: var(--surface);
+  color: var(--text); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.account-pick-option:hover { background: var(--surface-2); }
+.account-pick-option[aria-checked="true"] { border-color: var(--primary); background: var(--primary-soft); box-shadow: inset 0 0 0 1px var(--primary); }
+.account-pick-dot { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.account-pick.busy .account-pick-option:not([aria-checked="true"]) { opacity: 0.5; cursor: wait; }
 .import-review-head p { margin: 0; font-size: 12.5px; }
 .cat-pipeline {
   list-style: none; margin: 0; padding: 0;
@@ -2090,3 +2103,9 @@ html.app-covered body > * { visibility: hidden; }
 .rule-draft-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
 .valuation-compare { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: var(--mono); font-size: 13px; margin-bottom: 4px; }
 .valuation-compare .icon { width: 14px; height: 14px; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .import-review-head { flex-direction: column-reverse; gap: 4px; }
+  .review-file { max-width: 100%; }
+  .account-pick-option { flex: 1 1 auto; justify-content: center; }
+}
