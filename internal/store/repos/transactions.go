@@ -143,15 +143,16 @@ func (r *Transactions) List(f ListFilter) ([]*core.Transaction, error) {
 	return r.enrich(rows)
 }
 
+// SearchMatch is the transactions whose description, group, category,
+// recurring series, account or source/destination contains the search,
+// ignoring case and spaces: "PureGym" finds "Pure Gym Ltd" and everything
+// in the PureGym group.
 func (r *Transactions) SearchMatch(f ListFilter) ([]*core.Transaction, error) {
 	w, args := f.where()
-	if f.Q != "" {
-		w += ` AND (t.description LIKE ? OR COALESCE(t.merchant,'') LIKE ? OR t.source_text LIKE ? OR t.destination_text LIKE ? OR COALESCE(t.recurring_key,'') LIKE ?)`
-		like := "%" + f.Q + "%"
-		args = append(args, like, like, like, like, like)
-	}
 	q := `SELECT ` + txCols + ` FROM transactions t` + w + txOrder(f.Sort)
-	if f.Limit > 0 {
+	// The names matched are looked up after the query, so the limit is
+	// applied once they have been.
+	if f.Limit > 0 && f.Q == "" {
 		q += fmt.Sprintf(` LIMIT %d`, f.Limit)
 	}
 	rows, err := r.query(q, args...)
@@ -165,15 +166,21 @@ func (r *Transactions) SearchMatch(f ListFilter) ([]*core.Transaction, error) {
 	if f.Q == "" {
 		return enr, nil
 	}
-	ql := strings.ToLower(f.Q)
+	squash := func(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), "") }
+	needle := squash(f.Q)
 	out := enr[:0]
 	for _, t := range enr {
-		hay := strings.ToLower(strings.Join([]string{
+		for _, field := range []string{
 			t.Description, deref(t.Merchant), categoryName(t.Category), t.RecurringLabel(),
-			t.AccountName(), t.SourceName, t.DestinationName, deref(t.RecurringKey),
-		}, " "))
-		if strings.Contains(hay, ql) {
-			out = append(out, t)
+			t.AccountName(), t.SourceName, t.DestinationName, t.SourceText, t.DestinationText,
+		} {
+			if strings.Contains(squash(field), needle) {
+				out = append(out, t)
+				break
+			}
+		}
+		if f.Limit > 0 && len(out) == f.Limit {
+			break
 		}
 	}
 	return out, nil
