@@ -1147,7 +1147,7 @@ function widgetCardHTML(widget) {
     <div class="widget-head">
       <div class="widget-title">${esc(widget.title || "Widget")}</div>
       ${isRulesWidget(widget.type) ? "" : `<div class="widget-actions">
-        <button class="widget-btn${widget.pinned ? " pinned-on" : ""}" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
+        ${widget.plan || widget.type === "text" ? `<button class="widget-btn${widget.pinned ? " pinned-on" : ""}" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>` : ""}
         <button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
       </div>`}
     </div>

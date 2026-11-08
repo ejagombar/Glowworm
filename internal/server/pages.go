@@ -1091,7 +1091,12 @@ func toMessageViews(msgs []*core.Message) []queryMessageView {
 			view.TextHTML = template.HTML(formatAssistantText(m.Text))
 		}
 		if m.Widget != nil && *m.Widget != "" {
-			for _, w := range parseStoredWidgets(*m.Widget) {
+			ws := parseStoredWidgets(*m.Widget)
+			for _, w := range ws {
+				// Older answers kept their one widget's plan on the message.
+				if w.Plan == nil && len(ws) == 1 && m.Plan != nil && *m.Plan != "" && *m.Plan != "null" {
+					w.Plan = json.RawMessage(*m.Plan)
+				}
 				view.WidgetHTML += template.HTML(widgetCardHTML(w))
 			}
 		}
@@ -1169,11 +1174,23 @@ func widgetCardHTML(w *widgets.Widget) string {
 	if w.Dataset != nil {
 		b.WriteString(` data-widget-dataset="` + template.HTMLEscapeString(marshalAny(w.Dataset)) + `"`)
 	}
+	plan := ""
+	if w.Plan != nil {
+		if plan = marshalAny(w.Plan); plan == "null" {
+			plan = ""
+		} else {
+			b.WriteString(` data-widget-plan="` + template.HTMLEscapeString(plan) + `"`)
+		}
+	}
 	b.WriteString(`><div class="widget-head"><div class="widget-title">` + template.HTMLEscapeString(w.Title) + `</div>`)
 	rules := w.Type == "group_rule" || w.Type == "group_rules" || w.Type == "change" || w.Type == "valuation" || w.Type == "link_transfers"
 	if !rules {
-		b.WriteString(`<div class="widget-actions">
-		<button class="widget-btn" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>
+		b.WriteString(`<div class="widget-actions">`)
+		if refreshable(w.Type, plan) {
+			b.WriteString(`
+		<button class="widget-btn" data-action="toggle-pin" title="Pin to dashboard"><svg class="icon"><use href="#i-pin"/></svg></button>`)
+		}
+		b.WriteString(`
 		<button class="widget-btn" data-action="edit-widget" title="Widget settings"><svg class="icon"><use href="#i-settings"/></svg></button>
 	</div>`)
 	}

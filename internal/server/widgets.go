@@ -308,7 +308,25 @@ func str(v any) string {
 	return string(b)
 }
 
+// refreshable says whether a widget can be re-run on the dashboard: it
+// carries a saved query (a Spec, or an older Plan), or it's text, which has
+// nothing to go out of date. Only these can be pinned, so the dashboard never
+// shows a snapshot that quietly stops matching the data.
+func refreshable(typ, planJSON string) bool {
+	if typ == "text" {
+		return true
+	}
+	if query.ParseSpec(planJSON) != nil {
+		return true
+	}
+	var p query_Plan
+	return json.Unmarshal([]byte(planJSON), &p) == nil && p.Metric != ""
+}
+
 func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (string, error) {
+	if !refreshable(typ, planJSON) {
+		return "", &badRequest{"This chart has no saved query, so it couldn't stay up to date. Ask the question again and pin the new answer."}
+	}
 	id := util.NewID()
 	if col == 0 {
 		col = defaultSpanCol(typ)
