@@ -436,14 +436,6 @@ body.privacy .pie-total { display: none; }
   @view-transition { navigation: none; }
 }
 
-.view-head {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 16px; margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--line);
-}
-.view-head .sub { color: var(--muted); margin-top: 2px; font-size: 12.5px; }
-.view-head > .btn { margin-left: auto; }
 
 .query-head { align-items: center; }
 .query-wrap { flex: 1; min-width: 0; }
@@ -611,6 +603,8 @@ body.privacy .pie-total { display: none; }
   border-radius: 1px; flex: none;
 }
 .section-head-actions { display: flex; align-items: center; gap: 10px; }
+/* A trailing button takes the free space, keeping any note beside the heading. */
+.section-head > .btn { margin-left: auto; }
 
 .stats-grid {
   display: grid;
@@ -1052,6 +1046,11 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .category-form-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .category-form-actions .spacer { flex: 1; }
 .category-card { background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 13px 15px; }
+.category-add {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 72px;
+  border-top: 0; border-left: 0; font: inherit; color: var(--muted); cursor: pointer;
+}
+.category-add:hover { color: var(--primary); background: var(--primary-soft); }
 .category-card .cat-top { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
 .category-card .cat-name { font-weight: 500; flex: 1; }
 .category-card .cat-badge { color: var(--muted); font-size: 11.5px; }
@@ -1154,10 +1153,6 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
   box-shadow: 0 1px 3px rgba(15, 23, 34, 0.1);
 }
 
-.history-mode {
-  display: grid; grid-template-columns: 1fr 1fr;
-  width: 100%; margin-bottom: 14px;
-}
 .tx-direction { display: grid; grid-template-columns: 1fr 1fr; width: 100%; margin-bottom: 12px; }
 .tx-direction .segmented-item { padding: 6px 12px; font-size: 13px; }
 
@@ -1255,7 +1250,6 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 /* Restore and ⋯ share one 26px row with the title and time. */
 .history-actions { display: flex; align-items: center; gap: 6px; flex: none; height: 26px; }
 .history-actions .btn-xs { height: 26px; padding-top: 0; padding-bottom: 0; }
-.history-mode { margin-bottom: 12px; }
 
 .settings-grid {
   display: grid;
@@ -1463,7 +1457,6 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
   .stats-grid, .stats-grid.three { grid-template-columns: 1fr 1fr; }
   /* An odd card out fills its row rather than leaving a grey gap beside it. */
   .stats-grid > .stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .view-head { flex-direction: column; align-items: flex-start; }
   .category-grid { grid-template-columns: 1fr; }
   .setting-block, .setting-stack { grid-column: 1 / -1; }
   /* The whole pop-up scrolls, rather than a box inside it. */
@@ -1863,7 +1856,6 @@ html.app-covered body > * { visibility: hidden; }
 .import-review { padding: 16px 18px; }
 .import-review-head { margin-bottom: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .review-schema-badge { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#view-import.import-reviewing .view-head { display: none; }
 .import-review-head .category-form-title { margin-bottom: 8px; font-size: 16px; }
 .review-into { min-width: 0; }
 .review-file { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2052,10 +2044,8 @@ html.app-covered body > * { visibility: hidden; }
   #view-queries.active { height: calc(100dvh - var(--masthead-h) - 20px - env(safe-area-inset-bottom)); min-height: 0; }
   .toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
 
-  /* Page titles take space a phone can't spare; only their buttons stay. */
-  .view-head > div:first-child { display: none; }
-  .view-head:not(:has(> .btn)) { display: none; }
-  .view-head { padding-bottom: 0; border-bottom: 0; margin-bottom: 12px; }
+  /* The filters right below say the same; the heading keeps its button. */
+  #accountsTxSub { display: none; }
 
   /* Transactions: category moves under the description. */
   .tx-table th, .tx-table td { padding: 8px 9px; }
@@ -2069,7 +2059,10 @@ html.app-covered body > * { visibility: hidden; }
 
   /* History: title on its own line, time and buttons beneath. */
   .history-item, .history-group > summary { flex-wrap: wrap; row-gap: 4px; }
-  .history-item > .history-main, .history-group > summary > .history-main { flex: 1 1 100%; }
+  .history-item > .history-main { flex: 1 1 100%; }
+  /* Keep a group's chevron (10px + 12px gap) on the title's line. */
+  .history-group > summary > .history-main { flex: 1 1 calc(100% - 22px); }
+  .history-group > summary > .history-time { margin-left: 22px; }
   .history-item > .history-actions, .history-group > summary > .history-actions { margin-left: auto; }
   .history-group > .history-item { padding-left: 22px; }
   .history-diff { font-size: 11px; }

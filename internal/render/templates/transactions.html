@@ -1,15 +1,5 @@
 {{define "content"}}
 <section class="view active" id="view-transactions">
-  <div class="view-head">
-    <div>
-      <h1>Transactions</h1>
-      <p class="sub">Your accounts, balances and transactions.</p>
-    </div>
-    <button class="btn btn-primary" id="newTxBtn" type="button">
-      <svg class="icon"><use href="#i-plus"/></svg> Add transaction
-    </button>
-  </div>
-
   <div class="accounts-grid" id="accountsGrid">
     {{range .Accounts}}
     <a class="account-card{{if eq .ID $.SelectedAcc}} selected{{end}}" href="/transactions{{if ne .ID $.SelectedAcc}}?account={{.ID}}{{end}}"{{if eq .ID $.SelectedAcc}} title="Show all accounts" aria-current="true"{{end}}>
@@ -31,6 +21,9 @@
   <div class="section-head">
     <h2>All transactions</h2>
     <span class="muted" id="accountsTxSub">{{.Sub}}</span>
+    <button class="btn btn-primary btn-xs" id="newTxBtn" type="button">
+      <svg class="icon"><use href="#i-plus"/></svg> Add transaction
+    </button>
   </div>
 
   <div class="filters panel">
