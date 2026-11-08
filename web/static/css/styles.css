@@ -2047,6 +2047,17 @@ html.app-covered body > * { visibility: hidden; }
   /* The filters right below say the same; the heading keeps its button. */
   #accountsTxSub { display: none; }
 
+  /* Account cards: one compact row (name and balance), scrolling sideways
+     when there are more than fit. */
+  .accounts-grid {
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(108px, 1fr);
+    gap: 8px; margin-bottom: 14px; overflow-x: auto; scrollbar-width: none;
+  }
+  .accounts-grid .account-card { padding: 8px 10px; min-width: 0; }
+  .accounts-grid .account-card-top { margin-bottom: 4px; gap: 7px; }
+  .accounts-grid .account-card-top .badge, .accounts-grid .account-sub { display: none; }
+  .accounts-grid .account-balance { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
   /* Transactions: category moves under the description. */
   .tx-table th, .tx-table td { padding: 8px 9px; }
   /* Date and category move under the description. */
