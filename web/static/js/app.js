@@ -94,7 +94,13 @@ window.fetch = function (input, init) {
 };
 
 const connection = (() => {
-  let banner = null, state = "ok", poll = null;
+  // A failed request only shows the banner if the server still can't be
+  // reached a couple of seconds later: requests cut off by leaving the page
+  // (Safari reports those as network errors) or a moment's blip don't count.
+  const CONFIRM_MS = 2500;
+  let banner = null, state = "ok", poll = null, pending = null, leaving = false;
+  addEventListener("pagehide", () => { leaving = true; });
+  addEventListener("pageshow", () => { leaving = false; });
   const show = (html, cls) => {
     if (!banner) {
       banner = document.createElement("div");
@@ -107,16 +113,25 @@ const connection = (() => {
     banner.hidden = false;
   };
   const hide = () => { if (banner) banner.hidden = true; };
-  const check = () => {
+  const reachable = () => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 4000);
-    nativeFetch("/healthz", { cache: "no-store", signal: ctrl.signal })
-      .then((r) => { if (r.ok) api.ok(); })
-      .catch(() => {})
+    return nativeFetch("/healthz", { cache: "no-store", signal: ctrl.signal })
+      .then((r) => r.ok, () => false)
       .finally(() => clearTimeout(t));
+  };
+  const check = () => reachable().then((up) => { if (up) api.ok(); });
+  const confirmLost = (why) => {
+    pending = null;
+    if (leaving || state !== "ok") return;
+    reachable().then((up) => { if (!up && !leaving && state === "ok") api.showLost(why); });
   };
   const api = {
     lost(why) {
+      if (state === "lost") api.showLost(why);
+      else if (state === "ok" && !leaving && !pending) pending = setTimeout(() => confirmLost(why), CONFIRM_MS);
+    },
+    showLost(why) {
       if (state === "signedOut") return;
       state = "lost";
       show(`<svg class="icon"><use href="#i-alert"/></svg> ${why === "server"
@@ -126,6 +141,8 @@ const connection = (() => {
       if (!poll) poll = setInterval(check, 5000);
     },
     ok() {
+      clearTimeout(pending);
+      pending = null;
       if (state !== "lost") return;
       state = "ok";
       clearInterval(poll);

@@ -432,7 +432,9 @@ body.privacy .pie-total { display: none; }
 .masthead { view-transition-name: masthead; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.12s; }
 ::view-transition-group(masthead), ::view-transition-old(masthead), ::view-transition-new(masthead) { animation-duration: 0s; }
-@media (prefers-reduced-motion: reduce) {
+/* Phone browsers (Safari especially) flicker the sticky masthead's tabs
+   during the swap; they already hold the old page until the new one paints. */
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
   @view-transition { navigation: none; }
 }
 
