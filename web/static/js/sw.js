@@ -84,8 +84,10 @@ const offline = () => caches.match(OFFLINE);
 // Off the VPN the server's address doesn't refuse the connection, it just never
 // answers, and a page load would hang for a minute or more on a blank screen.
 // Give up after this long and show the offline page; it reloads once Glowworm
-// answers again.
-const NAV_TIMEOUT_MS = 4000;
+// answers again. A load that fails straight away (a dropped connection, the
+// server restarting) is tried once more before the offline page shows.
+const NAV_TIMEOUT_MS = 8000;
+const NAV_RETRY_MS = 1500;
 
 function fetchWithTimeout(req, ms) {
   const ctrl = new AbortController();
@@ -109,7 +111,11 @@ self.addEventListener("fetch", (e) => {
       });
     };
     const early = takePrefetched(req.url);
-    const load = early ? early.then((r) => r || fetchWithTimeout(req, NAV_TIMEOUT_MS)) : fetchWithTimeout(req, NAV_TIMEOUT_MS);
+    const first = early ? early.then((r) => r || fetchWithTimeout(req, NAV_TIMEOUT_MS)) : fetchWithTimeout(req, NAV_TIMEOUT_MS);
+    const retry = () => new Promise((ok) => setTimeout(ok, NAV_RETRY_MS)).then(() => fetchWithTimeout(req, NAV_TIMEOUT_MS));
+    const load = first.then(
+      (r) => (r.status >= 502 && r.status <= 504 ? retry() : r),
+      (err) => (err && err.name === "AbortError" ? Promise.reject(err) : retry()));
     e.respondWith(load
       .then((r) => {
         if (r.status >= 502 && r.status <= 504) return showOffline("status " + r.status);
