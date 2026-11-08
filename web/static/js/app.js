@@ -3447,7 +3447,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ${intro}
         ${mappingFormHTML(sel, sampleHeader, changed, target)}
         ${sheets ? `<div class="field-row"><label>Sheet</label><select class="field select" id="mapSheet">${sheets}</select></div>` : ""}
-        <div class="section-head"><h2>From the file</h2></div>
+        <div class="section-head"><h2>Sample Import</h2></div>
         <div style="overflow-x:auto"><table class="tx-table"><thead><tr>${headerHTML}</tr></thead><tbody>${sample}</tbody></table></div>
         <div class="category-form-actions">
           ${aiProposal
