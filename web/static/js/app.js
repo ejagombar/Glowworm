@@ -3233,11 +3233,27 @@ document.addEventListener("DOMContentLoaded", () => {
     return `<div class="map-fields" id="mapFields">
       ${row("date", "Date", "", `${columnSelectHTML("mapDate", headers, sel.date, { optional: false })}
         <div class="date-read" id="dateRead">
-          <div class="date-preview" id="datePreview" tabindex="0"></div>
-          <div class="map-sub date-format-row">
+          <div class="date-preview" id="datePreview"></div>
+          <div class="map-sub">
             <label class="map-sub-label" for="mapDateFormat">Format
               <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button></label>
             <input class="field" id="mapDateFormat" placeholder="Auto-detect" />
+          </div>
+          <div id="dateInfoPopover" class="info-popover" hidden>
+            <strong>How date formats work</strong>
+            <p class="muted">Leave the field blank to let Glowworm auto-detect from ~15 common layouts.</p>
+            <p class="muted">To pin a format, write it with these codes — anything else (<code>/</code>, <code>-</code>, spaces) must appear exactly as written:</p>
+            <p class="muted"><code>DD</code> day 02 · <code>D</code> day 2 · <code>MM</code> month 06 · <code>MMM</code> Jun · <code>MMMM</code> June · <code>YYYY</code> 2026 · <code>YY</code> 26 · <code>HH</code> hour 0–23 · <code>hh</code> hour 1–12 · <code>mm</code> minutes · <code>ss</code> seconds · <code>A</code> AM/PM</p>
+            <p class="muted">Click a format to use it:</p>
+            <ul class="date-format-list">
+              <li><button type="button" data-fmt="DD/MM/YYYY">DD/MM/YYYY</button> — UK, e.g. 02/06/2026</li>
+              <li><button type="button" data-fmt="MM/DD/YYYY">MM/DD/YYYY</button> — US, e.g. 06/02/2026</li>
+              <li><button type="button" data-fmt="YYYY-MM-DD">YYYY-MM-DD</button> — ISO, e.g. 2026-06-02</li>
+              <li><button type="button" data-fmt="D MMM YYYY">D MMM YYYY</button> — e.g. 2 Jun 2026</li>
+              <li><button type="button" data-fmt="D MMMM YYYY">D MMMM YYYY</button> — e.g. 2 June 2026</li>
+              <li><button type="button" data-fmt="YYYY-MM-DD HH:mm:ss">YYYY-MM-DD HH:mm:ss</button> — ISO with time</li>
+              <li><button type="button" data-fmt="DD/MM/YYYY HH:mm">DD/MM/YYYY HH:mm</button> — UK with time</li>
+            </ul>
           </div>
         </div>`)}
       ${row("description", "Description", "", `${columnSelectHTML("mapDescription", headers, sel.description, { optional: false })}
@@ -3430,22 +3446,6 @@ document.addEventListener("DOMContentLoaded", () => {
         ${b.parse_error ? `<p class="login-error">${esc(b.parse_error)}</p>` : ""}
         ${intro}
         ${mappingFormHTML(sel, sampleHeader, changed, target)}
-        <div id="dateInfoPopover" class="info-popover" hidden>
-          <strong>How date formats work</strong>
-          <p class="muted">Leave the field blank to let Glowworm auto-detect from ~15 common layouts.</p>
-          <p class="muted">To pin a format, write it with these codes — anything else (<code>/</code>, <code>-</code>, spaces) must appear exactly as written:</p>
-          <p class="muted"><code>DD</code> day 02 · <code>D</code> day 2 · <code>MM</code> month 06 · <code>MMM</code> Jun · <code>MMMM</code> June · <code>YYYY</code> 2026 · <code>YY</code> 26 · <code>HH</code> hour 0–23 · <code>hh</code> hour 1–12 · <code>mm</code> minutes · <code>ss</code> seconds · <code>A</code> AM/PM</p>
-          <p class="muted">Click a format to use it:</p>
-          <ul class="date-format-list">
-            <li><button type="button" data-fmt="DD/MM/YYYY">DD/MM/YYYY</button> — UK, e.g. 02/06/2026</li>
-            <li><button type="button" data-fmt="MM/DD/YYYY">MM/DD/YYYY</button> — US, e.g. 06/02/2026</li>
-            <li><button type="button" data-fmt="YYYY-MM-DD">YYYY-MM-DD</button> — ISO, e.g. 2026-06-02</li>
-            <li><button type="button" data-fmt="D MMM YYYY">D MMM YYYY</button> — e.g. 2 Jun 2026</li>
-            <li><button type="button" data-fmt="D MMMM YYYY">D MMMM YYYY</button> — e.g. 2 June 2026</li>
-            <li><button type="button" data-fmt="YYYY-MM-DD HH:mm:ss">YYYY-MM-DD HH:mm:ss</button> — ISO with time</li>
-            <li><button type="button" data-fmt="DD/MM/YYYY HH:mm">DD/MM/YYYY HH:mm</button> — UK with time</li>
-          </ul>
-        </div>
         ${sheets ? `<div class="field-row"><label>Sheet</label><select class="field select" id="mapSheet">${sheets}</select></div>` : ""}
         <div class="section-head"><h2>From the file</h2></div>
         <div style="overflow-x:auto"><table class="tx-table"><thead><tr>${headerHTML}</tr></thead><tbody>${sample}</tbody></table></div>
@@ -3475,10 +3475,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const infoBtn = document.getElementById("dateInfoBtn");
     const infoPop = document.getElementById("dateInfoPopover");
-    infoBtn?.addEventListener("click", () => {
-      infoPop.hidden = !infoPop.hidden;
-      document.getElementById("dateRead").classList.toggle("open", !infoPop.hidden);
-    });
+    infoBtn?.addEventListener("click", () => { infoPop.hidden = !infoPop.hidden; });
     infoPop?.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-fmt]");
       if (!btn) return;
@@ -3489,9 +3486,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const previewEl = document.getElementById("datePreview");
     const dateInput = document.getElementById("mapDateFormat");
-    const readEl = document.getElementById("dateRead");
-    // No hover on touch screens: tapping the file's text shows the format.
-    previewEl?.addEventListener("click", () => readEl.classList.toggle("open"));
     let previewToken = 0;
     function refreshDatePreview() {
       const sample = previewEl?.dataset.sample || "";
@@ -3504,8 +3498,6 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ sample, format: humanToGoLayout(fmt) }),
       }).then((r) => jsonOk(r)).then((body) => {
         if (myToken !== previewToken) return;
-        // A problem keeps the format field in view so it can be fixed.
-        readEl.classList.toggle("needs-format", !body.iso || !!fmt);
         dateInput.placeholder = body.iso && !fmt ? `Auto-detect (${goLayoutToHuman(body.layout)})` : "Auto-detect";
         if (!body.iso) {
           previewEl.innerHTML = `<span class="date-preview-fail">Couldn't read “${esc(sample)}”${fmt ? ` as ${esc(fmt)}` : ""}. Pick a format from the “i” menu${fmt ? " or clear the field to auto-detect" : ""}.</span>`;
