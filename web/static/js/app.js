@@ -3232,12 +3232,14 @@ document.addEventListener("DOMContentLoaded", () => {
         <span><span>${label}</span></span></label>`).join("");
     return `<div class="map-fields" id="mapFields">
       ${row("date", "Date", "", `${columnSelectHTML("mapDate", headers, sel.date, { optional: false })}
-        <div class="map-sub">
-          <label class="map-sub-label" for="mapDateFormat">Format
-            <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button></label>
-          <input class="field" id="mapDateFormat" placeholder="Auto-detect" />
-        </div>
-        <div class="date-preview muted" id="datePreview"></div>`)}
+        <div class="date-read" id="dateRead">
+          <div class="date-preview" id="datePreview" tabindex="0"></div>
+          <div class="map-sub date-format-row">
+            <label class="map-sub-label" for="mapDateFormat">Format
+              <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button></label>
+            <input class="field" id="mapDateFormat" placeholder="Auto-detect" />
+          </div>
+        </div>`)}
       ${row("description", "Description", "", `${columnSelectHTML("mapDescription", headers, sel.description, { optional: false })}
         <div class="map-sub"><label class="map-sub-label" for="mapMemo">Add details from</label>${columnSelectHTML("mapMemo", headers, sel.memo)}</div>`)}
       ${row("amount", "Amount", "", `<div class="map-radios">${modes}</div>
@@ -3473,7 +3475,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const infoBtn = document.getElementById("dateInfoBtn");
     const infoPop = document.getElementById("dateInfoPopover");
-    infoBtn?.addEventListener("click", () => { infoPop.hidden = !infoPop.hidden; });
+    infoBtn?.addEventListener("click", () => {
+      infoPop.hidden = !infoPop.hidden;
+      document.getElementById("dateRead").classList.toggle("open", !infoPop.hidden);
+    });
     infoPop?.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-fmt]");
       if (!btn) return;
@@ -3484,19 +3489,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const previewEl = document.getElementById("datePreview");
     const dateInput = document.getElementById("mapDateFormat");
+    const readEl = document.getElementById("dateRead");
+    // No hover on touch screens: tapping the file's text shows the format.
+    previewEl?.addEventListener("click", () => readEl.classList.toggle("open"));
     let previewToken = 0;
     function refreshDatePreview() {
       const sample = previewEl?.dataset.sample || "";
       if (!sample) return;
       const fmt = dateInput.value.trim();
       const myToken = ++previewToken;
-      previewEl.textContent = "Checking date format…";
       fetch("/api/v1/imports/preview-date", {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify({ sample, format: humanToGoLayout(fmt) }),
       }).then((r) => jsonOk(r)).then((body) => {
         if (myToken !== previewToken) return;
+        // A problem keeps the format field in view so it can be fixed.
+        readEl.classList.toggle("needs-format", !body.iso || !!fmt);
+        dateInput.placeholder = body.iso && !fmt ? `Auto-detect (${goLayoutToHuman(body.layout)})` : "Auto-detect";
         if (!body.iso) {
           previewEl.innerHTML = `<span class="date-preview-fail">Couldn't read “${esc(sample)}”${fmt ? ` as ${esc(fmt)}` : ""}. Pick a format from the “i” menu${fmt ? " or clear the field to auto-detect" : ""}.</span>`;
           return;
@@ -3509,8 +3519,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="muted">Auto-detection would read it as ${esc(humanDate(body.iso))} (${detected}) — fix the format or clear it.</span>`;
           return;
         }
-        const layoutNote = fmt ? "" : ` <span class="muted">· detected format ${detected}</span>`;
-        previewEl.innerHTML = `<span class="date-preview-ok">Reads “${esc(sample)}” as ${esc(humanDate(body.iso))}</span>${layoutNote}`;
+        previewEl.innerHTML = `<span class="date-raw">${esc(sample)}</span><span class="date-arrow" aria-label="reads as">→</span><span class="date-preview-ok">${esc(humanDate(body.iso))}</span>`;
       }).catch(() => {
         if (myToken !== previewToken) return;
         previewEl.textContent = "Preview unavailable";

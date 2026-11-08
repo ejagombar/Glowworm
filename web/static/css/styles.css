@@ -1738,7 +1738,12 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
 .date-format-list { list-style: none; padding: 0; margin: 6px 0 0; display: grid; grid-template-columns: 1fr; gap: 4px; }
 .date-format-list button { font-family: ui-monospace, monospace; background: none; border: 1px dashed var(--line); border-radius: 3px; padding: 2px 6px; cursor: pointer; margin-right: 6px; }
 .date-format-list button:hover { border-color: var(--primary); color: var(--primary); }
-.date-preview { margin-top: 6px; font-size: 12.5px; min-height: 16px; }
+.date-read { display: grid; gap: 8px; margin-top: 8px; }
+.date-preview { font-size: 13px; min-height: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; cursor: default; justify-self: start; }
+.date-raw { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: 3px; padding: 2px 6px; color: var(--text); }
+.date-arrow { color: var(--muted); font-size: 16px; line-height: 1; }
+/* The format only matters when auto-detection gets it wrong: reveal it on demand. */
+.date-read:not(:hover):not(:focus-within):not(.open):not(.needs-format) .date-format-row { display: none; }
 .date-preview-ok { color: var(--primary); }
 .date-preview-fail { color: var(--expense); }
 
