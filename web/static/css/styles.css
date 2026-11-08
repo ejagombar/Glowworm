@@ -1735,7 +1735,7 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
 .date-read .info-popover { margin-top: 0; }
 .date-preview { font-size: 13px; min-height: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-self: start; }
 .date-raw { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: 3px; padding: 2px 6px; color: var(--text); }
-.date-arrow { color: var(--muted); font-size: 16px; line-height: 1; }
+.date-arrow { color: var(--muted); font-size: 16px; line-height: 1; transform: translateY(-2px); }
 .date-preview-ok { color: var(--primary); }
 .date-preview-fail { color: var(--expense); }
 
@@ -1839,10 +1839,9 @@ html.app-covered body > * { visibility: hidden; }
 .map-radio .muted { font-size: 12px; }
 .map-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .map-check { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-family: var(--mono); }
-.map-amount-preview ul { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12.5px; }
-.map-amount-preview li { display: flex; justify-content: space-between; gap: 12px; max-width: 520px; padding: 2px 0; }
-.map-amount-preview { font-size: 12px; }
-.map-fx p { margin: 0 0 6px; font-size: 12px; }
+.map-amount-preview ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: max-content max-content max-content; align-items: center; gap: 6px 8px; font-size: 13px; }
+.map-amount-preview li { display: contents; }
+.map-amount-preview .date-raw { justify-self: end; }
 .map-fx-row { display: flex; align-items: center; gap: 8px; font-size: 13px; font-family: var(--mono); margin-bottom: 6px; }
 .map-fx-row .field { width: 130px; }
 .map-orig summary { cursor: pointer; font-size: 12.5px; color: var(--text-2); }

@@ -3266,11 +3266,11 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="map-sub" data-mode-show="direction" id="mapOutValuesRow"><span class="map-sub-label">Values meaning money out</span><div class="map-checks" id="mapOutValues"></div></div>
         <div class="map-amount-preview" id="mapAmountPreview"></div>`)}
       ${row("currency", "Currency", "", `
-        <div class="map-sub"><label class="map-sub-label" for="mapCurrency">Currency column</label>${columnSelectHTML("mapCurrency", headers, sel.currency, { none: `Everything is in ${target}` })}</div>
+        ${columnSelectHTML("mapCurrency", headers, sel.currency, { none: `Everything is in ${target}` })}
         <div class="map-fx" id="mapFx"></div>
-        <details class="map-orig"${sel.origAmount ? " open" : ""}><summary>Amount paid in another currency</summary>
-          <div class="map-sub"><label class="map-sub-label" for="mapOrigAmount">Amount paid</label>${columnSelectHTML("mapOrigAmount", headers, sel.origAmount)}</div>
-          <div class="map-sub"><label class="map-sub-label" for="mapOrigCurrency">Its currency</label>${columnSelectHTML("mapOrigCurrency", headers, sel.origCurrency)}</div>
+        <details class="map-orig"${sel.origAmount ? " open" : ""}><summary>Paid in another currency</summary>
+          <div class="map-sub"><label class="map-sub-label" for="mapOrigAmount">Amount</label>${columnSelectHTML("mapOrigAmount", headers, sel.origAmount)}</div>
+          <div class="map-sub"><label class="map-sub-label" for="mapOrigCurrency">Currency</label>${columnSelectHTML("mapOrigCurrency", headers, sel.origCurrency)}</div>
         </details>`)}
       ${row("payee", "Payee", "", columnSelectHTML("mapPayee", headers, sel.payee))}
     </div>`;
@@ -3364,8 +3364,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const key = foreign.join(",");
       if (fx.dataset.key !== key) {
         fx.dataset.key = key;
-        fx.innerHTML = foreign.length ? `<p class="muted">Converted at each day's ECB rate. To use your own rate instead (e.g. what your bank charged), type it here.</p>
-          ${foreign.map((c) => `<label class="map-fx-row">1 ${esc(c)} = <input class="field" type="number" step="any" min="0" data-fx="${esc(c)}" value="${sel.fxRates[c] || ""}" placeholder="daily rate" /> ${esc(target)}</label>`).join("")}` : "";
+        fx.innerHTML = foreign.length ? `${foreign.map((c) => `<label class="map-fx-row">1 ${esc(c)} = <input class="field" type="number" step="any" min="0" data-fx="${esc(c)}" value="${sel.fxRates[c] || ""}" placeholder="ECB daily rate" /> ${esc(target)}</label>`).join("")}` : "";
       }
       // Preview: how the first rows will be read.
       const prevEl = document.getElementById("mapAmountPreview");
@@ -3384,9 +3383,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (minor === null) return "";
         const rowCur = (cur.currency && String(col(r, cur.currency) || "").trim().toUpperCase()) || target;
-        return `<li><span>${esc(col(r, cur.description) || "—")}</span><span class="tx-amount ${minor < 0 ? "neg" : "pos"}">${minor < 0 ? "Money out" : "Money in"} · ${esc(fmtMoneyMinor(minor, rowCur))}</span></li>`;
+        // The file's own text, then how it's read: same as the date check.
+        const raw = cur.amountMode === "split"
+          ? (String(col(r, cur.amountIn) || "").trim() || String(col(r, cur.amountOut) || "").trim())
+          : [col(r, cur.amount), cur.amountMode === "direction" ? col(r, cur.direction) : ""].map((x) => String(x || "").trim()).filter(Boolean).join(" ");
+        return `<li><span class="date-raw">${esc(raw)}</span><span class="date-arrow" aria-label="reads as">→</span><span class="tx-amount ${minor < 0 ? "neg" : "pos"}">${minor < 0 ? "Money out" : "Money in"} · ${esc(fmtMoneyMinor(minor, rowCur))}</span></li>`;
       }).filter(Boolean);
-      prevEl.innerHTML = lines.length ? `<span class="muted">Reads the first rows as:</span><ul>${lines.join("")}</ul>` : "";
+      prevEl.innerHTML = lines.length ? `<ul>${lines.join("")}</ul>` : "";
     };
     document.getElementById("mapFields").addEventListener("change", sync);
     document.getElementById("mapFields").addEventListener("input", (e) => { if (e.target.matches("[data-fx]")) sync(); });
