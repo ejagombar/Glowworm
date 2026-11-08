@@ -430,7 +430,7 @@ body.privacy .pie-total { display: none; }
    frame and a fade-in. The masthead is its own layer so it holds still. */
 @view-transition { navigation: auto; }
 .masthead { view-transition-name: masthead; }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.12s; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.22s; animation-timing-function: ease-out; }
 ::view-transition-group(masthead), ::view-transition-old(masthead), ::view-transition-new(masthead) { animation-duration: 0s; }
 /* Phone browsers (Safari especially) flicker the sticky masthead's tabs
    during the swap; they already hold the old page until the new one paints. */
