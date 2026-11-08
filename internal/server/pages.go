@@ -212,7 +212,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 
 	data := struct {
 		*viewBase
-		Greeting        string
 		Accounts        []*accountCard
 		AvailableMinor  int64
 		SavingsMinor    int64
@@ -228,7 +227,6 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 		Widgets         []*WidgetView
 	}{
 		viewBase:       base,
-		Greeting:       a.Clock.Greeting(),
 		Accounts:       cards,
 		AvailableMinor: available, SavingsMinor: savings,
 		IncomeMinor: incomeMinor,

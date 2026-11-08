@@ -107,8 +107,7 @@ func New() (*Renderer, error) {
 			b, _ := jsonMarshal(v)
 			return template.HTMLAttr(b)
 		},
-		"weekdayGreeting": func() string { return "" },
-		"prefix":          func(s, p string) bool { return strings.HasPrefix(s, p) },
+		"prefix": func(s, p string) bool { return strings.HasPrefix(s, p) },
 	}
 	entries, err := templatesFS.ReadDir("templates")
 	if err != nil {
