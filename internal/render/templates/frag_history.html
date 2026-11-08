@@ -1,12 +1,4 @@
-{{define "history-pane-content"}}
-{{if eq .Mode "audit"}}
-<div class="history-pane" id="historyAuditPane">
-  <div class="filters panel">
-    <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?mode=audit&filter=all">All</a>
-    <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?mode=audit&filter=you">You</a>
-    <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?mode=audit&filter=system">System</a>
-  </div>
-
+{{define "history-audit"}}
   <div class="history-list" id="historyList">
     {{range .Blocks}}
     {{if eq .Kind "single"}}
@@ -44,8 +36,8 @@
       <div class="history-sub">Every change, by you or the system, will appear here.</div></div></div>
     {{end}}
   </div>
-</div>
-{{else}}
+{{end}}
+{{define "history-timeline"}}
 <div class="history-pane" id="historyTimelinePane">
   <div class="panel timeline-controls">
     <div class="timeline-head">
@@ -98,7 +90,6 @@
     <div class="chart-host" id="timelineChart" data-chart-type="line" data-chart-data="{{jsonAttr .Series}}"></div>
   </div>
 </div>
-{{end}}
 {{end}}
 {{define "audit-entry"}}
 <div class="history-item{{if eq .State "inactive"}} inactive{{end}}" data-entry-id="{{.ID}}">

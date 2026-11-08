@@ -716,8 +716,7 @@ func (a *App) handleHistory(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	mode, filter := historyParams(r)
-	data, err := a.historyData(base, mode, filter)
+	data, err := a.historyData(base, historyFilter(r), true)
 	if err != nil {
 		return err
 	}
@@ -730,34 +729,30 @@ func (a *App) handleHistoryPane(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	mode, filter := historyParams(r)
-	data, err := a.historyData(base, mode, filter)
+	data, err := a.historyData(base, historyFilter(r), false)
 	if err != nil {
 		return err
 	}
-	return a.Render.RenderFragment(w, "history-pane-content", data)
+	return a.Render.RenderFragment(w, "history-audit", data)
 }
 
-func historyParams(r *http.Request) (mode, filter string) {
-	mode = r.URL.Query().Get("mode")
-	if mode != "audit" {
-		mode = "transactions"
+func historyFilter(r *http.Request) string {
+	if f := r.URL.Query().Get("filter"); f != "" {
+		return f
 	}
-	filter = r.URL.Query().Get("filter")
-	if filter == "" {
-		filter = "all"
-	}
-	return mode, filter
+	return "all"
 }
 
-func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
+// historyData builds the History page: the balance timeline (skipped when
+// only the audit log is being refreshed) and the audit log.
+func (a *App) historyData(base *viewBase, filter string, timeline bool) (any, error) {
 	months := []string{}
 	latestBalance := int64(0)
 	txCount := int64(0)
 	cards := []*accountCard{}
 	series := ""
 	reconStatus, reconLabel, reconHint := "", "", ""
-	if mode != "audit" {
+	if timeline {
 		var minDate any
 		_ = a.DB.QueryRow(`SELECT MIN(date) FROM transactions WHERE deleted_at IS NULL`).Scan(&minDate)
 		start := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
@@ -784,55 +779,52 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		series = seriesJSON(labels, values)
 		reconStatus, reconLabel, reconHint = a.reconcileSummary(a.Clock.Today())
 	}
-	entryViews := []auditEntryView{}
 	importAccounts, err := a.Accounts.List(nil)
 	if err != nil {
 		return nil, err
 	}
-	if mode == "audit" {
-		opt := audit.ListOptions{Limit: 50}
-		switch filter {
-		case "you":
-			opt.Actor = core.ActorUser
-		case "system":
-			opt.Actors = []string{core.ActorAI, core.ActorSystem}
+	opt := audit.ListOptions{Limit: 50}
+	switch filter {
+	case "you":
+		opt.Actor = core.ActorUser
+	case "system":
+		opt.Actors = []string{core.ActorAI, core.ActorSystem}
+	}
+	entries, _, err := a.Audit.List(opt)
+	if err != nil {
+		return nil, err
+	}
+	entryViews := a.toEntryViews(entries)
+	a.markEditableImports(entryViews)
+	if len(entries) > 0 {
+		args := make([]any, len(entries))
+		for i, e := range entries {
+			args[i] = e.ID
 		}
-		entries, _, err := a.Audit.List(opt)
-		if err != nil {
-			return nil, err
-		}
-		entryViews = a.toEntryViews(entries)
-		a.markEditableImports(entryViews)
-		if len(entries) > 0 {
-			args := make([]any, len(entries))
-			for i, e := range entries {
-				args[i] = e.ID
-			}
-			rows, err := a.DB.Query(`SELECT id, action, state FROM audit_entries WHERE id IN (`+strings.Repeat("?,", len(entries)-1)+"?)", args...)
-			if err == nil {
-				states := map[int64]audit.AuditRow{}
-				for rows.Next() {
-					var row audit.AuditRow
-					if err := rows.Scan(&row.ID, &row.Action, &row.State); err == nil {
-						states[row.ID] = row
-					}
+		rows, err := a.DB.Query(`SELECT id, action, state FROM audit_entries WHERE id IN (`+strings.Repeat("?,", len(entries)-1)+"?)", args...)
+		if err == nil {
+			states := map[int64]audit.AuditRow{}
+			for rows.Next() {
+				var row audit.AuditRow
+				if err := rows.Scan(&row.ID, &row.Action, &row.State); err == nil {
+					states[row.ID] = row
 				}
-				rows.Close()
-				latest := a.Audit.LatestRewindableID()
-				for i := range entryViews {
-					if row, ok := states[entryViews[i].ID]; ok {
-						caps := a.Audit.Policy.Evaluate(row.Action, row.State)
-						entryViews[i].Undoable = caps.Revert
-						// Only where something after it would actually be undone.
-						entryViews[i].Rewindable = caps.JumpBack && row.State == "active" && row.ID < latest
-					}
+			}
+			rows.Close()
+			latest := a.Audit.LatestRewindableID()
+			for i := range entryViews {
+				if row, ok := states[entryViews[i].ID]; ok {
+					caps := a.Audit.Policy.Evaluate(row.Action, row.State)
+					entryViews[i].Undoable = caps.Revert
+					// Only where something after it would actually be undone.
+					entryViews[i].Rewindable = caps.JumpBack && row.State == "active" && row.ID < latest
 				}
 			}
 		}
 	}
+
 	data := struct {
 		*viewBase
-		Mode            string
 		AuditFilter     string
 		Months          []string
 		LatestDate      string
@@ -846,7 +838,7 @@ func (a *App) historyData(base *viewBase, mode, filter string) (any, error) {
 		ReconcileLabel  string
 		ReconcileHint   string
 	}{
-		viewBase: base, Mode: mode, AuditFilter: filter, Months: months,
+		viewBase: base, AuditFilter: filter, Months: months,
 		LatestDate: a.Clock.Today(), LatestBalance: latestBalance,
 		TxCountToDate: txCount, Accounts: cards,
 		Series:          series,

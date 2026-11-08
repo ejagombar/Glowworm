@@ -1,22 +1,18 @@
 {{define "content"}}
 <section class="view active" id="view-history">
-  <div class="view-head">
-    <div>
-      <h1>History</h1>
-      <p class="sub">Travel through transactions or your audit log.</p>
+  {{template "history-timeline" .}}
+
+  <section class="history-audit" id="audit">
+    <div class="section-head">
+      <h2>Audit log</h2>
+      <div class="section-head-actions history-filter">
+        <a class="chip{{if eq .AuditFilter "all"}} active{{end}}" href="/history?filter=all#audit">All</a>
+        <a class="chip{{if eq .AuditFilter "you"}} active{{end}}" href="/history?filter=you#audit">You</a>
+        <a class="chip{{if eq .AuditFilter "system"}} active{{end}}" href="/history?filter=system#audit">System</a>
+      </div>
     </div>
-  </div>
-
-  <div class="segmented history-mode" role="tablist" aria-label="History view">
-    <a class="segmented-item{{if ne .Mode "audit"}} active{{end}}" href="/history?mode=transactions" data-history-mode="transactions" role="tab" aria-selected="{{if ne .Mode "audit"}}true{{else}}false{{end}}">
-      <svg class="icon"><use href="#i-transactions"/></svg> Transactions
-    </a>
-    <a class="segmented-item{{if eq .Mode "audit"}} active{{end}}" href="/history?mode=audit" data-history-mode="audit" role="tab" aria-selected="{{if eq .Mode "audit"}}true{{else}}false{{end}}">
-      <svg class="icon"><use href="#i-history"/></svg> Audit log
-    </a>
-  </div>
-
-  <div id="historyPaneHost">{{template "history-pane-content" .}}</div>
+    <div id="historyPaneHost">{{template "history-audit" .}}</div>
+  </section>
 
   <div class="modal-backdrop" id="importEditModal" hidden>
     <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="importEditTitle">

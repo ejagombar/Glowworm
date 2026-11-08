@@ -1830,7 +1830,7 @@ function loadChange(host) {
           <td class="num">${fmtMoneySigned(t.amount_minor, t.currency)}</td></tr>`).join("")}</tbody>
       </table></div>
       <div class="rule-draft-foot">
-        <span class="cell-sub">${p.applied ? `Applied · <a href="/history?mode=audit">undo in History</a>` : "Nothing changes until you apply it."}</span>
+        <span class="cell-sub">${p.applied ? `Applied · <a href="/history#audit">undo in History</a>` : "Nothing changes until you apply it."}</span>
         ${p.applied || !p.ready ? "" : `<button class="btn btn-primary btn-xs" data-apply-change data-change-action="${esc(p.proposal.action)}" data-count="${p.ready}">Apply</button>`}
       </div></div>`;
   }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not check the change.")}</p>`; });
@@ -1861,7 +1861,7 @@ function loadValuationDraft(host) {
         ${diff ? `<span class="cell-sub">(${esc(fmtMoneySigned(diff, cc))})</span>` : ""}
       </div>`}
       <div class="rule-draft-foot">
-        <span class="cell-sub">${recorded ? `Recorded · <a href="/history?mode=audit">undo in History</a>` : "Nothing changes until you record it."}</span>
+        <span class="cell-sub">${recorded ? `Recorded · <a href="/history#audit">undo in History</a>` : "Nothing changes until you record it."}</span>
         ${recorded ? "" : `<button class="btn btn-primary btn-xs" data-record-valuation>Record</button>`}
       </div></div>`;
   }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not load the account.")}</p>`; });
@@ -1885,7 +1885,7 @@ function loadPendingTransfers(host, done) {
           <td class="num">${esc(fmtMoneyMinor(-p.source.amount_minor, p.source.currency || "GBP"))}</td></tr>`).join("")}</tbody>
       </table></div>` : ""}
       <div class="rule-draft-foot">
-        <span class="cell-sub">${done ? `Linked · <a href="/history?mode=audit">undo in History</a>` : pairs.length ? "Nothing changes until you link them." : "Linking also runs after every import."}</span>
+        <span class="cell-sub">${done ? `Linked · <a href="/history#audit">undo in History</a>` : pairs.length ? "Nothing changes until you link them." : "Linking also runs after every import."}</span>
         ${pairs.length ? `<button class="btn btn-primary btn-xs" data-link-transfers>Link ${pairs.length === 1 ? "it" : `all ${pairs.length}`}</button>` : ""}
       </div></div>`;
   }).catch((e) => { host.innerHTML = `<p class="rules-empty">${esc(e.message || "Could not look for transfers.")}</p>`; });
@@ -4077,8 +4077,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 // The current timeline's tick layout, redone when the window resizes. The
-// timeline is rebuilt when History switches panes, so it's kept here and the
-// listener is added once.
+// timeline may be rebuilt, so it's kept here and the listener is added once.
 let layoutTimelineTicks = null;
 let tickResizeTimer;
 window.addEventListener("resize", () => {
@@ -4193,31 +4192,24 @@ function humanDate(iso) {
 
 let historyPaneToken = 0;
 
-function historySkeletonHTML(mode) {
-  const block = (h) => `<div class="sk-block" style="height:${h}px"></div>`;
-  if (mode === "audit") {
-    return `<div class="pane-skeleton">${block(46)}${Array.from({ length: 6 }, () => `<div class="sk-block sk-row"></div>`).join("")}</div>`;
-  }
-  return `<div class="pane-skeleton">${block(112)}<div class="stats-grid three">${block(84)}${block(84)}${block(84)}</div>${block(52)}${block(120)}${block(240)}</div>`;
+function historySkeletonHTML() {
+  return `<div class="pane-skeleton">${Array.from({ length: 6 }, () => `<div class="sk-block sk-row"></div>`).join("")}</div>`;
 }
 
+// The audit log's filter chips reload just the log, not the timeline above it.
 function loadHistoryPane(url, push) {
   const host = document.getElementById("historyPaneHost");
   if (!host) return;
   const u = new URL(url, location.origin);
-  const mode = u.searchParams.get("mode") === "audit" ? "audit" : "transactions";
   const filter = u.searchParams.get("filter") || "all";
 
-  document.querySelectorAll(".history-mode .segmented-item").forEach((a) => {
-    const on = a.dataset.historyMode === mode;
-    a.classList.toggle("active", on);
-    a.setAttribute("aria-selected", on);
+  document.querySelectorAll(".history-filter .chip").forEach((a) => {
+    a.classList.toggle("active", new URL(a.href).searchParams.get("filter") === filter);
   });
-  host.innerHTML = historySkeletonHTML(mode);
+  host.innerHTML = historySkeletonHTML();
 
   const token = ++historyPaneToken;
-  // No period: the server uses the selected date range (see selectedPeriod).
-  fetch(`/history/pane?mode=${mode}&filter=${filter}`, { headers: { "X-Requested-With": "fetch" } })
+  fetch(`/history/pane?filter=${encodeURIComponent(filter)}`, { headers: { "X-Requested-With": "fetch" } })
     .then((r) => {
       // A redirect (e.g. to /setup) would otherwise be injected as pane HTML.
       if (!r.ok || r.redirected) throw new Error("pane " + r.status);
@@ -4226,12 +4218,7 @@ function loadHistoryPane(url, push) {
     .then((html) => {
       if (token !== historyPaneToken) return;
       host.innerHTML = html;
-      if (mode === "audit") {
-        if (window.wireAuditActions) window.wireAuditActions(host);
-      } else {
-        initHistoryTimeline();
-        if (window.drawChartHosts) drawChartHosts(host);
-      }
+      if (window.wireAuditActions) window.wireAuditActions(host);
     })
     .catch(() => { location.href = u.href; });
   if (push) history.pushState({}, "", u.href);
