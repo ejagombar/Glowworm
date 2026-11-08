@@ -140,6 +140,15 @@ func TestDataVersionAndEditConflicts(t *testing.T) {
 	if c.do("POST", "/api/v1/accounts", "application/json", `{"name":""}`).Code != 400 || version() != v1 {
 		t.Error("a read or a refused save changed the version")
 	}
+	// POSTs that only read (listing AI models, checking a date format)
+	// mustn't make other pages refresh.
+	c.do("POST", "/api/v1/settings/ai/models", "application/json", `{}`)
+	if rec := c.do("POST", "/api/v1/imports/preview-date", "application/json", `{"sample":"02/06/2026"}`); rec.Code != 200 {
+		t.Fatalf("preview date: %d %s", rec.Code, rec.Body)
+	}
+	if version() != v1 {
+		t.Error("a read-only POST changed the version")
+	}
 
 	rec = c.do("POST", "/api/v1/transactions", "application/json",
 		`{"account_id":"`+acct.ID+`","date":"2026-05-01","description":"Lidl","amount_minor":-500}`)

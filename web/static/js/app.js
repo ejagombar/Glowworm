@@ -178,6 +178,7 @@ const dataVersion = (() => {
   const meta = document.querySelector('meta[name="glowworm-version"]');
   let known = meta ? meta.content : "";
   let stale = false;
+  let seen = 0; // the newer version a check found
   let inflight = 0;
   let lastTouch = 0;
   let holds = 0;
@@ -216,8 +217,13 @@ const dataVersion = (() => {
   };
 
   const api = {
-    // A save made by this page: its new version isn't news.
-    ownChange(v) { known = v; },
+    // A save made by this page: its new version isn't news. A check can see
+    // it before the save's own response arrives; if this save accounts for
+    // the change the check found, there's nothing to refresh for.
+    ownChange(v) {
+      known = v;
+      if (stale && Number(v) >= seen) stale = false;
+    },
     // Requests through the fetch wrapper; a reload would cut them off.
     started() { inflight++; },
     finished() { inflight = Math.max(0, inflight - 1); },
@@ -233,7 +239,12 @@ const dataVersion = (() => {
       if (stale) { refresh(); return; }
       nativeFetch("/api/v1/version", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((b) => { if (b && b.version && b.version !== known) { stale = true; refresh(); } })
+        .then((b) => {
+          if (!b || !b.version || b.version === known || Number(b.version) <= Number(known)) return;
+          seen = Number(b.version);
+          stale = true;
+          refresh();
+        })
         .catch(() => {});
     },
   };

@@ -55,9 +55,20 @@ const versionHeader = "X-Glowworm-Version"
 func (v *dataVersion) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mutating := r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			!strings.HasSuffix(r.URL.Path, "/preview") && r.URL.Path != "/sw-log"
+			!strings.HasSuffix(r.URL.Path, "/preview") && !readOnlyPosts[r.URL.Path]
 		next.ServeHTTP(&versionWriter{ResponseWriter: w, v: v, mutating: mutating}, r)
 	})
+}
+
+// readOnlyPosts are POSTs that change no data, so other pages needn't refresh.
+var readOnlyPosts = map[string]bool{
+	"/sw-log":                         true,
+	"/api/v1/settings/ai/models":      true,
+	"/api/v1/settings/ai/test":        true,
+	"/api/v1/imports/preview-date":    true,
+	"/api/v1/instance/backup":         true,
+	"/api/v1/passkeys/register/begin": true,
+	"/unlock/begin":                   true,
 }
 
 type versionWriter struct {
