@@ -3258,10 +3258,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>`)}
       ${row("description", "Description", "", `${columnSelectHTML("mapDescription", headers, sel.description, { optional: false })}
         <div class="map-sub"><label class="map-sub-label" for="mapMemo">Add details from</label>${columnSelectHTML("mapMemo", headers, sel.memo)}</div>`)}
-      ${row("amount", "Amount", "", `<div class="map-radios">${modes}</div>
-        <div class="map-sub" data-mode-show="signed inverted direction"><label class="map-sub-label" for="mapAmount">Amount column</label>${columnSelectHTML("mapAmount", headers, sel.amount, { optional: false })}</div>
+      ${row("amount", "Amount", "", `<div class="map-amount-col" data-mode-show="signed inverted direction">${columnSelectHTML("mapAmount", headers, sel.amount, { optional: false })}</div>
         <div class="map-sub" data-mode-show="split"><label class="map-sub-label" for="mapAmountIn">Money in</label>${columnSelectHTML("mapAmountIn", headers, sel.amountIn)}</div>
         <div class="map-sub" data-mode-show="split"><label class="map-sub-label" for="mapAmountOut">Money out</label>${columnSelectHTML("mapAmountOut", headers, sel.amountOut)}</div>
+        <div class="map-radios">${modes}</div>
         <div class="map-sub" data-mode-show="direction"><label class="map-sub-label" for="mapDirection">Debit/credit column</label>${columnSelectHTML("mapDirection", headers, sel.direction, { optional: false })}</div>
         <div class="map-sub" data-mode-show="direction" id="mapOutValuesRow"><span class="map-sub-label">Values meaning money out</span><div class="map-checks" id="mapOutValues"></div></div>
         <div class="map-amount-preview" id="mapAmountPreview"></div>`)}
