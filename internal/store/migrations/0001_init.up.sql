@@ -13,6 +13,20 @@ CREATE TABLE users (
   updated_at    TEXT NOT NULL
 );
 
+-- Passkeys (Face ID, Touch ID and the like) that unlock Glowworm on a
+-- device that has its lock turned on. credential is the go-webauthn
+-- Credential as JSON: the public key, sign count and flags.
+CREATE TABLE passkeys (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id  TEXT NOT NULL UNIQUE,
+  credential     TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  last_used_at   TEXT
+);
+CREATE INDEX passkeys_user ON passkeys(user_id);
+
 CREATE TABLE accounts (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,
@@ -49,6 +63,9 @@ CREATE INDEX idx_valuations_account_date ON valuations(account_id, date);
 CREATE TABLE categories (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
+  -- What the user means by the category, in their own words. Only the
+  -- categorisation AI reads it; the app shows it nowhere but the edit form.
+  description TEXT NOT NULL DEFAULT '',
   color      TEXT NOT NULL,
   type       TEXT NOT NULL CHECK (type IN ('spend','income','internal')),
   is_system  INTEGER NOT NULL DEFAULT 0,
@@ -67,6 +84,10 @@ CREATE TABLE transactions (
   merchant            TEXT,
   amount_minor        INTEGER NOT NULL,
   currency            TEXT NOT NULL,
+  -- What was actually paid when the transaction wasn't in the account's
+  -- currency (e.g. €10 on holiday), alongside the converted amount_minor.
+  original_amount_minor INTEGER,
+  original_currency   TEXT,
   type                TEXT NOT NULL CHECK (type IN ('expense','income','transfer')),
   category_id         TEXT REFERENCES categories(id) ON DELETE SET NULL,
   category_source     TEXT NOT NULL DEFAULT 'none'
@@ -156,17 +177,19 @@ CREATE TABLE import_staging (
   description         TEXT NOT NULL,
   amount_minor        INTEGER NOT NULL,
   currency            TEXT NOT NULL,
+  original_amount_minor INTEGER,
+  original_currency   TEXT,
   source_text         TEXT NOT NULL DEFAULT '',
   destination_text    TEXT NOT NULL DEFAULT '',
   proposed_category_id TEXT REFERENCES categories(id),
   category_source     TEXT NOT NULL DEFAULT 'none' CHECK (category_source IN ('user','local','ai','none')),
   category_confidence REAL,
+  suggested_category_id TEXT REFERENCES categories(id),
+  suggested_confidence  REAL,
   needs_review        INTEGER NOT NULL DEFAULT 0,
   duplicate_of        TEXT REFERENCES transactions(id),
   raw                 TEXT NOT NULL DEFAULT '{}',
-  created_at          TEXT NOT NULL,
-  suggested_category_id TEXT REFERENCES categories(id),
-  suggested_confidence  REAL
+  created_at          TEXT NOT NULL
 );
 CREATE INDEX idx_staging_batch ON import_staging(batch_id, line_no);
 
@@ -174,6 +197,7 @@ CREATE TABLE import_schemas (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
   bank_hint    TEXT NOT NULL DEFAULT '',
+  account_id   TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   kind         TEXT NOT NULL CHECK (kind IN ('csv','xlsx','ofx','qif','pdf')),
   mapping      TEXT NOT NULL,
   columns      TEXT NOT NULL,
@@ -182,8 +206,28 @@ CREATE TABLE import_schemas (
   use_count    INTEGER NOT NULL DEFAULT 0,
   last_used_at TEXT,
   created_at   TEXT NOT NULL,
-  updated_at   TEXT NOT NULL,
-  account_id   TEXT REFERENCES accounts(id) ON DELETE SET NULL
+  updated_at   TEXT NOT NULL
+);
+
+-- Daily exchange rates fetched for imports: 1 base = rate quote.
+CREATE TABLE fx_rates (
+  date  TEXT NOT NULL,
+  base  TEXT NOT NULL,
+  quote TEXT NOT NULL,
+  rate  REAL NOT NULL,
+  PRIMARY KEY (date, base, quote)
+);
+
+-- Grouping rules: transactions whose description is, or contains, some text
+-- belong to a named group. A group is only the name its rules share, and
+-- transactions.merchant holds it; nothing else sets merchant.
+CREATE TABLE group_rules (
+  id          TEXT PRIMARY KEY,
+  group_name  TEXT NOT NULL,
+  match       TEXT NOT NULL CHECK (match IN ('is', 'contains')),
+  text        TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  deleted_at  TEXT
 );
 
 CREATE TABLE pinned_widgets (
@@ -242,12 +286,17 @@ CREATE TABLE audit_entries (
   after       TEXT NOT NULL DEFAULT '{}',
   revert      TEXT NOT NULL DEFAULT '{}',
   path_id     TEXT NOT NULL REFERENCES audit_paths(id),
-  state       TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','inactive'))
+  state       TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','inactive')),
+  -- System changes made because of a user's change (transfer and recurring
+  -- detection, merchant enrichment, classifier retraining after an import)
+  -- point at it, so undoing or redoing the user's change takes them along.
+  caused_by   INTEGER
 );
 CREATE INDEX idx_audit_time ON audit_entries(id DESC);
 CREATE INDEX idx_audit_action ON audit_entries(action);
 CREATE INDEX idx_audit_entity ON audit_entries(entity_type, entity_id);
 CREATE INDEX idx_audit_state ON audit_entries(state, id);
+CREATE INDEX idx_audit_caused_by ON audit_entries(caused_by);
 
 CREATE TABLE audit_reverts (
   entry_id        INTEGER PRIMARY KEY,

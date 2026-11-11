@@ -147,9 +147,6 @@ func (s *DB) migrate() error {
 	if err != nil {
 		return err
 	}
-	if err := s.adoptCategoryDescription(applied); err != nil {
-		return err
-	}
 	for _, m := range all {
 		if applied[m.version] {
 			continue
@@ -178,26 +175,6 @@ func (s *DB) appliedMigrations() (map[int]bool, error) {
 		out[v] = true
 	}
 	return out, rows.Err()
-}
-
-// A build of main briefly shipped the category description column as
-// migration 5, a number the widget date ranges migration already had. Such a
-// database has the column but records it as 5: count it as 10 instead and
-// forget 5, so the widget migration (safe to run again) still applies.
-func (s *DB) adoptCategoryDescription(applied map[int]bool) error {
-	if applied[10] || !applied[5] {
-		return nil
-	}
-	var n int
-	if err := s.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('categories') WHERE name = 'description'`).Scan(&n); err != nil || n == 0 {
-		return err
-	}
-	if _, err := s.Exec(`UPDATE schema_migrations SET version = 10 WHERE version = 5`); err != nil {
-		return err
-	}
-	delete(applied, 5)
-	applied[10] = true
-	return nil
 }
 
 func (s *DB) Reset() error {
