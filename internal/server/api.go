@@ -186,7 +186,6 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/lock/after", j(a.apiLockAfter))
 
 	mux.HandleFunc("GET /api/v1/snapshot", j(a.apiSnapshot))
-	mux.HandleFunc("GET /api/v1/reconcile/status", j(a.apiReconcileStatus))
 
 	mux.HandleFunc("GET /api/v1/audit", j(a.apiAuditList))
 	mux.HandleFunc("POST /api/v1/audit/{id}/revert", j(a.apiAuditRevert))
@@ -194,14 +193,11 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/audit/redo", j(a.apiAuditRedo))
 	mux.HandleFunc("POST /api/v1/audit/discard", j(a.apiAuditDiscard))
 
-	mux.HandleFunc("GET /api/v1/dashboard/summary", j(a.apiDashboardSummary))
-
 	mux.HandleFunc("POST /api/v1/imports", j(a.apiImportUpload))
 	mux.HandleFunc("GET /api/v1/imports/{id}", j(a.apiImportGet))
 	mux.HandleFunc("POST /api/v1/imports/{id}/schema", j(a.apiImportApplySchema))
 	mux.HandleFunc("POST /api/v1/imports/{id}/schema/ai-detect", j(a.apiImportAIDetect))
 	mux.HandleFunc("POST /api/v1/imports/preview-date", j(a.apiImportPreviewDate))
-	mux.HandleFunc("POST /api/v1/imports/{id}/schema/save", j(a.apiImportSaveSchema))
 	mux.HandleFunc("GET /api/v1/imports/{id}/categorise/stream", a.apiImportCategoriseStream)
 	mux.HandleFunc("GET /api/v1/imports/{id}/categorise/ai/stream", a.apiImportCategoriseAIStream)
 	mux.HandleFunc("GET /api/v1/imports/{id}/review", j(a.apiImportReview))
@@ -210,8 +206,6 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/imports/{id}/account", j(a.apiImportReviewAccount))
 	mux.HandleFunc("POST /api/v1/imports/{id}/cancel", j(a.apiImportCancel))
 	mux.HandleFunc("PATCH /api/v1/imports/{id}", j(a.apiImportEdit))
-	mux.HandleFunc("GET /api/v1/schemas", j(a.apiSchemasList))
-	mux.HandleFunc("DELETE /api/v1/schemas/{id}", j(a.apiSchemaDelete))
 
 	mux.HandleFunc("POST /api/v1/transactions/{id}/link", j(a.apiTransferLink))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/unlink", j(a.apiTransferUnlink))
@@ -226,14 +220,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/changes/preview", j(a.apiChangePreview))
 	mux.HandleFunc("POST /api/v1/changes/apply", j(a.apiChangeApply))
 
-	mux.HandleFunc("GET /api/v1/recurring", j(a.apiRecurringList))
 	mux.HandleFunc("GET /api/v1/recurring/{key}/transactions", j(a.apiRecurringSeries))
-	mux.HandleFunc("POST /api/v1/recurring/refresh", j(a.apiRecurringRefresh))
-
-	mux.HandleFunc("GET /api/v1/categoriser/status", j(a.apiCategoriserStatus))
-	mux.HandleFunc("POST /api/v1/categoriser/retrain", j(a.apiCategoriserRetrain))
-	mux.HandleFunc("POST /api/v1/transactions/{id}/categorise", j(a.apiCategoriseTx))
-	mux.HandleFunc("POST /api/v1/transactions/{id}/set-category", j(a.apiSetCategory))
 
 	mux.HandleFunc("GET /api/v1/settings/ai", j(a.apiAIGet))
 	mux.HandleFunc("PUT /api/v1/settings/ai", j(a.apiAISet))
@@ -241,12 +228,8 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/settings/ai/models", j(a.apiAIModels))
 
 	mux.HandleFunc("GET /api/v1/queries/days", j(a.apiQueryDays))
-	mux.HandleFunc("POST /api/v1/query", j(a.apiQuery))
 	mux.HandleFunc("POST /api/v1/query/stream", j(a.apiQueryStream))
-	mux.HandleFunc("GET /api/v1/conversations", j(a.apiConversationsList))
-	mux.HandleFunc("GET /api/v1/conversations/{id}", j(a.apiConversationGet))
 	mux.HandleFunc("GET /api/v1/conversations/{id}/messages", j(a.apiConversationMessages))
-	mux.HandleFunc("DELETE /api/v1/conversations/{id}", j(a.apiConversationDelete))
 
 	mux.HandleFunc("GET /api/v1/widgets/pinned", j(a.apiWidgetsGet))
 	mux.HandleFunc("PUT /api/v1/widgets/pinned", j(a.apiWidgetsReorder))
@@ -600,29 +583,6 @@ func (a *App) apiAuditJumpBack(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *App) apiDashboardSummary(w http.ResponseWriter, r *http.Request) error {
-	counts, _ := a.Repos.Transactions.CountByAccount("", "")
-	list, err := a.Accounts.List(counts)
-	if err != nil {
-		return err
-	}
-	var available, savings int64
-	for _, acct := range list {
-		if acct.Type == "savings" {
-			savings += acct.CurrentBalanceMinor
-		} else {
-			available += acct.CurrentBalanceMinor
-		}
-	}
-	income, spend := a.monthTotals()
-	writeJSON(w, map[string]any{
-		"available_minor": available, "savings_minor": savings,
-		"currency":           a.Settings.Get().Currency,
-		"income_month_minor": income, "spend_month_minor": spend,
-	})
-	return nil
-}
-
 func (a *App) apiImportUpload(w http.ResponseWriter, r *http.Request) error {
 	r.Body = http.MaxBytesReader(w, r.Body, int64(a.Cfg.UploadMaxMB)<<20)
 	if err := r.ParseMultipartForm(int64(a.Cfg.UploadMaxMB) << 20); err != nil {
@@ -717,40 +677,6 @@ func (a *App) apiImportApplySchema(w http.ResponseWriter, r *http.Request) error
 		}
 	}
 	writeJSON(w, b)
-	return nil
-}
-
-func (a *App) apiImportSaveSchema(w http.ResponseWriter, r *http.Request) error {
-	batchID := r.PathValue("id")
-	var in struct {
-		Name string `json:"name"`
-	}
-	if err := decodeBody(r, &in); err != nil {
-		return err
-	}
-	batch, err := a.Imports.Get(batchID)
-	if err != nil {
-		return err
-	}
-	if batch.Detection == nil {
-		apiError(w, http.StatusConflict, "import_state", "No detection available")
-		return nil
-	}
-	m := importer.Mapping{
-		Kind: importer.Kind(batch.Detection.Kind), Sheet: batch.Detection.Sheet,
-		HasHeader: batch.Detection.HasHeader, Delimiter: batch.Detection.Delimiter,
-		Columns: batch.Detection.Columns, BankHint: batch.Detection.BankHint,
-		Confidence: batch.Detection.Confidence,
-	}
-	var header []string
-	if len(batch.Detection.Sample) > 0 {
-		header = batch.Detection.Sample[0]
-	}
-	schema, err := a.Imports.SaveSchema(in.Name, batch.Detection.BankHint, &m, header, batch.Detection.Confidence)
-	if err != nil {
-		return err
-	}
-	writeJSON(w, schema)
 	return nil
 }
 
@@ -865,23 +791,6 @@ func (a *App) apiImportEdit(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *App) apiSchemasList(w http.ResponseWriter, r *http.Request) error {
-	schemas, err := a.Imports.ListSchemas()
-	if err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"items": schemas})
-	return nil
-}
-
-func (a *App) apiSchemaDelete(w http.ResponseWriter, r *http.Request) error {
-	if err := a.Imports.DeleteSchema(r.PathValue("id")); err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"ok": true})
-	return nil
-}
-
 func (a *App) importFileBytes(batchID string) ([]byte, error) {
 	var data []byte
 	err := a.DB.QueryRow(`SELECT content FROM import_files WHERE batch_id = ?`, batchID).Scan(&data)
@@ -945,15 +854,6 @@ func (a *App) apiTransferDetect(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *App) apiRecurringList(w http.ResponseWriter, r *http.Request) error {
-	keys, err := a.Repos.Transactions.RecurringKeys()
-	if err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"items": keys})
-	return nil
-}
-
 func (a *App) apiRecurringSeries(w http.ResponseWriter, r *http.Request) error {
 	key := r.PathValue("key")
 	meta, rows, err := a.Recurring.Series(key)
@@ -969,70 +869,6 @@ func (a *App) apiRecurringSeries(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	writeJSON(w, map[string]any{"series": meta, "transactions": txs, "currency": a.Settings.Get().Currency})
-	return nil
-}
-
-func (a *App) apiRecurringRefresh(w http.ResponseWriter, r *http.Request) error {
-	n, err := a.Recurring.Detect()
-	if err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"series": n})
-	return nil
-}
-
-func (a *App) apiCategoriserStatus(w http.ResponseWriter, r *http.Request) error {
-	s := a.Settings.Get()
-	var version int
-	var trainedAt string
-	var trainingCount int
-	_ = a.DB.QueryRow(`SELECT version, trained_at, training_count FROM classifier_models ORDER BY version DESC LIMIT 1`).
-		Scan(&version, &trainedAt, &trainingCount)
-	var rules int
-	_ = a.DB.QueryRow(`SELECT COUNT(*) FROM category_rules`).Scan(&rules)
-	writeJSON(w, map[string]any{
-		"model_version": version, "trained_at": trainedAt, "training_count": trainingCount,
-		"rules_count": rules,
-		"thresholds": map[string]any{
-			"local": s.CatLocalThresh, "ai": s.CatAIThresh, "min_examples": s.CatMinExamples,
-		},
-	})
-	return nil
-}
-
-func (a *App) apiCategoriserRetrain(w http.ResponseWriter, r *http.Request) error {
-	model, err := a.Cat.Retrain()
-	if err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"version": model.Version, "training_count": model.TrainingCount})
-	return nil
-}
-
-func (a *App) apiCategoriseTx(w http.ResponseWriter, r *http.Request) error {
-	t, err := a.Repos.Transactions.Get(r.PathValue("id"))
-	if err != nil {
-		return err
-	}
-	res, err := a.Cat.Categorise(nil, []*core.Transaction{t})
-	if err != nil {
-		return err
-	}
-	writeJSON(w, res)
-	return nil
-}
-
-func (a *App) apiSetCategory(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		CategoryID *string `json:"category_id"`
-	}
-	if err := decodeBody(r, &in); err != nil {
-		return err
-	}
-	if err := a.Transactions.SetCategory(r.PathValue("id"), in.CategoryID); err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
 
@@ -1308,16 +1144,6 @@ func balancesAll(db *store.DB, date string) (map[string]int64, error) {
 		out[id] = balance
 	}
 	return out, nil
-}
-
-func (a *App) apiReconcileStatus(w http.ResponseWriter, r *http.Request) error {
-	date := r.URL.Query().Get("date")
-	if date == "" {
-		date = a.Clock.Today()
-	}
-	status, label, hint := a.reconcileSummary(date)
-	writeJSON(w, map[string]any{"status": status, "label": label, "hint": hint})
-	return nil
 }
 
 func (a *App) apiGroupRulesList(w http.ResponseWriter, r *http.Request) error {

@@ -28,7 +28,7 @@ func newTestService(t *testing.T) *Service {
 	t.Cleanup(func() { _ = db.Close() })
 	w := &audit.Writer{DB: db}
 	txs := &repos.Transactions{DB: db}
-	cat := &categoriser.Service{DB: db, Txs: txs, Categories: &repos.Categories{DB: db},
+	cat := &categoriser.Service{DB: db, Categories: &repos.Categories{DB: db},
 		Settings: &repos.Settings{DB: db}, Audit: w, Provider: &ai.Mock{}}
 	return &Service{DB: db, Accounts: &repos.Accounts{DB: db}, Txs: txs, Audit: w,
 		Cat: cat, Provider: &ai.Mock{}, DisplayCC: "GBP"}

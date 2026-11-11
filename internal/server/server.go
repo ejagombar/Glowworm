@@ -123,7 +123,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 
 	provider, queryProvider := resolveProviders(db, secret, log)
 	app.Cat = &categoriser.Service{
-		DB: db, Txs: rp.Transactions, Categories: rp.Categories, Settings: rp.Settings,
+		DB: db, Categories: rp.Categories, Settings: rp.Settings,
 		Audit: writer, Provider: provider,
 	}
 	if model, err := app.Cat.LoadLatestModel(); err == nil {

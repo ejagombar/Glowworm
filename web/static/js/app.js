@@ -60,7 +60,7 @@ function apiErrorFrom(r, b, fallback) {
 const nativeFetch = window.fetch.bind(window);
 const FETCH_TIMEOUT_MS = 30000;
 // These wait on the AI, a file or a long job, so they get no time limit.
-const SLOW_PATH_RE = /^\/api\/v1\/(query|imports|instance\/backup|settings\/ai|categoriser|transactions\/[^/]+\/categorise|transfers\/detect|accounts\/archives)/;
+const SLOW_PATH_RE = /^\/api\/v1\/(query|imports|instance\/backup|settings\/ai|transfers\/detect|accounts\/archives)/;
 window.fetch = function (input, init) {
   init = init || {};
   const url = new URL(typeof input === "string" ? input : input.url, location.href);

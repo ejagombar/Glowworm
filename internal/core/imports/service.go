@@ -1406,22 +1406,6 @@ func (s *Service) ListSchemas() ([]*core.ImportSchema, error) {
 	return out, rows.Err()
 }
 
-func (s *Service) DeleteSchema(id string) error {
-	return s.DB.WithTx(func(tx *sql.Tx) error {
-		var name string
-		_ = tx.QueryRow(`SELECT name FROM import_schemas WHERE id = ?`, id).Scan(&name)
-		if _, err := tx.Exec(`DELETE FROM import_schemas WHERE id = ?`, id); err != nil {
-			return err
-		}
-		_, err := s.Audit.Write(tx, audit.Input{
-			Actor: core.ActorUser, Action: "schema.deleted",
-			EntityType: "import_schema", EntityID: id,
-			Title: fmt.Sprintf("Deleted schema “%s”", name),
-		})
-		return err
-	})
-}
-
 func nullStr(s *string) any {
 	if s == nil || *s == "" {
 		return nil

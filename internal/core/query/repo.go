@@ -128,26 +128,3 @@ func (r *ConvRepo) GetConversation(id string) (*core.Conversation, error) {
 		Scan(&c.ID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
 	return &c, err
 }
-
-func (r *ConvRepo) Messages(conversationID string) ([]*core.Message, error) {
-	rows, err := r.DB.Query(`SELECT id, conversation_id, role, text, steps, widget, created_at
-		FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC`, conversationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*core.Message
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-func (r *ConvRepo) DeleteConversation(id string) error {
-	_, err := r.DB.Exec(`DELETE FROM conversations WHERE id = ?`, id)
-	return err
-}

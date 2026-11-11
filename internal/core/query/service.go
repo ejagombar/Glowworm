@@ -21,10 +21,8 @@ type ConversationRepo interface {
 	CreateConversation(title string) (*core.Conversation, error)
 	AddMessage(conversationID, role, text string, steps []string, widget *string) (*core.Message, error)
 	ListConversations() ([]*core.Conversation, error)
-	Messages(conversationID string) ([]*core.Message, error)
 	MessagesPage(conversationID string, before *string, limit int) ([]*core.Message, error)
 	GetConversation(id string) (*core.Conversation, error)
-	DeleteConversation(id string) error
 }
 
 type Answer struct {

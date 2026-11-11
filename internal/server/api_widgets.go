@@ -29,25 +29,6 @@ func (a *App) viewWindow(period, from, to string) *query.TimeWindow {
 	return &query.TimeWindow{From: f, To: t, Label: label}
 }
 
-func (a *App) apiQuery(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		Text           string  `json:"text"`
-		ConversationID *string `json:"conversation_id"`
-		Period         string  `json:"period"`
-		From           string  `json:"from"`
-		To             string  `json:"to"`
-	}
-	if err := decodeBody(r, &in); err != nil {
-		return err
-	}
-	ans, convID, err := a.askQueryWindow(in, nil)
-	if err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"conversation_id": convID, "answer": ans})
-	return nil
-}
-
 func (a *App) askQueryWindow(in struct {
 	Text           string  `json:"text"`
 	ConversationID *string `json:"conversation_id"`
@@ -150,30 +131,12 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *App) apiConversationsList(w http.ResponseWriter, r *http.Request) error {
-	convs, err := a.Query.Repo.ListConversations()
-	if err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"items": convs})
-	return nil
-}
-
 func (a *App) apiQueryDays(w http.ResponseWriter, r *http.Request) error {
 	days, err := a.Query.DayEntries()
 	if err != nil {
 		return err
 	}
 	writeJSON(w, map[string]any{"items": days})
-	return nil
-}
-
-func (a *App) apiConversationGet(w http.ResponseWriter, r *http.Request) error {
-	msgs, err := a.Query.Repo.Messages(r.PathValue("id"))
-	if err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"items": msgs})
 	return nil
 }
 
@@ -211,14 +174,6 @@ func (a *App) apiConversationMessages(w http.ResponseWriter, r *http.Request) er
 		})
 	}
 	writeJSON(w, map[string]any{"items": items, "has_more": len(msgs) == limit})
-	return nil
-}
-
-func (a *App) apiConversationDelete(w http.ResponseWriter, r *http.Request) error {
-	if err := a.Query.Repo.DeleteConversation(r.PathValue("id")); err != nil {
-		return err
-	}
-	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
 

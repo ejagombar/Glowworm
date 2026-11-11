@@ -472,24 +472,6 @@ func (r *Transactions) UpsertRecurringKey(tx *sql.Tx, k *core.RecurringKey) erro
 	return err
 }
 
-func (r *Transactions) RecurringKeys() ([]*core.RecurringKey, error) {
-	rows, err := r.DB.Query(`SELECT key, label, cadence, interval_days, amount_minor, direction, first_seen, last_seen, next_expected, confidence, active, updated_at
-		FROM recurring_keys ORDER BY last_seen DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*core.RecurringKey
-	for rows.Next() {
-		k, err := scanRecurringKey(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, k)
-	}
-	return out, rows.Err()
-}
-
 func scanRecurringKey(sc Scanner) (*core.RecurringKey, error) {
 	var k core.RecurringKey
 	var interval, amount sql.NullInt64
