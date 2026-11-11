@@ -73,21 +73,6 @@ func (w *Writer) Write(tx *sql.Tx, in Input) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (w *Writer) WriteRevertLink(tx *sql.Tx, revertEntryID, revertedEntryID int64) error {
-	_, err := tx.Exec(`INSERT OR REPLACE INTO audit_reverts (entry_id, reverted_entry) VALUES (?,?)`,
-		revertEntryID, revertedEntryID)
-	return err
-}
-
-func (w *Writer) WasReverted(tx *sql.Tx, entryID int64) (bool, error) {
-	var one int
-	err := tx.QueryRow(`SELECT 1 FROM audit_reverts WHERE reverted_entry = ?`, entryID).Scan(&one)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	return err == nil, err
-}
-
 func Field(label, from, to string) []DiffLine {
 	return []DiffLine{
 		{Line: "− " + label + ": " + from, Cls: "diff-del"},
@@ -109,23 +94,11 @@ func NewEngine(db *store.DB, w *Writer) *Engine {
 	return &Engine{DB: db, Writer: w, Policy: &Policy{}}
 }
 
+// Capabilities says whether an entry can be undone, and why not.
 type Capabilities struct {
-	Revert   bool   `json:"revert"`
-	JumpBack bool   `json:"jump_back"`
-	Forget   bool   `json:"forget"`
-	Delete   bool   `json:"delete"`
-	Derived  bool   `json:"derived,omitempty"`
-	Reason   string `json:"reason,omitempty"`
-}
-
-func (e *Engine) Capabilities(id int64) (Capabilities, error) {
-	var ent AuditRow
-	err := e.DB.QueryRow(`SELECT action, state FROM audit_entries WHERE id = ?`, id).
-		Scan(&ent.Action, &ent.State)
-	if err != nil {
-		return Capabilities{}, fmt.Errorf("audit: entry %d: %w", id, err)
-	}
-	return e.Policy.Evaluate(ent.Action, ent.State), nil
+	Revert  bool
+	Derived bool
+	Reason  string
 }
 
 type AuditRow struct {
@@ -148,36 +121,6 @@ func (e *Engine) load(tx *sql.Tx, id int64) (*AuditRow, error) {
 }
 
 type ApplyFunc func(tx *sql.Tx, ent *AuditRow, reapply bool) error
-
-func (e *Engine) Revert(entryID int64, apply ApplyFunc) error {
-	return e.DB.WithTx(func(tx *sql.Tx) error {
-		ent, err := e.load(tx, entryID)
-		if err != nil {
-			return err
-		}
-		cap := e.Policy.Evaluate(ent.Action, ent.State)
-		if !cap.Revert {
-			return fmt.Errorf("audit: %s", cap.Reason)
-		}
-		if reverted, err := e.Writer.WasReverted(tx, entryID); err == nil && reverted {
-			return fmt.Errorf("audit: entry %d already reverted", entryID)
-		}
-		if apply != nil {
-			if err := apply(tx, ent, false); err != nil {
-				return err
-			}
-		}
-		revID, err := e.Writer.Write(tx, Input{
-			Actor: "user", Action: "audit.reverted",
-			EntityType: "audit_entry", EntityID: fmt.Sprint(entryID),
-			Title: "Reverted: " + ent.Action,
-		})
-		if err != nil {
-			return err
-		}
-		return e.Writer.WriteRevertLink(tx, revID, entryID)
-	})
-}
 
 func (e *Engine) JumpBack(entryID int64, apply ApplyFunc) (JumpResult, error) {
 	var res JumpResult
@@ -295,10 +238,6 @@ func (e *Engine) RestorePath(pathID string, apply ApplyFunc) (RestoreResult, err
 			if r.State != "inactive" {
 				continue
 			}
-			if rev, _ := e.Writer.WasReverted(tx, r.ID); rev {
-				skipped = append(skipped, r.ID)
-				continue
-			}
 			if apply != nil {
 				var notes []string
 				if err := apply(tx, &r, true); err != nil && !partialNotes(err, &notes) {
@@ -388,55 +327,6 @@ func (e *Engine) activeOutsideChain(tx *sql.Tx, pathID string) ([]AuditRow, erro
 	return out, rows.Err()
 }
 
-func (e *Engine) Forget(entryID int64) error {
-	return e.DB.WithTx(func(tx *sql.Tx) error {
-		ent, err := e.load(tx, entryID)
-		if err != nil {
-			return err
-		}
-		cap := e.Policy.Evaluate(ent.Action, ent.State)
-		if !cap.Forget {
-			return fmt.Errorf("audit: %s", cap.Reason)
-		}
-		return e.removeRecord(tx, entryID, "forget", ent)
-	})
-}
-
-func (e *Engine) Delete(entryID int64, apply ApplyFunc) error {
-	return e.DB.WithTx(func(tx *sql.Tx) error {
-		ent, err := e.load(tx, entryID)
-		if err != nil {
-			return err
-		}
-		cap := e.Policy.Evaluate(ent.Action, ent.State)
-		if !cap.Delete {
-			return fmt.Errorf("audit: %s", cap.Reason)
-		}
-		if ent.State == "active" && apply != nil && cap.Revert {
-			if err := apply(tx, ent, false); err != nil {
-				return err
-			}
-		}
-		return e.removeRecord(tx, entryID, "undo", ent)
-	})
-}
-
-func (e *Engine) removeRecord(tx *sql.Tx, entryID int64, mode string, ent *AuditRow) error {
-	_, _ = tx.Exec(`DELETE FROM audit_reverts WHERE entry_id = ? OR reverted_entry = ?`, entryID, entryID)
-	if _, err := tx.Exec(`DELETE FROM audit_entries WHERE id = ?`, entryID); err != nil {
-		return err
-	}
-	action := ent.Action
-	_, err := e.Writer.Write(tx, Input{
-		Actor: "user", Action: "audit.entry.deleted",
-		EntityType: "audit_entry", EntityID: fmt.Sprint(entryID),
-		Title: fmt.Sprintf("Removed %s record from history", action),
-		Sub:   "Change removed from the audit history (" + mode + ")",
-		After: map[string]any{"mode": mode, "removed": []int64{entryID}, "action": action},
-	})
-	return err
-}
-
 type ListOptions struct {
 	Actor      string
 	Actors     []string
@@ -511,32 +401,8 @@ func (e *Engine) List(opt ListOptions) ([]core.AuditEntry, string, error) {
 	return out, next, nil
 }
 
-func (e *Engine) Get(id int64) (*core.AuditEntry, error) {
-	var ent core.AuditEntry
-	err := e.DB.QueryRow(`SELECT id, timestamp, actor, actor_detail, action, entity_type, entity_id,
-		title, sub, diff, path_id, state FROM audit_entries WHERE id = ?`, id).
-		Scan(&ent.ID, &ent.Timestamp, &ent.Actor, &ent.ActorDetail, &ent.Action,
-			&ent.EntityType, &ent.EntityID, &ent.Title, &ent.Sub, &ent.Diff, &ent.PathID, &ent.State)
-	if err != nil {
-		return nil, err
-	}
-	if ent.Diff != "" && ent.Diff != "[]" {
-		_ = json.Unmarshal([]byte(ent.Diff), &ent.DiffLines)
-	}
-	return &ent, nil
-}
-
 func (e *Engine) HasUser() bool {
 	var n int
 	_ = e.DB.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
 	return n > 0
-}
-
-func (e *Engine) PathLabel(pathID string) string {
-	var label string
-	_ = e.DB.QueryRow(`SELECT label FROM audit_paths WHERE id = ?`, pathID).Scan(&label)
-	if strings.TrimSpace(label) == "" {
-		return pathID
-	}
-	return label
 }

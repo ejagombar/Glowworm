@@ -189,14 +189,10 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/reconcile/status", j(a.apiReconcileStatus))
 
 	mux.HandleFunc("GET /api/v1/audit", j(a.apiAuditList))
-	mux.HandleFunc("GET /api/v1/audit/{id}", j(a.apiAuditGet))
-	mux.HandleFunc("GET /api/v1/audit/{id}/capabilities", j(a.apiAuditCapabilities))
 	mux.HandleFunc("POST /api/v1/audit/{id}/revert", j(a.apiAuditRevert))
 	mux.HandleFunc("POST /api/v1/audit/{id}/jump-back", j(a.apiAuditJumpBack))
 	mux.HandleFunc("POST /api/v1/audit/redo", j(a.apiAuditRedo))
 	mux.HandleFunc("POST /api/v1/audit/discard", j(a.apiAuditDiscard))
-	mux.HandleFunc("POST /api/v1/audit/paths/{path}/restore", j(a.apiAuditRestorePath))
-	mux.HandleFunc("DELETE /api/v1/audit/{id}", j(a.apiAuditDelete))
 
 	mux.HandleFunc("GET /api/v1/dashboard/summary", j(a.apiDashboardSummary))
 
@@ -539,35 +535,6 @@ func (a *App) apiAuditList(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *App) apiAuditGet(w http.ResponseWriter, r *http.Request) error {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		apiError(w, http.StatusBadRequest, "validation_failed", "Bad id")
-		return nil
-	}
-	ent, err := a.Audit.Get(id)
-	if err != nil {
-		return err
-	}
-	caps, _ := a.Audit.Capabilities(id)
-	writeJSON(w, map[string]any{"entry": ent, "capabilities": caps})
-	return nil
-}
-
-func (a *App) apiAuditCapabilities(w http.ResponseWriter, r *http.Request) error {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		apiError(w, http.StatusBadRequest, "validation_failed", "Bad id")
-		return nil
-	}
-	caps, err := a.Audit.Capabilities(id)
-	if err != nil {
-		return err
-	}
-	writeJSON(w, caps)
-	return nil
-}
-
 func (a *App) apiAuditRevert(w http.ResponseWriter, r *http.Request) error {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -630,39 +597,6 @@ func (a *App) apiAuditJumpBack(w http.ResponseWriter, r *http.Request) error {
 	}
 	a.afterHistoryChange()
 	writeJSON(w, res)
-	return nil
-}
-
-func (a *App) apiAuditRestorePath(w http.ResponseWriter, r *http.Request) error {
-	res, err := a.Audit.RestorePath(r.PathValue("path"), a.applyEntry)
-	if err != nil {
-		apiError(w, http.StatusConflict, "conflict", err.Error())
-		return nil
-	}
-	a.afterHistoryChange()
-	writeJSON(w, res)
-	return nil
-}
-
-func (a *App) apiAuditDelete(w http.ResponseWriter, r *http.Request) error {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		apiError(w, http.StatusBadRequest, "validation_failed", "Bad id")
-		return nil
-	}
-	mode := r.URL.Query().Get("mode")
-	if mode == "forget" {
-		if err := a.Audit.Forget(id); err != nil {
-			apiError(w, http.StatusConflict, "conflict", err.Error())
-			return nil
-		}
-	} else {
-		if err := a.Audit.Delete(id, a.applyEntry); err != nil {
-			apiError(w, http.StatusConflict, "conflict", err.Error())
-			return nil
-		}
-	}
-	writeJSON(w, map[string]any{"ok": true})
 	return nil
 }
 

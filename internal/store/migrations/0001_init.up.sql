@@ -296,11 +296,6 @@ CREATE INDEX idx_audit_entity ON audit_entries(entity_type, entity_id);
 CREATE INDEX idx_audit_state ON audit_entries(state, id);
 CREATE INDEX idx_audit_caused_by ON audit_entries(caused_by);
 
-CREATE TABLE audit_reverts (
-  entry_id        INTEGER PRIMARY KEY,
-  reverted_entry  INTEGER NOT NULL
-);
-
 CREATE TABLE ai_calls (
   id                INTEGER PRIMARY KEY,
   capability        TEXT NOT NULL,

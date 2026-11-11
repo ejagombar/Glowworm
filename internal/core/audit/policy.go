@@ -12,10 +12,8 @@ var derivedActions = map[string]bool{
 	"merchant.enriched":    true,
 }
 
-func IsDerived(action string) bool { return derivedActions[action] }
-
 func (p *Policy) Evaluate(action, state string) Capabilities {
-	c := Capabilities{JumpBack: true, Forget: true, Delete: true}
+	var c Capabilities
 	switch {
 	case derivedActions[action]:
 		c.Derived = true
@@ -30,12 +28,8 @@ func (p *Policy) Evaluate(action, state string) Capabilities {
 		action == "transfer.linked" || action == "transfer.unlink",
 		strings.HasPrefix(action, "group_rule."),
 		action == "change.applied",
-		action == "categorisation.applied",
-		action == "import.edited":
+		action == "import.confirmed" || action == "import.edited":
 		c.Revert = true
-	case action == "import.confirmed":
-		c.Revert, c.Forget, c.Delete = true, false, false
-		c.Reason = "undo the import first"
 	default:
 		// Records (setup, schemas, widgets, settings, history bookkeeping)
 		// have nothing to replay.

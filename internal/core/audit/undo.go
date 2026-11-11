@@ -151,7 +151,6 @@ func (e *Engine) Discard(ids []int64) (int, error) {
 			return err
 		}
 		for _, r := range targets {
-			_, _ = tx.Exec(`DELETE FROM audit_reverts WHERE entry_id = ? OR reverted_entry = ?`, r.ID, r.ID)
 			if _, err := tx.Exec(`DELETE FROM audit_entries WHERE id = ?`, r.ID); err != nil {
 				return err
 			}

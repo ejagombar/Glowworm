@@ -20,9 +20,6 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 	policy := &Policy{}
 
 	apply := func(tx *sql.Tx, ent *AuditRow, reapply bool) error {
-		if len(ent.Action) > 6 && ent.Action[:6] == "audit." {
-			return nil
-		}
 		var revert map[string]any
 		if err := decodeJSON(ent.Revert, &revert); err != nil {
 			return err
@@ -73,7 +70,9 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 		return out
 	}
 
-	e1, e2, e3 := write("alpha"), write("beta"), write("gamma")
+	e1 := write("alpha")
+	write("beta")
+	write("gamma")
 	if len(live()) != 3 {
 		t.Fatalf("live = %v, want 3 rows", live())
 	}
@@ -109,41 +108,14 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 		t.Fatalf("after restore live = %v", got)
 	}
 
-	caps, err := e.Capabilities(e3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !caps.Delete {
-		t.Fatalf("delete should be allowed: %+v", caps)
-	}
-	if err := e.Delete(e3, apply); err != nil {
-		t.Fatal(err)
-	}
-	got = live()
-	if len(got) != 2 || got[1] != "beta" {
-		t.Fatalf("after delete live = %v", got)
-	}
-	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM audit_entries WHERE id = ?`, e3).Scan(&n)
-	if n != 0 {
-		t.Fatal("deleted entry should be scrubbed")
-	}
-
-	if err := e.Forget(e2); err != nil {
-		t.Fatal(err)
-	}
-	got = live()
-	if len(got) != 2 {
-		t.Fatalf("after forget live = %v", got)
-	}
-	_ = db.QueryRow(`SELECT COUNT(*) FROM audit_entries WHERE id = ?`, e2).Scan(&n)
-	if n != 0 {
-		t.Fatal("forgotten entry should be scrubbed")
-	}
-
-	pol := policy.Evaluate("import.confirmed", "active")
-	if pol.Revert != true || pol.Forget != false || pol.Delete != false {
+	if pol := policy.Evaluate("import.confirmed", "active"); !pol.Revert {
 		t.Fatalf("import.confirmed policy = %+v", pol)
+	}
+	if pol := policy.Evaluate("import.confirmed", "inactive"); pol.Revert {
+		t.Fatalf("an undone import.confirmed policy = %+v", pol)
+	}
+	if pol := policy.Evaluate("widget.pinned", "active"); pol.Revert || pol.Reason == "" {
+		t.Fatalf("widget.pinned policy = %+v", pol)
 	}
 }
 

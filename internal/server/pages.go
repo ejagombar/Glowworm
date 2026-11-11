@@ -796,31 +796,12 @@ func (a *App) historyData(base *viewBase, filter string, timeline bool) (any, er
 	}
 	entryViews := a.toEntryViews(entries)
 	a.markEditableImports(entryViews)
-	if len(entries) > 0 {
-		args := make([]any, len(entries))
-		for i, e := range entries {
-			args[i] = e.ID
-		}
-		rows, err := a.DB.Query(`SELECT id, action, state FROM audit_entries WHERE id IN (`+strings.Repeat("?,", len(entries)-1)+"?)", args...)
-		if err == nil {
-			states := map[int64]audit.AuditRow{}
-			for rows.Next() {
-				var row audit.AuditRow
-				if err := rows.Scan(&row.ID, &row.Action, &row.State); err == nil {
-					states[row.ID] = row
-				}
-			}
-			rows.Close()
-			latest := a.Audit.LatestRewindableID()
-			for i := range entryViews {
-				if row, ok := states[entryViews[i].ID]; ok {
-					caps := a.Audit.Policy.Evaluate(row.Action, row.State)
-					entryViews[i].Undoable = caps.Revert
-					// Only where something after it would actually be undone.
-					entryViews[i].Rewindable = caps.JumpBack && row.State == "active" && row.ID < latest
-				}
-			}
-		}
+	latest := a.Audit.LatestRewindableID()
+	for i := range entryViews {
+		v := &entryViews[i]
+		v.Undoable = a.Audit.Policy.Evaluate(v.Action, v.State).Revert
+		// Only where something after it would actually be undone.
+		v.Rewindable = v.State == "active" && v.ID < latest
 	}
 
 	data := struct {

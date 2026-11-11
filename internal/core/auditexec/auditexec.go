@@ -48,30 +48,15 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		}
 		return x.Txs.Restore(tx, id)
 
-	case "transaction.edited", "categorisation.applied":
+	case "transaction.edited":
 		id := str(revert["transaction_id"])
 		if id == "" {
 			return fmt.Errorf("auditexec: no transaction id in payload")
 		}
-		var target map[string]any
 		if reapply {
-			target = after
-		} else {
-			target = revertFields(revert)
-			if target == nil {
-				target = before
-			}
+			return x.applyTxEdit(tx, id, before, after)
 		}
-		if cat, ok := target["categories"]; ok {
-			return x.applyCategories(tx, id, cat, reapply)
-		}
-		if ent.Action == "transaction.edited" && before != nil && after != nil {
-			if reapply {
-				return x.applyTxEdit(tx, id, before, after)
-			}
-			return x.applyTxEdit(tx, id, after, before)
-		}
-		return x.applyTxFields(tx, id, target)
+		return x.applyTxEdit(tx, id, after, before)
 
 	case "account.created":
 		id := str(revert["account_id"])
@@ -184,24 +169,13 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		}
 		return x.applyImportMove(tx, revert, from, to)
 
-	case "import.schema_detected", "import.cancelled", "import.reverted",
-		"audit.reverted", "audit.jumpback", "audit.path.activated", "audit.entry.deleted",
-		"schema.saved", "schema.updated", "schema.deleted",
-		"widget.pinned", "widget.updated", "widget.unpinned", "widget.reordered",
-		"settings.ai.updated", "classifier.reverted",
-		"setup.completed", "setup.account_created", "setup.categories_seeded", "setup.widgets_seeded",
-		"account.valuation.correction":
-		if ent.Action == "import.confirmed" || ent.Action == "schema.saved" ||
-			ent.Action == "schema.updated" || ent.Action == "schema.deleted" ||
-			ent.Action == "widget.pinned" || ent.Action == "widget.updated" ||
-			ent.Action == "widget.unpinned" || ent.Action == "widget.reordered" ||
-			ent.Action == "settings.ai.updated" ||
-			ent.Action == "setup.completed" {
-			return fmt.Errorf("auditexec: revert for %s not wired in this build", ent.Action)
-		}
+	case "import.schema_detected", "import.cancelled",
+		"setup.account_created", "setup.categories_seeded", "setup.widgets_seeded":
+		// Records of something that happened, with nothing to replay.
 		return nil
 
 	default:
+		// Schemas, widgets and settings among them: their entries are records only.
 		return fmt.Errorf("auditexec: no handler for action %q", ent.Action)
 	}
 }
@@ -229,63 +203,6 @@ func int64F(v any) int64 {
 		return int64(n)
 	}
 	return 0
-}
-
-func (x *Executor) applyTxFields(tx *sql.Tx, id string, f map[string]any) error {
-	if f == nil {
-		return nil
-	}
-	t, err := getTxIn(x.Txs, tx, id)
-	if err != nil {
-		return err
-	}
-	if v, ok := f["account_id"].(string); ok && v != "" {
-		t.AccountID = v
-	}
-	if v, ok := f["date"].(string); ok && v != "" {
-		t.Date = v
-	}
-	if v, ok := f["description"].(string); ok && v != "" {
-		t.Description = v
-	}
-	if v, ok := f["amount_minor"]; ok {
-		t.AmountMinor = int64F(v)
-	}
-	if v, ok := f["type"].(string); ok && v != "" {
-		t.Type = v
-	}
-	if v, ok := f["category_id"]; ok {
-		switch cv := v.(type) {
-		case string:
-			if cv == "" {
-				t.CategoryID = nil
-			} else {
-				t.CategoryID = &cv
-			}
-		case nil:
-			t.CategoryID = nil
-		}
-	}
-	if v, ok := f["category_source"].(string); ok && v != "" {
-		t.CategorySource = v
-	}
-	if v, ok := f["merchant"]; ok {
-		switch mv := v.(type) {
-		case string:
-			if mv != "" {
-				t.Merchant = &mv
-			} else {
-				t.Merchant = nil
-			}
-		case nil:
-			t.Merchant = nil
-		}
-	}
-	_, err = tx.Exec(`UPDATE transactions SET account_id=?, date=?, description=?, merchant=?, amount_minor=?, type=?,
-		category_id=?, category_source=?, updated_at=? WHERE id=?`,
-		t.AccountID, t.Date, t.Description, t.Merchant, t.AmountMinor, t.Type,
-		t.CategoryID, t.CategorySource, util.NowStr(), t.ID)
-	return err
 }
 
 // txEditFields are the parts of a transaction an edit can change. Each is
@@ -407,63 +324,6 @@ func joinAnd(items []string) string {
 		return strings.Join(items, "")
 	}
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
-}
-
-func (x *Executor) applyCategories(tx *sql.Tx, id string, cat any, reapply bool) error {
-	items, ok := cat.([]any)
-	if !ok {
-		return fmt.Errorf("auditexec: bad categories payload")
-	}
-	var kept []string
-	for _, it := range items {
-		m, _ := it.(map[string]any)
-		if m == nil {
-			continue
-		}
-		txID := str(m["transaction_id"])
-		which, other := m["before"], m["after"]
-		if reapply {
-			which, other = m["after"], m["before"]
-		}
-		wm, _ := which.(map[string]any)
-		if wm == nil || txID == "" {
-			continue
-		}
-		// A transaction recategorised again since keeps that later category.
-		if om, _ := other.(map[string]any); om != nil {
-			var curCat sql.NullString
-			var desc string
-			if err := tx.QueryRow(`SELECT category_id, description FROM transactions WHERE id = ?`, txID).Scan(&curCat, &desc); err == nil &&
-				curCat.String != snapVal(om["category_id"]) {
-				kept = append(kept, desc)
-				continue
-			}
-		}
-		var catID any
-		switch c := wm["category_id"].(type) {
-		case string:
-			if c != "" {
-				catID = c
-			} else {
-				catID = nil
-			}
-		default:
-			catID = nil
-		}
-		src, _ := wm["source"].(string)
-		if src == "" {
-			src = "none"
-		}
-		if _, err := tx.Exec(`UPDATE transactions SET category_id=?, category_source=?, category_confidence=NULL, updated_at=? WHERE id=?`,
-			catID, src, nowStr(), txID); err != nil {
-			return err
-		}
-	}
-	if len(kept) > 0 {
-		return &audit.Partial{Notes: []string{fmt.Sprintf("%d transaction%s kept a category from a later change (%s)",
-			len(kept), map[bool]string{true: "", false: "s"}[len(kept) == 1], strings.Join(kept, ", "))}}
-	}
-	return nil
 }
 
 func (x *Executor) applyAccountFields(tx *sql.Tx, id string, f map[string]any) error {
