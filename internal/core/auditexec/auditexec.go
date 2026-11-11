@@ -84,16 +84,6 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 
 	case "valuation.created":
 		vid := str(revert["valuation_id"])
-		if vid == "" || vid == "@valuation_id" {
-			var vID string
-			err := tx.QueryRow(`SELECT id FROM valuations WHERE account_id = ? AND date = ? AND value_minor = ?
-				ORDER BY created_at DESC LIMIT 1`,
-				str(after["account_id"]), str(after["date"]), int64F(after["value_minor"])).Scan(&vID)
-			if err != nil {
-				return fmt.Errorf("auditexec: valuation not found: %w", err)
-			}
-			vid = vID
-		}
 		if reapply {
 			return x.Accounts.RestoreValuation(tx, vid)
 		}

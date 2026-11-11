@@ -53,7 +53,6 @@ CREATE TABLE valuations (
   note          TEXT NOT NULL DEFAULT '',
   source        TEXT NOT NULL CHECK (source IN ('manual','import','ai')),
   drift_minor   INTEGER,
-  audit_log_id  INTEGER,
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL,
   deleted_at    TEXT

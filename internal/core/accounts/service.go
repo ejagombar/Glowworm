@@ -233,9 +233,16 @@ func (s *Service) CreateValuation(accountID string, in ValuationInput, source st
 	drift := in.ValueMinor - computed
 	var res *ValuationResult
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
-		auditID, err := s.Audit.Write(tx, audit.Input{
+		v := &core.Valuation{
+			AccountID: accountID, ValueMinor: in.ValueMinor, Date: in.Date, Note: in.Note,
+			Source: source, DriftMinor: &drift,
+		}
+		if err := s.Repos.CreateValuation(tx, v); err != nil {
+			return err
+		}
+		_, err := s.Audit.Write(tx, audit.Input{
 			Actor: core.ActorUser, Action: "valuation.created",
-			EntityType: "valuation", EntityID: "",
+			EntityType: "valuation", EntityID: v.ID,
 			Title: "Updated account value",
 			Sub:   fmt.Sprintf("%s · %s", a.Name, in.Date),
 			Diff: []audit.DiffLine{
@@ -243,31 +250,15 @@ func (s *Service) CreateValuation(accountID string, in ValuationInput, source st
 				{Line: "+ " + money.Format(in.ValueMinor, a.Currency), Cls: "diff-add"},
 			},
 			After:  map[string]any{"account_id": accountID, "value_minor": in.ValueMinor, "date": in.Date, "note": in.Note, "source": source},
-			Revert: map[string]any{"valuation_id": "@valuation_id"},
+			Revert: map[string]any{"valuation_id": v.ID},
 		})
 		if err != nil {
-			return err
-		}
-		v := &core.Valuation{
-			AccountID: accountID, ValueMinor: in.ValueMinor, Date: in.Date, Note: in.Note,
-			Source: source, DriftMinor: &drift, AuditLogID: &auditID,
-		}
-		if err := s.Repos.CreateValuation(tx, v); err != nil {
-			return err
-		}
-		if err := fillValuationAudit(tx, auditID, v.ID); err != nil {
 			return err
 		}
 		res = &ValuationResult{Valuation: v, ComputedMinor: computed, DriftMinor: drift}
 		return nil
 	})
 	return res, err
-}
-
-func fillValuationAudit(tx *sql.Tx, auditID int64, valuationID string) error {
-	_, err := tx.Exec(`UPDATE audit_entries SET entity_id = ?,
-		revert = json_object('valuation_id', ?) WHERE id = ?`, valuationID, valuationID, auditID)
-	return err
 }
 
 // DeleteValuation removes a dated value (soft delete), logged so it can be

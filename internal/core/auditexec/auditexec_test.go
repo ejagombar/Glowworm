@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/auditexec"
 	"glowworm/internal/core/transactions"
@@ -89,5 +90,63 @@ func TestUndoOlderEditKeepsLaterChanges(t *testing.T) {
 	}
 	if got := state(); got != "2026-05-20 Lidl -699" {
 		t.Errorf("after undoing both: %s", got)
+	}
+}
+
+// A dated account value is undone and redone by its own id, so two values
+// that look the same don't get mixed up.
+func TestUndoValuation(t *testing.T) {
+	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`INSERT INTO accounts (id, name, type, color, currency, created_at, updated_at)
+		VALUES ('a1','Savings','savings','#000','GBP','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	accRepo := &repos.Accounts{DB: db}
+	writer := &audit.Writer{DB: db}
+	svc := &accounts.Service{DB: db, Repos: accRepo, Txs: &repos.Transactions{DB: db}, Audit: writer}
+	engine := audit.NewEngine(db, writer)
+	x := &auditexec.Executor{DB: db, Txs: &repos.Transactions{DB: db}, Accounts: accRepo, Categories: &repos.Categories{DB: db}}
+
+	in := accounts.ValuationInput{ValueMinor: 25000000, Date: "2026-06-01"}
+	first, err := svc.CreateValuation("a1", in, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry int64
+	if err := db.QueryRow(`SELECT id FROM audit_entries WHERE action = 'valuation.created' AND entity_id = ?`,
+		first.Valuation.ID).Scan(&entry); err != nil {
+		t.Fatalf("no entry for the first value: %v", err)
+	}
+	second, err := svc.CreateValuation("a1", in, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := func() string {
+		vs, err := accRepo.Valuations("a1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := make([]string, len(vs))
+		for i, v := range vs {
+			ids[i] = v.ID
+		}
+		return strings.Join(ids, ",")
+	}
+
+	if _, err := engine.Undo(entry, x.Apply); err != nil {
+		t.Fatal(err)
+	}
+	if got := live(); got != second.Valuation.ID {
+		t.Errorf("after undoing the first value: %s, want only the second (%s)", got, second.Valuation.ID)
+	}
+	if _, err := engine.Redo([]int64{entry}, x.Apply); err != nil {
+		t.Fatal(err)
+	}
+	if got := live(); got != first.Valuation.ID+","+second.Valuation.ID {
+		t.Errorf("after redo: %s, want both values back", got)
 	}
 }

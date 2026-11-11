@@ -80,7 +80,6 @@ type Valuation struct {
 	Note       string  `json:"note"`
 	Source     string  `json:"source"`
 	DriftMinor *int64  `json:"drift_minor"`
-	AuditLogID *int64  `json:"audit_log_id"`
 	CreatedAt  string  `json:"created_at"`
 	UpdatedAt  string  `json:"updated_at"`
 	DeletedAt  *string `json:"-"`

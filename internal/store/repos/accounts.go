@@ -117,21 +117,18 @@ func (r *Accounts) CreateValuation(tx *sql.Tx, v *core.Valuation) error {
 	v.ID = util.NewID()
 	v.CreatedAt = util.NowStr()
 	v.UpdatedAt = v.CreatedAt
-	var auditID, drift any
-	if v.AuditLogID != nil {
-		auditID = *v.AuditLogID
-	}
+	var drift any
 	if v.DriftMinor != nil {
 		drift = *v.DriftMinor
 	}
-	_, err := exec(r.DB, tx, `INSERT INTO valuations (id, account_id, value_minor, date, note, source, drift_minor, audit_log_id, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		v.ID, v.AccountID, v.ValueMinor, v.Date, v.Note, v.Source, drift, auditID, v.CreatedAt, v.UpdatedAt)
+	_, err := exec(r.DB, tx, `INSERT INTO valuations (id, account_id, value_minor, date, note, source, drift_minor, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		v.ID, v.AccountID, v.ValueMinor, v.Date, v.Note, v.Source, drift, v.CreatedAt, v.UpdatedAt)
 	return err
 }
 
 func (r *Accounts) Valuations(accountID string) ([]*core.Valuation, error) {
-	rows, err := r.DB.Query(`SELECT id, account_id, value_minor, date, note, source, drift_minor, audit_log_id, created_at, updated_at, deleted_at
+	rows, err := r.DB.Query(`SELECT id, account_id, value_minor, date, note, source, drift_minor, created_at, updated_at, deleted_at
 		FROM valuations WHERE account_id = ? AND deleted_at IS NULL ORDER BY date ASC, created_at ASC`, accountID)
 	if err != nil {
 		return nil, err
@@ -150,19 +147,15 @@ func (r *Accounts) Valuations(accountID string) ([]*core.Valuation, error) {
 
 func scanValuation(sc Scanner) (*core.Valuation, error) {
 	var v core.Valuation
-	var drift, auditID sql.NullInt64
+	var drift sql.NullInt64
 	var deletedAt sql.NullString
-	err := sc.Scan(&v.ID, &v.AccountID, &v.ValueMinor, &v.Date, &v.Note, &v.Source, &drift, &auditID, &v.CreatedAt, &v.UpdatedAt, &deletedAt)
+	err := sc.Scan(&v.ID, &v.AccountID, &v.ValueMinor, &v.Date, &v.Note, &v.Source, &drift, &v.CreatedAt, &v.UpdatedAt, &deletedAt)
 	if err != nil {
 		return nil, err
 	}
 	if drift.Valid {
 		d := drift.Int64
 		v.DriftMinor = &d
-	}
-	if auditID.Valid {
-		a := auditID.Int64
-		v.AuditLogID = &a
 	}
 	if deletedAt.Valid {
 		s := deletedAt.String
@@ -172,7 +165,7 @@ func scanValuation(sc Scanner) (*core.Valuation, error) {
 }
 
 func (r *Accounts) GetValuation(id string) (*core.Valuation, error) {
-	return scanValuation(r.DB.QueryRow(`SELECT id, account_id, value_minor, date, note, source, drift_minor, audit_log_id, created_at, updated_at, deleted_at
+	return scanValuation(r.DB.QueryRow(`SELECT id, account_id, value_minor, date, note, source, drift_minor, created_at, updated_at, deleted_at
 		FROM valuations WHERE id = ?`, id))
 }
 
