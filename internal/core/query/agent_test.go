@@ -1,7 +1,6 @@
 package query
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -203,51 +202,6 @@ func (p *proseProvider) CompleteStructured(*ai.StructuredRequest) (string, *ai.U
 	return "sorry, I cannot answer that in JSON", nil, nil
 }
 
-func TestSanitizeWidgets(t *testing.T) {
-	specs := []agentWidgetSpec{
-		{Type: "bar", Title: "ok", Data: raw(`{"labels":["a","b"],"series":[{"name":"S","values":[1,2]},{"name":"T","color":"not-a-color","values":[3,4]},{"name":"U","values":[5,6]},{"name":"V","values":[7,8]},{"name":"W","values":[9,10]},{"name":"X","values":[11,12]},{"name":"Y","values":[13,14]}]}`)},
-		{Type: "pie", Title: "neg", Data: raw(`{"labels":["a","b"],"values":[-5, 10]}`)},
-		{Type: "number", Title: "", Data: raw(`{"value":"£12.00"}`)},
-		{Type: "table", Title: "tbl", Data: raw(`{"columns":["A","B"],"rows":[["1","2"],["3","4"]]}`)},
-		{Type: "bogus", Title: "bad", Data: raw(`{}`)},
-		{Type: "number", Title: "empty", Data: raw(`{"caption":"no value"}`)},
-	}
-	ws := sanitizeWidgets(specs)
-	if len(ws) != agentMaxWidgets {
-		t.Fatalf("widgets kept = %d, want %d", len(ws), agentMaxWidgets)
-	}
-	bar := ws[0].Data.(map[string]any)
-	series := bar["series"].([]map[string]any)
-	if len(series) != 6 {
-		t.Errorf("series cap: got %d, want 6", len(series))
-	}
-	if series[0]["color"] != "#0e6f51" {
-		t.Errorf("palette not applied: %v", series[0]["color"])
-	}
-	if series[1]["color"] != "#4f5bc7" {
-		t.Errorf("invalid color not replaced: %v", series[1]["color"])
-	}
-	pie := ws[1].Data.(map[string]any)
-	if pie["values"].([]int64)[0] != 0 {
-		t.Error("negative pie value should clamp to 0")
-	}
-	if ws[2].Type != "number" {
-		t.Errorf("third widget should be the number, got %q", ws[2].Type)
-	}
-}
-
-func TestSanitizeWidgetsCap(t *testing.T) {
-	specs := make([]agentWidgetSpec, 6)
-	for i := range specs {
-		specs[i] = agentWidgetSpec{Type: "number", Title: "n", Data: raw(`{"value":"1"}`)}
-	}
-	if got := len(sanitizeWidgets(specs)); got != agentMaxWidgets {
-		t.Errorf("widget cap: got %d, want %d", got, agentMaxWidgets)
-	}
-}
-
-func raw(s string) json.RawMessage { return json.RawMessage(s) }
-
 func TestExampleQueriesRun(t *testing.T) {
 	db := newAgentTestDB(t)
 	defer func() { _ = db.Close() }()
@@ -442,24 +396,32 @@ func TestListAnswerEmptyTextWithTransactionsWidget(t *testing.T) {
 	}
 }
 
-func TestWidgetSpecNormalisation(t *testing.T) {
+// A text widget carries its words beside its type or under "data". Any
+// other widget with no query is a problem to send back, and an answer shows
+// at most agentMaxWidgets.
+func TestWidgetsWithoutAQuery(t *testing.T) {
 	act, err := parseAction(`{"action":"final","text":"ok","widgets":[
-		{"type":"number","title":"T","value":"£5","caption":"c"},
-		{"type":"transactions","title":"R","transactions":[{"date":"2024-06-30","description":"Rent","category":"Bills","amount_minor":-106266,"currency":"GBP","type":"expense"}]},
-		{"type":"pie","title":"P","data":[{"label":"x","value":1}]}
+		{"type":"text","title":"A","data":{"body":"under data"}},
+		{"type":"text","title":"B","body":"beside the type"},
+		{"type":"number","title":"C","data":{"value":"£5"}},
+		{"type":"text","title":"D","body":"third"},
+		{"type":"text","title":"E","body":"over the cap"}
 	]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	specs := act.Widgets
-	if got := sanitizeWidget(specs[0]); got == nil || got.Data.(map[string]any)["value"] != "£5" {
-		t.Errorf("stray keys not merged: %v", specs[0])
+	svc := newAgentService(t, &ai.MockAgent{})
+	defer func() { _ = svc.DB.Close() }()
+	ws, problems := svc.buildWidgets(act.Widgets, nil)
+	if len(problems) != 1 || !strings.Contains(problems[0], `widget 3 ("C") has no "sql"`) {
+		t.Errorf("problems = %q", problems)
 	}
-	if got := sanitizeWidget(specs[1]); got == nil {
-		t.Error("top-level transactions array not recovered")
+	var bodies []string
+	for _, w := range ws {
+		bodies = append(bodies, w.Type+":"+w.Data.(map[string]any)["body"].(string))
 	}
-	if got := sanitizeWidget(specs[2]); got == nil {
-		t.Error("array data pie not recovered")
+	if got := strings.Join(bodies, "|"); got != "text:under data|text:beside the type|text:third" {
+		t.Errorf("widgets = %s", got)
 	}
 }
 
@@ -512,18 +474,19 @@ func TestAgentWidgetCheckFeedsErrorsBack(t *testing.T) {
 	}
 }
 
-// After the retries, a snapshot widget is kept rather than losing the answer.
+// After the retries, a widget that still fails is left out rather than
+// losing the answer.
 func TestAgentWidgetCheckGivesUp(t *testing.T) {
-	snapshot := `{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","data":{"value":"£60.00"}}]}`
-	provider := &ai.MockAgent{Replies: []string{snapshot, snapshot, snapshot}}
+	broken := `{"action":"final","text":"Spend.","widgets":[{"type":"number","title":"Spend","data":{"value":"£60.00"}}]}`
+	provider := &ai.MockAgent{Replies: []string{broken, broken, broken}}
 	svc := newAgentService(t, provider)
 	defer func() { _ = svc.DB.Close() }()
 	ans, err := ask(svc, "how much have I spent?")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ans.Widgets) != 1 || ans.Widgets[0].Plan != nil {
-		t.Fatalf("widgets = %+v", ans.Widgets)
+	if ans.Text != "Spend." || len(ans.Widgets) != 0 {
+		t.Fatalf("answer = %+v", ans)
 	}
 }
 
@@ -864,7 +827,7 @@ func TestPromptExamplesRun(t *testing.T) {
 		}
 		rest = rest[end:]
 		n++
-		ws, problems := svc.buildWidgets(act.Widgets, nil, false)
+		ws, problems := svc.buildWidgets(act.Widgets, nil)
 		if len(problems) > 0 || len(ws) != len(act.Widgets) {
 			t.Errorf("example %d: %v", n, problems)
 		}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,8 +27,7 @@ const (
 )
 
 // agentWidgetSpec is a widget in the model's final answer: normally a query
-// with how to show it (SQL, Columns, Caption), which becomes a Spec. Data is
-// the older form, a finished snapshot, kept only as a last resort.
+// with how to show it (SQL, Columns, Caption), which becomes a Spec.
 type agentWidgetSpec struct {
 	Type    string                `json:"type"`
 	Title   string                `json:"title"`
@@ -39,7 +37,8 @@ type agentWidgetSpec struct {
 	Series  string                `json:"series"`
 	Fill    string                `json:"fill"`
 	Stacked bool                  `json:"stacked"`
-	Data    json.RawMessage       `json:"data"`
+	// A text widget: its words, and no query.
+	Body string `json:"body"`
 	// A group_rule widget: grouping rules drafted for the user to create.
 	Group string               `json:"group"`
 	Rules []grouping.DraftRule `json:"rules"`
@@ -82,11 +81,6 @@ func parseAction(resp string) (agentAction, error) {
 	return out, nil
 }
 
-var widgetPayloadKeys = []string{
-	"transactions", "labels", "series", "values", "colors",
-	"columns", "rows", "value", "caption", "body",
-}
-
 func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(raw, &m) != nil {
@@ -94,18 +88,23 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	}
 	sp := agentWidgetSpec{Type: rawStr(m["type"]), Title: rawStr(m["title"]),
 		SQL: rawStr(m["sql"]), Caption: rawStr(m["caption"])}
-	if c, ok := m["columns"]; ok && sp.SQL != "" {
-		_ = json.Unmarshal(c, &sp.Columns)
-	}
+	_ = json.Unmarshal(m["columns"], &sp.Columns)
 	sp.Series, sp.Fill = rawStr(m["series"]), strings.ToLower(rawStr(m["fill"]))
 	_ = json.Unmarshal(m["stacked"], &sp.Stacked)
+	// Models put a widget's own fields either beside its type or under "data".
+	var data map[string]json.RawMessage
+	_ = json.Unmarshal(m["data"], &data)
+	if strings.EqualFold(sp.Type, "text") {
+		sp.Body = rawStr(m["body"])
+		if data["body"] != nil {
+			sp.Body = rawStr(data["body"])
+		}
+		return sp
+	}
 	if strings.EqualFold(sp.Type, "group_rule") {
 		src := m
-		if d, ok := m["data"]; ok {
-			var dm map[string]json.RawMessage
-			if json.Unmarshal(d, &dm) == nil && dm["rules"] != nil {
-				src = dm
-			}
+		if data["rules"] != nil {
+			src = data
 		}
 		sp.Group = rawStr(src["group"])
 		_ = json.Unmarshal(src["rules"], &sp.Rules)
@@ -122,63 +121,6 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 			sp.ValueMinor = &v
 		}
 		return sp
-	}
-	if sp.SQL != "" {
-		return sp
-	}
-	if d, ok := m["data"]; ok {
-		sp.Data = d
-	}
-	if sp.Data != nil && strings.EqualFold(sp.Type, "transactions") {
-		var arr []json.RawMessage
-		if json.Unmarshal(sp.Data, &arr) == nil {
-			b, _ := json.Marshal(map[string]any{"transactions": arr})
-			sp.Data = b
-			return sp
-		}
-	}
-	if sp.Data != nil && strings.EqualFold(sp.Type, "pie") {
-		var arr []map[string]any
-		if json.Unmarshal(sp.Data, &arr) == nil && len(arr) > 0 {
-			var labels []string
-			var values []int64
-			ok := true
-			for _, it := range arr {
-				l, lOk := it["label"].(string)
-				v, vOk := toMinorUnits(it["value"])
-				if !lOk || !vOk {
-					ok = false
-					break
-				}
-				labels = append(labels, l)
-				values = append(values, v)
-			}
-			if ok {
-				b, _ := json.Marshal(map[string]any{"labels": labels, "values": values})
-				sp.Data = b
-				return sp
-			}
-		}
-	}
-	var dm map[string]json.RawMessage
-	if sp.Data != nil {
-		_ = json.Unmarshal(sp.Data, &dm)
-	}
-	if dm == nil {
-		dm = map[string]json.RawMessage{}
-	}
-	merged := false
-	for _, k := range widgetPayloadKeys {
-		if _, ok := dm[k]; !ok {
-			if v, ok := m[k]; ok {
-				dm[k] = v
-				merged = true
-			}
-		}
-	}
-	if sp.Data == nil || merged {
-		b, _ := json.Marshal(dm)
-		sp.Data = b
 	}
 	return sp
 }
@@ -707,10 +649,9 @@ func stripFences(s string) string {
 }
 
 // finishAgent runs the answer's widget queries. Problems with them come back
-// for the model to fix, unless lenient: then widgets that fail are dropped
-// and snapshot-only ones are kept as they are.
+// for the model to fix, unless lenient: then the widgets that fail are dropped.
 func (s *Service) finishAgent(act agentAction, steps []string, emit func(string), win *TimeWindow, lenient bool) (*Answer, []string, error) {
-	widgetsList, problems := s.buildWidgets(act.Widgets, win, lenient)
+	widgetsList, problems := s.buildWidgets(act.Widgets, win)
 	if len(problems) > 0 && !lenient {
 		return nil, problems, nil
 	}
@@ -729,8 +670,9 @@ func (s *Service) finishAgent(act agentAction, steps []string, emit func(string)
 }
 
 // buildWidgets turns the answer's widgets into live ones by running their
-// queries, so what the answer shows is what a pinned copy will show.
-func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient bool) ([]*widgets.Widget, []string) {
+// queries, so what the answer shows is what a pinned copy will show. It
+// leaves out the ones that fail and says what was wrong with each.
+func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow) ([]*widgets.Widget, []string) {
 	out := make([]*widgets.Widget, 0, len(specs))
 	var problems []string
 	for i, sp := range specs {
@@ -760,9 +702,7 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 				err = fmt.Errorf("these rules match no transactions; check the text against real descriptions")
 			}
 			if err != nil {
-				if !lenient {
-					problems = append(problems, name+": "+err.Error())
-				}
+				problems = append(problems, name+": "+err.Error())
 				continue
 			}
 			if title == "" {
@@ -773,9 +713,7 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 		case "change":
 			pv, err := s.draftChange(sp, win)
 			if err != nil {
-				if !lenient {
-					problems = append(problems, name+": "+err.Error())
-				}
+				problems = append(problems, name+": "+err.Error())
 				continue
 			}
 			if title == "" {
@@ -786,9 +724,7 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 		case "valuation":
 			d, err := s.draftValuation(sp)
 			if err != nil {
-				if !lenient {
-					problems = append(problems, name+": "+err.Error())
-				}
+				problems = append(problems, name+": "+err.Error())
 				continue
 			}
 			if title == "" {
@@ -798,13 +734,12 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 			continue
 		}
 		if strings.TrimSpace(sp.SQL) == "" {
-			if typ == "text" || lenient {
-				if w := sanitizeWidget(sp); w != nil {
-					out = append(out, w)
-				}
-				continue
+			if typ != "text" {
+				problems = append(problems, name+` has no "sql": every widget except text is a query the app runs`)
+			} else if sp.Body != "" {
+				out = append(out, &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Title: title,
+					Data: map[string]any{"body": truncateChars(sp.Body, 4000)}})
 			}
-			problems = append(problems, name+` has no "sql": every widget except text is a query the app runs`)
 			continue
 		}
 		spec := &Spec{V: SpecVersion, SQL: stripFences(sp.SQL), Columns: sp.Columns,
@@ -952,83 +887,10 @@ func truncateChars(s string, n int) string {
 	return s[:n] + "…"
 }
 
-var colorRE = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
-
-func sanitizeWidgets(specs []agentWidgetSpec) []*widgets.Widget {
-	out := make([]*widgets.Widget, 0, len(specs))
-	for _, sp := range specs {
-		if len(out) >= agentMaxWidgets {
-			break
-		}
-		if w := sanitizeWidget(sp); w != nil {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
-func sanitizeWidget(sp agentWidgetSpec) *widgets.Widget {
-	title := truncateChars(strings.TrimSpace(sp.Title), 120)
-	switch strings.ToLower(strings.TrimSpace(sp.Type)) {
-	case "bar", "line":
-		if d := sanitizeSeries(sp.Data); d != nil {
-			return &widgets.Widget{ID: "w-" + util.NewID(), Type: sp.Type, Title: title, Data: d}
-		}
-	case "pie":
-		if d := sanitizePie(sp.Data); d != nil {
-			return &widgets.Widget{ID: "w-" + util.NewID(), Type: "pie", Title: title, Data: d}
-		}
-	case "number":
-		if d := sanitizeNumber(sp.Data); d != nil {
-			return &widgets.Widget{ID: "w-" + util.NewID(), Type: "number", Title: title, Data: d}
-		}
-	case "text":
-		if d := sanitizeText(sp.Data); d != nil {
-			return &widgets.Widget{ID: "w-" + util.NewID(), Type: "text", Title: title, Data: d}
-		}
-	case "table":
-		if d := sanitizeTable(sp.Data); d != nil {
-			return &widgets.Widget{ID: "w-" + util.NewID(), Type: "table", Title: title, Data: d}
-		}
-	case "transactions":
-		if d := sanitizeTransactions(sp.Data); d != nil {
-			return &widgets.Widget{ID: "w-" + util.NewID(), Type: "transactions", Title: title, Data: d}
-		}
-	}
-	return nil
-}
-
 func decodeAny(raw json.RawMessage) any {
 	var v any
 	_ = json.Unmarshal(raw, &v)
 	return v
-}
-
-func decodeData(raw json.RawMessage) map[string]any {
-	if len(raw) == 0 {
-		return nil
-	}
-	var m map[string]any
-	if json.Unmarshal(raw, &m) != nil {
-		return nil
-	}
-	return m
-}
-
-func toStrings(v any, max int) []string {
-	list, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(list))
-	for _, item := range list {
-		if len(out) >= max {
-			break
-		}
-		s, _ := item.(string)
-		out = append(out, truncateChars(strings.TrimSpace(s), 60))
-	}
-	return out
 }
 
 func toMinorUnits(v any) (int64, bool) {
@@ -1045,197 +907,4 @@ func toMinorUnits(v any) (int64, bool) {
 		}
 	}
 	return 0, false
-}
-
-func sanitizeSeries(raw json.RawMessage) map[string]any {
-	d := decodeData(raw)
-	if d == nil {
-		return nil
-	}
-	labels := toStrings(d["labels"], 240)
-	if len(labels) == 0 {
-		return nil
-	}
-	seriesIn, ok := d["series"].([]any)
-	if !ok || len(seriesIn) == 0 {
-		return nil
-	}
-	series := []map[string]any{}
-	for i, s := range seriesIn {
-		if len(series) >= 6 {
-			break
-		}
-		sm, ok := s.(map[string]any)
-		if !ok {
-			continue
-		}
-		name := truncateChars(str(sm["name"]), 60)
-		if name == "" {
-			name = fmt.Sprintf("Series %d", i+1)
-		}
-		valsIn, ok := sm["values"].([]any)
-		if !ok || len(valsIn) == 0 {
-			continue
-		}
-		vals := make([]int64, 0, len(labels))
-		for j := 0; j < len(labels) && j < len(valsIn); j++ {
-			if v, ok := toMinorUnits(valsIn[j]); ok {
-				vals = append(vals, v)
-			} else {
-				vals = append(vals, 0)
-			}
-		}
-		color := str(sm["color"])
-		if !colorRE.MatchString(color) {
-			color = widgets.PaletteAt(i)
-		}
-		series = append(series, map[string]any{"name": name, "color": color, "values": vals})
-	}
-	if len(series) == 0 {
-		return nil
-	}
-	return map[string]any{"labels": labels, "series": series}
-}
-
-func sanitizePie(raw json.RawMessage) map[string]any {
-	d := decodeData(raw)
-	if d == nil {
-		return nil
-	}
-	labels := toStrings(d["labels"], 12)
-	if len(labels) == 0 {
-		return nil
-	}
-	valsIn, ok := d["values"].([]any)
-	if !ok {
-		return nil
-	}
-	vals := make([]int64, 0, len(valsIn))
-	for i := 0; i < len(labels) && i < len(valsIn); i++ {
-		v, ok := toMinorUnits(valsIn[i])
-		if !ok || v < 0 {
-			v = 0
-		}
-		vals = append(vals, v)
-	}
-	return map[string]any{"labels": labels, "values": vals}
-}
-
-func sanitizeNumber(raw json.RawMessage) map[string]any {
-	d := decodeData(raw)
-	if d == nil {
-		return nil
-	}
-	value := truncateChars(str(d["value"]), 40)
-	if value == "" {
-		return nil
-	}
-	caption := truncateChars(str(d["caption"]), 120)
-	return map[string]any{"value": value, "caption": caption}
-}
-
-func sanitizeText(raw json.RawMessage) map[string]any {
-	d := decodeData(raw)
-	if d == nil {
-		return nil
-	}
-	body := truncateChars(str(d["body"]), 4000)
-	if body == "" {
-		return nil
-	}
-	return map[string]any{"body": body}
-}
-
-func sanitizeTable(raw json.RawMessage) map[string]any {
-	d := decodeData(raw)
-	if d == nil {
-		return nil
-	}
-	columns := toStrings(d["columns"], 8)
-	if len(columns) == 0 {
-		return nil
-	}
-	rowsIn, ok := d["rows"].([]any)
-	if !ok {
-		return nil
-	}
-	rows := [][]string{}
-	for _, r := range rowsIn {
-		if len(rows) >= 50 {
-			break
-		}
-		cellsIn, ok := r.([]any)
-		if !ok {
-			continue
-		}
-		cells := make([]string, 0, len(columns))
-		for i := 0; i < len(columns); i++ {
-			if i < len(cellsIn) {
-				cells = append(cells, truncateChars(str(cellsIn[i]), 60))
-			} else {
-				cells = append(cells, "")
-			}
-		}
-		rows = append(rows, cells)
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	return map[string]any{"columns": columns, "rows": rows}
-}
-
-func sanitizeTransactions(raw json.RawMessage) map[string]any {
-	d := decodeData(raw)
-	if d == nil {
-		return nil
-	}
-	txsIn, ok := d["transactions"].([]any)
-	if !ok {
-		return nil
-	}
-	txs := []map[string]any{}
-	for _, t := range txsIn {
-		if len(txs) >= 50 {
-			break
-		}
-		tm, ok := t.(map[string]any)
-		if !ok {
-			continue
-		}
-		amount, _ := toMinorUnits(tm["amount_minor"])
-		typ := str(tm["type"])
-		if typ != "income" && typ != "transfer" {
-			typ = "expense"
-		}
-		cur := str(tm["currency"])
-		if cur == "" {
-			cur = "GBP"
-		}
-		txs = append(txs, map[string]any{
-			"date":         truncateChars(str(tm["date"]), 10),
-			"description":  truncateChars(str(tm["description"]), 80),
-			"category":     truncateChars(str(tm["category"]), 40),
-			"amount_minor": amount,
-			"currency":     cur,
-			"type":         typ,
-		})
-	}
-	if len(txs) == 0 {
-		return nil
-	}
-	return map[string]any{"transactions": txs}
-}
-
-func str(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	if v == nil {
-		return ""
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }
