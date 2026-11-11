@@ -66,15 +66,15 @@ func (a *App) seedExampleWidgets(tx *sql.Tx) error {
 		title, typ, plan string
 		col, rows        int
 	}{
-		{"Spending by category — this month", "bar", seedPlanThisMonth("spend", "category"), 8, 4},
+		{"Spending by category — this month", "bar", seedSpecSpendByCategory(), 8, 4},
 		{"Savings rate", "number", seedSpecSavingsRate(), 4, 2},
-		{"Spending mix — this month", "pie", seedPlanThisMonth("spend", "category"), 4, 3},
-		{"Top merchants", "table", seedPlanTopMerchants(), 8, 4},
+		{"Spending mix — this month", "pie", seedSpecSpendByCategory(), 4, 3},
+		{"Top merchants", "table", seedSpecTopMerchants(), 8, 4},
 	}
 	var diff []audit.DiffLine
 	for i, s := range seeds {
 		created := util.NowStr()
-		if _, err := tx.Exec(`INSERT INTO pinned_widgets (id, position, col, rows, title, type, dataset, plan, created_at, updated_at)
+		if _, err := tx.Exec(`INSERT INTO pinned_widgets (id, position, col, rows, title, type, data, plan, created_at, updated_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			util.NewID(), i, s.col, s.rows, s.title, s.typ, "{}", s.plan, created, created); err != nil {
 			return err

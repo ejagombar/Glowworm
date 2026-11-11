@@ -59,46 +59,6 @@ func (p *Mock) CompleteStructured(req *StructuredRequest) (string, *Usage, error
 			items = append(items, map[string]any{"index": tx.Index, "category": cat, "confidence": conf})
 		}
 		return marshal(map[string]any{"items": items}), &Usage{Model: "mock"}, nil
-	case "query_planning":
-		var payload struct {
-			Question   string   `json:"question"`
-			Categories []string `json:"categories"`
-			Accounts   []string `json:"accounts"`
-		}
-		if err := json.Unmarshal([]byte(promptPayload(req)), &payload); err != nil {
-			return "", nil, err
-		}
-		q := strings.ToLower(payload.Question)
-		plan := map[string]any{
-			"v": 1, "metric": "spend", "breakdown": "month",
-			"time":          map[string]any{"preset": "last-12m", "from": nil, "to": nil},
-			"account_scope": "all", "sort": "date_asc", "limit": 12,
-			"chart_hint": "bar", "title": "Spend over time",
-		}
-		switch {
-		case strings.Contains(q, "transport"):
-			plan["entity"] = map[string]any{"kind": "category", "resolved_name": "Transport", "match": "exact"}
-			plan["title"] = "Transport spend over the past year"
-		case strings.Contains(q, "where did my money go"):
-			plan["breakdown"] = "category"
-			plan["time"] = map[string]any{"preset": "last-month", "from": nil, "to": nil}
-			plan["chart_hint"] = "bar"
-			plan["title"] = "Where your money went this month"
-		case strings.Contains(q, "balance"):
-			plan["metric"] = "balance"
-			plan["chart_hint"] = "line"
-			plan["title"] = "Balance over the last year"
-		case strings.Contains(q, "list"), strings.Contains(q, "recent"):
-			plan["metric"] = "list"
-			plan["breakdown"] = "none"
-			plan["chart_hint"] = "transactions"
-			plan["title"] = "Recent transactions"
-		default:
-			plan["breakdown"] = "category"
-			plan["time"] = map[string]any{"preset": "last-month", "from": nil, "to": nil}
-			plan["title"] = "Spending by category"
-		}
-		return marshal(plan), &Usage{Model: "mock"}, nil
 	case "query_agent":
 		last := ""
 		for _, m := range req.Messages {

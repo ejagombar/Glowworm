@@ -57,7 +57,7 @@ func TestRecentTurnsWithinTheGap(t *testing.T) {
 }
 
 func TestTurnKeepsSQLThatRanAndWidgetQueries(t *testing.T) {
-	widget := `[{"type":"number","title":"Total spend","data":{"value":"£120.00"},"plan":{"v":2,"sql":"SELECT SUM(-amount_minor) FROM transactions"}}]`
+	widget := `[{"type":"number","title":"Total spend","data":{"value":"£120.00"},"plan":{"v":1,"sql":"SELECT SUM(-amount_minor) FROM transactions"}}]`
 	a := histMsg("assistant", "£120.00 on Amex.", time.Minute,
 		"Query failed: no such column\nSELECT nope FROM transactions",
 		"Ran a query → 3 rows\nSELECT name FROM accounts",
@@ -121,7 +121,7 @@ func TestAgentSendsHistoryWithTheQuestion(t *testing.T) {
 
 	var steps []string
 	history := []Turn{{Question: "amex spend this month", Answer: "£120.00.", SQL: []string{"SELECT 1"}}}
-	if _, err := svc.AskStreamWindow("and last month?", history, nil, func(s string) { steps = append(steps, s) }); err != nil {
+	if _, err := svc.Ask("and last month?", history, nil, func(s string) { steps = append(steps, s) }); err != nil {
 		t.Fatal(err)
 	}
 	first := provider.reqs[0].Messages[0].Content
@@ -138,7 +138,7 @@ func TestAgentSendsHistoryWithTheQuestion(t *testing.T) {
 	}
 
 	// Without history the question goes as it is.
-	if _, err := svc.AskStreamWindow("transport spend", nil, nil, nil); err != nil {
+	if _, err := svc.Ask("transport spend", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := provider.reqs[1].Messages[0].Content; got != "transport spend" {

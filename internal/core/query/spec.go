@@ -16,8 +16,9 @@ import (
 	"glowworm/internal/util"
 )
 
-// SpecVersion marks a saved widget plan as a Spec rather than a Plan.
-const SpecVersion = 2
+// SpecVersion is the version of the saved format. A saved plan with any
+// other version isn't read as a Spec.
+const SpecVersion = 1
 
 // Spec is a widget's saved recipe: one read-only query and how to show its
 // result. The AI writes it on the Queries page; after that the app runs it on
@@ -41,6 +42,16 @@ type Spec struct {
 	// Stacked draws a bar chart's series on top of each other, so each bar
 	// is the total split into its parts, instead of side by side.
 	Stacked bool `json:"stacked,omitempty"`
+	// Links lets each row of a table open the transactions behind it.
+	Links *SpecLinks `json:"links,omitempty"`
+}
+
+// SpecLinks says what a table's first column names, so the dashboard can
+// link each row to the Transactions page filtered to it. By is merchant,
+// category or account; Type, when set, keeps the list to expense or income.
+type SpecLinks struct {
+	By   string `json:"by"`
+	Type string `json:"type,omitempty"`
 }
 
 // maxChartSeries is how many series a chart shows; past it the smallest

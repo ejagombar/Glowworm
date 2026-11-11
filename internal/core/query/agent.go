@@ -61,7 +61,9 @@ type agentAction struct {
 	Widgets []agentWidgetSpec `json:"widgets"`
 }
 
-var errNoContent = errors.New("agent: empty final answer")
+// errNoAnswer is the model finishing without text or a widget, or without
+// a reply that could be read at all.
+var errNoAnswer = &NoAnswerError{Message: "That didn't produce an answer. Try asking it another way."}
 
 func parseAction(resp string) (agentAction, error) {
 	var act struct {
@@ -545,14 +547,6 @@ func joinOrNone(list []string) string {
 	return strings.Join(list, ", ")
 }
 
-func (s *Service) AskAgent(question string, onStep func(string)) (*Answer, error) {
-	return s.AskAgentWindow(question, nil, onStep)
-}
-
-func (s *Service) AskAgentWindow(question string, win *TimeWindow, onStep func(string)) (*Answer, error) {
-	return s.askAgent(question, nil, win, onStep)
-}
-
 // historyGuide goes with earlier turns, so questions without any don't pay
 // for it.
 const historyGuide = `USING EARLIER TURNS: they are only there so a follow-up ("same but for
@@ -659,7 +653,7 @@ func (s *Service) askAgent(question string, history []Turn, win *TimeWindow, onS
 			if ferr == nil {
 				return ans, nil
 			}
-			if errors.Is(ferr, errNoContent) && !emptyFinalRetried {
+			if errors.Is(ferr, errNoAnswer) && !emptyFinalRetried {
 				emptyFinalRetried = true
 				msgs = append(msgs,
 					ai.ChatMessage{Role: "assistant", Content: resp},
@@ -684,12 +678,16 @@ func (s *Service) askAgent(question string, history []Turn, win *TimeWindow, onS
 		Timeout:    agentCallTimeout,
 	})
 	logCall(usage, err)
+	var bad *ai.ErrBadReply
+	if errors.As(err, &bad) {
+		return nil, errNoAnswer
+	}
 	if err != nil {
 		return nil, err
 	}
 	act, perr := parseAction(resp)
 	if perr != nil {
-		return nil, fmt.Errorf("agent: no valid final answer")
+		return nil, errNoAnswer
 	}
 	ans, _, ferr := s.finishAgent(act, steps, emit, win, true)
 	return ans, ferr
@@ -718,7 +716,7 @@ func (s *Service) finishAgent(act agentAction, steps []string, emit func(string)
 	}
 	text := strings.TrimSpace(act.Text)
 	if text == "" && len(widgetsList) == 0 {
-		return nil, nil, errNoContent
+		return nil, nil, errNoAnswer
 	}
 	if len(widgetsList) > 0 {
 		step := fmt.Sprintf("Built %d widget%s for the answer", len(widgetsList), plural(len(widgetsList)))
@@ -811,7 +809,7 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow, lenient
 		}
 		spec := &Spec{V: SpecVersion, SQL: stripFences(sp.SQL), Columns: sp.Columns,
 			Caption: truncateChars(strings.TrimSpace(sp.Caption), 120),
-			Series: sp.Series, Fill: sp.Fill, Stacked: sp.Stacked}
+			Series:  sp.Series, Fill: sp.Fill, Stacked: sp.Stacked}
 		w, res, err := s.runSpec(spec, typ, win)
 		if err == nil {
 			err = checkSpec(spec, typ, res)

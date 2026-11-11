@@ -22,18 +22,17 @@ func (r *ConvRepo) CreateConversation(title string) (*core.Conversation, error) 
 
 func c0() string { return util.NowStr() }
 
-func (r *ConvRepo) AddMessage(conversationID, role, text string, steps []string, widget, dataset, plan *string) (*core.Message, error) {
+func (r *ConvRepo) AddMessage(conversationID, role, text string, steps []string, widget *string) (*core.Message, error) {
 	stepsJSON := "[]"
 	if len(steps) > 0 {
-		b, _ := jsonMarshal(steps)
+		b, _ := json.Marshal(steps)
 		stepsJSON = string(b)
 	}
 	m := &core.Message{ID: util.NewID(), ConversationID: conversationID, Role: role,
-		Text: text, Steps: steps, Widget: widget, Dataset: dataset, Plan: plan,
-		CreatedAt: util.NowStr()}
-	_, err := r.DB.Exec(`INSERT INTO messages (id, conversation_id, role, text, steps, widget, dataset, plan, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		m.ID, conversationID, role, text, stepsJSON, derefP(widget), derefP(dataset), derefP(plan), m.CreatedAt)
+		Text: text, Steps: steps, Widget: widget, CreatedAt: util.NowStr()}
+	_, err := r.DB.Exec(`INSERT INTO messages (id, conversation_id, role, text, steps, widget, created_at)
+		VALUES (?,?,?,?,?,?,?)`,
+		m.ID, conversationID, role, text, stepsJSON, derefP(widget), m.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +53,7 @@ func (r *ConvRepo) MessagesPage(conversationID string, before *string, limit int
 	if limit <= 0 {
 		limit = 20
 	}
-	q := `SELECT id, conversation_id, role, text, steps, widget, dataset, plan, created_at
+	q := `SELECT id, conversation_id, role, text, steps, widget, created_at
 		FROM messages WHERE conversation_id = ?`
 	args := []any{conversationID}
 	if before != nil && *before != "" {
@@ -92,8 +91,8 @@ func (r *ConvRepo) MessagesPage(conversationID string, before *string, limit int
 
 func scanMessage(rows *sql.Rows) (*core.Message, error) {
 	var m core.Message
-	var steps, widget, dataset, plan sql.NullString
-	if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Text, &steps, &widget, &dataset, &plan, &m.CreatedAt); err != nil {
+	var steps, widget sql.NullString
+	if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Text, &steps, &widget, &m.CreatedAt); err != nil {
 		return nil, err
 	}
 	if steps.Valid && steps.String != "" {
@@ -102,14 +101,6 @@ func scanMessage(rows *sql.Rows) (*core.Message, error) {
 	if widget.Valid && widget.String != "" {
 		w := widget.String
 		m.Widget = &w
-	}
-	if dataset.Valid && dataset.String != "" {
-		d := dataset.String
-		m.Dataset = &d
-	}
-	if plan.Valid && plan.String != "" {
-		p := plan.String
-		m.Plan = &p
 	}
 	return &m, nil
 }
@@ -139,7 +130,7 @@ func (r *ConvRepo) GetConversation(id string) (*core.Conversation, error) {
 }
 
 func (r *ConvRepo) Messages(conversationID string) ([]*core.Message, error) {
-	rows, err := r.DB.Query(`SELECT id, conversation_id, role, text, steps, widget, dataset, plan, created_at
+	rows, err := r.DB.Query(`SELECT id, conversation_id, role, text, steps, widget, created_at
 		FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC`, conversationID)
 	if err != nil {
 		return nil, err
@@ -147,30 +138,11 @@ func (r *ConvRepo) Messages(conversationID string) ([]*core.Message, error) {
 	defer rows.Close()
 	var out []*core.Message
 	for rows.Next() {
-		var m core.Message
-		var steps, widget, dataset, plan sql.NullString
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Text, &steps, &widget, &dataset, &plan, &m.CreatedAt); err != nil {
+		m, err := scanMessage(rows)
+		if err != nil {
 			return nil, err
 		}
-		if steps.Valid && steps.String != "" {
-			var s []string
-			if err := json.Unmarshal([]byte(steps.String), &s); err == nil {
-				m.Steps = s
-			}
-		}
-		if widget.Valid {
-			s := widget.String
-			m.Widget = &s
-		}
-		if dataset.Valid {
-			s := dataset.String
-			m.Dataset = &s
-		}
-		if plan.Valid {
-			s := plan.String
-			m.Plan = &s
-		}
-		out = append(out, &m)
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

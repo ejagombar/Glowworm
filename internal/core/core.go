@@ -193,19 +193,6 @@ type ImportSchema struct {
 	AccountName string   `json:"account_name,omitempty"`
 }
 
-type PinnedWidget struct {
-	ID        string  `json:"id"`
-	Position  int     `json:"position"`
-	Col       int     `json:"col"`
-	Rows      int     `json:"rows"`
-	Title     string  `json:"title"`
-	Type      string  `json:"type"`
-	Dataset   string  `json:"dataset"`
-	Plan      *string `json:"plan"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
-}
-
 type User struct {
 	ID           string `json:"id"`
 	Username     string `json:"username"`
@@ -264,8 +251,6 @@ type Message struct {
 	Text           string   `json:"text"`
 	Steps          []string `json:"steps"`
 	Widget         *string  `json:"widget"`
-	Dataset        *string  `json:"dataset"`
-	Plan           *string  `json:"plan"`
 	CreatedAt      string   `json:"created_at"`
 }
 

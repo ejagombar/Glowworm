@@ -94,8 +94,6 @@ past_choices, when given, are how this person categorised other transactions: fo
 Use a catch-all category (General, Other, Miscellaneous and the like) only when you truly can't tell what was bought.
 "merchant" is the business or person you identified, cleaned up. "confidence" is your honest probability (0-1) that the category is right: 0.85 or more for a business you recognise or a name that plainly says what kind of place it is; below 0.6 only when you can't tell what the payee is.
 Schema: {items: [{index, merchant, category, confidence}]}. Answer every index.`
-	case "query_planning":
-		return "Translate the user's question into a query plan. Schema: {v: 1, metric: spend|income|net|balance|count|list, entity: {kind: category|account|merchant|recurring|none, id: string, resolved_name: string, match: exact|fuzzy}, breakdown: none|category|account|merchant|month|week|day, time: {preset: string|null, from: string, to: string}, account_scope: spending (default: everything except savings accounts)|savings (only when the question is about savings)|all (only when the user asks to include savings)|single, sort: value_desc|date_asc, limit: number, chart_hint: bar|line|pie|table|number|transactions, title: string}."
 	case "query_agent":
 		return `You are in an agent loop with tools. Reply with ONE JSON object: either {"action":"run_query","sql":"SELECT ..."} to run a read-only query, or {"action":"final","text":"...","widgets":[...]} to finish. Never respond with prose outside JSON.`
 	case "merchant_extraction":

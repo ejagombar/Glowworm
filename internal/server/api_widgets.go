@@ -1,13 +1,11 @@
 package server
 
 import (
-	"time"
-
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
@@ -82,17 +80,14 @@ func (a *App) askQueryWindow(in struct {
 		return nil, "", err
 	}
 	history := query.RecentTurns(recent, time.Now())
-	if _, err := a.Query.Repo.AddMessage(conv.ID, "user", text, nil, nil, nil, nil); err != nil {
+	if _, err := a.Query.Repo.AddMessage(conv.ID, "user", text, nil, nil); err != nil {
 		return nil, "", err
 	}
-	ans, err := a.Query.AskStreamWindow(text, history, win, onStep)
+	ans, err := a.Query.Ask(text, history, win, onStep)
 	if err != nil {
 		return nil, conv.ID, err
 	}
-	widgetJSON := marshalWidgets(ans.Widgets)
-	datasetJSON := marshalAny(ans.Dataset)
-	planJSON := marshalAny(ans.Plan)
-	if _, err := a.Query.Repo.AddMessage(conv.ID, "assistant", ans.Text, ans.Steps, widgetJSON, &datasetJSON, &planJSON); err != nil {
+	if _, err := a.Query.Repo.AddMessage(conv.ID, "assistant", ans.Text, ans.Steps, marshalWidgets(ans.Widgets)); err != nil {
 		return nil, conv.ID, err
 	}
 	return ans, conv.ID, nil
@@ -143,12 +138,6 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 		send("steps", map[string]any{"items": []string{step}})
 	})
 	if err != nil {
-		var ce *query.ClarifyError
-		if errors.As(err, &ce) {
-			send("error", map[string]any{"message": ce.Message, "suggestions": ce.Suggestions})
-			send("done", map[string]any{"conversation_id": convID})
-			return nil
-		}
 		send("error", map[string]any{"message": err.Error()})
 		send("done", map[string]any{"conversation_id": convID})
 		return nil
@@ -277,22 +266,17 @@ func clampSpan(v, lo, hi int) int {
 
 func (a *App) apiWidgetPin(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
-		Title   string          `json:"title"`
-		Type    string          `json:"type"`
-		Data    json.RawMessage `json:"data"`
-		Dataset json.RawMessage `json:"dataset"`
-		Plan    json.RawMessage `json:"plan"`
-		Col     int             `json:"col"`
-		Rows    int             `json:"rows"`
+		Title string          `json:"title"`
+		Type  string          `json:"type"`
+		Data  json.RawMessage `json:"data"`
+		Plan  json.RawMessage `json:"plan"`
+		Col   int             `json:"col"`
+		Rows  int             `json:"rows"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	data := string(in.Data)
-	if data == "" || data == "null" {
-		data = string(in.Dataset)
-	}
-	id, err := a.PinWidget(in.Title, in.Type, data, string(in.Plan), in.Col, in.Rows)
+	id, err := a.PinWidget(in.Title, in.Type, string(in.Data), string(in.Plan), in.Col, in.Rows)
 	if err != nil {
 		return err
 	}
@@ -316,20 +300,15 @@ func (a *App) auditWidget(id, action, title string) error {
 func (a *App) apiWidgetPatch(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	var in struct {
-		Title   string          `json:"title"`
-		Type    string          `json:"type"`
-		Pinned  *bool           `json:"pinned"` // only an explicit false unpins
-		Data    json.RawMessage `json:"data"`
-		Dataset json.RawMessage `json:"dataset"`
+		Title  string          `json:"title"`
+		Type   string          `json:"type"`
+		Pinned *bool           `json:"pinned"` // only an explicit false unpins
+		Data   json.RawMessage `json:"data"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	data := string(in.Data)
-	if data == "" || data == "null" {
-		data = string(in.Dataset)
-	}
-	if err := a.WidgetPatch(id, in.Title, in.Type, data); err != nil {
+	if err := a.WidgetPatch(id, in.Title, in.Type, string(in.Data)); err != nil {
 		return err
 	}
 	if in.Pinned != nil && !*in.Pinned {

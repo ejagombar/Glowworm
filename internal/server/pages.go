@@ -1091,12 +1091,7 @@ func toMessageViews(msgs []*core.Message) []queryMessageView {
 			view.TextHTML = template.HTML(formatAssistantText(m.Text))
 		}
 		if m.Widget != nil && *m.Widget != "" {
-			ws := parseStoredWidgets(*m.Widget)
-			for _, w := range ws {
-				// Older answers kept their one widget's plan on the message.
-				if w.Plan == nil && len(ws) == 1 && m.Plan != nil && *m.Plan != "" && *m.Plan != "null" {
-					w.Plan = json.RawMessage(*m.Plan)
-				}
+			for _, w := range parseStoredWidgets(*m.Widget) {
 				view.WidgetHTML += template.HTML(widgetCardHTML(w))
 			}
 		}
@@ -1171,9 +1166,6 @@ func widgetCardHTML(w *widgets.Widget) string {
 	b.WriteString(`<article class="widget span-12" data-widget-id="` + template.HTMLEscapeString(w.ID) + `" data-widget-type="` + template.HTMLEscapeString(w.Type) + `"`)
 	b.WriteString(` data-widget-title="` + template.HTMLEscapeString(w.Title) + `"`)
 	b.WriteString(` data-widget-data="` + template.HTMLEscapeString(w.DataJSON()) + `"`)
-	if w.Dataset != nil {
-		b.WriteString(` data-widget-dataset="` + template.HTMLEscapeString(marshalAny(w.Dataset)) + `"`)
-	}
 	plan := ""
 	if w.Plan != nil {
 		if plan = marshalAny(w.Plan); plan == "null" {

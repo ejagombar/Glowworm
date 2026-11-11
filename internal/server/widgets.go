@@ -9,12 +9,9 @@ import (
 
 	"glowworm/internal/core/periods"
 	"glowworm/internal/core/query"
-	"glowworm/internal/core/widgets"
 	"glowworm/internal/money"
 	"glowworm/internal/util"
 )
-
-type query_Plan = query.Plan
 
 func defaultSpanCol(t string) int {
 	switch t {
@@ -45,7 +42,6 @@ type WidgetView struct {
 	Col           int           `json:"col"`
 	Rows          int           `json:"rows"`
 	DataJSON      string        `json:"data"`
-	DatasetJSON   string        `json:"dataset"`
 	NumberValue   string        `json:"number_value,omitempty"`
 	NumberCaption string        `json:"number_caption,omitempty"`
 	TextBody      string        `json:"text_body,omitempty"`
@@ -64,61 +60,40 @@ type WidgetTxRow struct {
 	Class       string
 }
 
-// WidgetsList renders the pinned widgets. One whose plan names no dates of its
-// own (no preset, no from/to) follows the date range selected in the
-// masthead (period, with from/to for a custom range); one that does keeps it.
+// WidgetsList renders the pinned widgets, running each one's saved query
+// again. One whose query uses :from and :to follows the date range selected
+// in the masthead (period, with from/to for a custom range); one that names
+// its own dates keeps them.
 func (a *App) WidgetsList(period, from, to string) ([]*WidgetView, error) {
-	rows, err := a.DB.Query(`SELECT id, position, col, rows, title, type, dataset, plan FROM pinned_widgets ORDER BY position ASC, created_at ASC`)
+	rows, err := a.DB.Query(`SELECT id, position, col, rows, title, type, data, plan FROM pinned_widgets ORDER BY position ASC, created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []*WidgetView
 	for rows.Next() {
-		var id, title, typ, dataset string
+		var id, title, typ, data string
 		var position, col, rowsN int
 		var plan sql.NullString
-		if err := rows.Scan(&id, &position, &col, &rowsN, &title, &typ, &dataset, &plan); err != nil {
+		if err := rows.Scan(&id, &position, &col, &rowsN, &title, &typ, &data, &plan); err != nil {
 			return nil, err
 		}
 		view := &WidgetView{ID: id, Type: typ, Title: title, Col: spanOr(col, typ, defaultSpanCol),
-			Rows: spanOr(rowsN, typ, defaultSpanRows), DatasetJSON: dataset}
-		data := dataset
+			Rows: spanOr(rowsN, typ, defaultSpanRows)}
 		stale := false
 		if spec := query.ParseSpec(plan.String); spec != nil && a.Query != nil {
 			if w, err := a.Query.RunSpec(spec, typ, a.specWindow(period, from, to)); err == nil {
+				if m, ok := w.Data.(map[string]any); ok && typ == "table" {
+					tableRows, _ := m["rows"].([][]string)
+					if links := a.tableRowLinks(spec.Links, tableRows); links != nil {
+						m["links"] = links
+					}
+				}
 				if b, err := json.Marshal(w.Data); err == nil {
 					data = string(b)
 				}
 			} else {
 				stale = true
-			}
-		} else if plan.Valid && plan.String != "" && a.Query != nil {
-			var p query_Plan
-			if json.Unmarshal([]byte(plan.String), &p) == nil {
-				if (p.TimePreset == nil || *p.TimePreset == "") && p.From == "" && p.To == "" {
-					sel := period
-					p.TimePreset = &sel
-					if period == "custom" {
-						p.From, p.To = from, to
-					}
-				}
-				if ds, _, err := a.Query.CompilePublic(&p); err == nil && ds != nil {
-					w := widgets.Derive(typ, ds, title)
-					if m, ok := w.Data.(map[string]any); ok && typ == "table" {
-						if links := a.tableRowLinks(&p, ds); links != nil {
-							m["links"] = links
-						}
-					}
-					if b, err := json.Marshal(w.Data); err == nil {
-						data = string(b)
-					}
-					if b, err := json.Marshal(ds); err == nil {
-						view.DatasetJSON = string(b)
-					}
-				} else {
-					stale = true
-				}
 			}
 		}
 		view.DataJSON = data
@@ -148,14 +123,14 @@ func asSlice(v any) []any {
 // at the transactions behind it: the Transactions page filtered to that row
 // and the widget's type. It names no dates, so the page keeps the date range
 // the user has selected. Rows it can't filter to (Uncategorised) get an empty
-// link; other breakdowns get none at all.
-func (a *App) tableRowLinks(p *query_Plan, ds *widgets.Dataset) []string {
-	if p.Breakdown != "merchant" && p.Breakdown != "category" && p.Breakdown != "account" {
+// link; a table that doesn't say what its rows are gets none at all.
+func (a *App) tableRowLinks(l *query.SpecLinks, tableRows [][]string) []string {
+	if l == nil || (l.By != "merchant" && l.By != "category" && l.By != "account") {
 		return nil
 	}
 	ids := map[string]string{}
-	if p.Breakdown == "category" || p.Breakdown == "account" {
-		table := map[string]string{"category": "categories", "account": "accounts"}[p.Breakdown]
+	if l.By == "category" || l.By == "account" {
+		table := map[string]string{"category": "categories", "account": "accounts"}[l.By]
 		rows, err := a.DB.Query(`SELECT id, name FROM ` + table + ` WHERE deleted_at IS NULL`)
 		if err != nil {
 			return nil
@@ -168,30 +143,17 @@ func (a *App) tableRowLinks(p *query_Plan, ds *widgets.Dataset) []string {
 		}
 		rows.Close()
 	}
-	base := url.Values{}
-	switch p.Metric {
-	case "spend":
-		base.Set("type", "expense")
-	case "income":
-		base.Set("type", "income")
-	}
-	if p.AccountScope == "single" && p.EntityID != "" {
-		base.Set("account", p.EntityID)
-	}
-	if p.EntityKind == "category" && p.EntityID != "" {
-		base.Set("category", p.EntityID)
-	}
-	links := make([]string, len(ds.Rows))
-	for i, row := range ds.Rows {
+	links := make([]string, len(tableRows))
+	for i, row := range tableRows {
 		if len(row) == 0 {
 			continue
 		}
-		label := str(row[0])
+		label := row[0]
 		v := url.Values{}
-		for k, vs := range base {
-			v[k] = vs
+		if l.Type == "expense" || l.Type == "income" {
+			v.Set("type", l.Type)
 		}
-		switch p.Breakdown {
+		switch l.By {
 		case "merchant":
 			v.Set("q", label)
 		case "category":
@@ -309,18 +271,11 @@ func str(v any) string {
 }
 
 // refreshable says whether a widget can be re-run on the dashboard: it
-// carries a saved query (a Spec, or an older Plan), or it's text, which has
-// nothing to go out of date. Only these can be pinned, so the dashboard never
-// shows a snapshot that quietly stops matching the data.
+// carries a saved query, or it's text, which has nothing to go out of date.
+// Only these can be pinned, so the dashboard never shows a snapshot that
+// quietly stops matching the data.
 func refreshable(typ, planJSON string) bool {
-	if typ == "text" {
-		return true
-	}
-	if query.ParseSpec(planJSON) != nil {
-		return true
-	}
-	var p query_Plan
-	return json.Unmarshal([]byte(planJSON), &p) == nil && p.Metric != ""
+	return typ == "text" || query.ParseSpec(planJSON) != nil
 }
 
 func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (string, error) {
@@ -344,12 +299,12 @@ func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (
 	// pinned id, which otherwise duplicated dashboard cards.
 	var existing string
 	err := a.DB.QueryRow(`SELECT id FROM pinned_widgets
-		WHERE title = ? AND type = ? AND dataset = ? AND COALESCE(plan,'') = COALESCE(?, '') LIMIT 1`,
+		WHERE title = ? AND type = ? AND data = ? AND COALESCE(plan,'') = COALESCE(?, '') LIMIT 1`,
 		title, typ, dataJSON, planJSON).Scan(&existing)
 	if err == nil {
 		return existing, nil
 	}
-	_, err = a.DB.Exec(`INSERT INTO pinned_widgets (id, position, col, rows, title, type, dataset, plan, created_at, updated_at)
+	_, err = a.DB.Exec(`INSERT INTO pinned_widgets (id, position, col, rows, title, type, data, plan, created_at, updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		id, position, col, rowsN, title, typ, dataJSON, plan, util.NowStr(), util.NowStr())
 	return id, err
@@ -357,7 +312,7 @@ func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (
 
 func (a *App) WidgetPatch(id, title, typ, dataJSON string) error {
 	var curTitle, curType, curData string
-	err := a.DB.QueryRow(`SELECT title, type, COALESCE(dataset,'') FROM pinned_widgets WHERE id = ?`, id).
+	err := a.DB.QueryRow(`SELECT title, type, data FROM pinned_widgets WHERE id = ?`, id).
 		Scan(&curTitle, &curType, &curData)
 	if err != nil {
 		return err
@@ -371,7 +326,7 @@ func (a *App) WidgetPatch(id, title, typ, dataJSON string) error {
 	if dataJSON == "" || dataJSON == "null" {
 		dataJSON = curData
 	}
-	_, err = a.DB.Exec(`UPDATE pinned_widgets SET title=?, type=?, dataset=?, updated_at=? WHERE id=?`,
+	_, err = a.DB.Exec(`UPDATE pinned_widgets SET title=?, type=?, data=?, updated_at=? WHERE id=?`,
 		title, typ, dataJSON, util.NowStr(), id)
 	return err
 }
@@ -381,17 +336,15 @@ func (a *App) WidgetUnpin(id string) error {
 	return err
 }
 
-// seedPlanThisMonth covers the calendar month to date, rolling over with it,
-// as the "— this month" titles say.
-func seedPlanThisMonth(metric, breakdown string) string {
-	preset := "this-month"
-	b, _ := json.Marshal(query_Plan{
-		V: 1, Metric: metric, Breakdown: breakdown, TimePreset: &preset,
-		AccountScope: "all", Limit: 8,
-		Title: "Spending by category — this month",
-	})
-	return string(b)
-}
+// The example widgets a fresh dashboard starts with (see SeedExamples).
+
+// spendByCategorySQL covers the calendar month to date, rolling over with
+// it, as the "— this month" titles say.
+const spendByCategorySQL = `SELECT COALESCE(c.name, 'Uncategorised') AS category, SUM(-t.amount_minor) AS spend
+FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+WHERE t.deleted_at IS NULL AND t.type = 'expense'
+  AND t.date BETWEEN date('now', 'start of month') AND date('now')
+GROUP BY t.category_id ORDER BY spend DESC LIMIT 8`
 
 // savingsRateSQL is the share of income not spent over the selected range.
 // Transfers between the user's own accounts count as neither.
@@ -400,19 +353,30 @@ const savingsRateSQL = `SELECT CASE WHEN inc > 0 THEN (inc - spend) * 1.0 / inc 
          COALESCE(SUM(CASE WHEN t.type = 'expense' THEN -t.amount_minor END), 0) AS spend
   FROM transactions t WHERE t.deleted_at IS NULL AND t.date BETWEEN :from AND :to)`
 
-func seedSpecSavingsRate() string {
-	b, _ := json.Marshal(query.Spec{
-		V: query.SpecVersion, SQL: savingsRateSQL, Caption: "of income not spent",
-		Columns: map[string]query.SpecColumn{"rate": {Format: "percent"}},
-	})
+// topMerchantsSQL follows the selected date range.
+const topMerchantsSQL = `SELECT COALESCE(NULLIF(t.merchant, ''), t.description) AS merchant, SUM(-t.amount_minor) AS spend
+FROM transactions t
+WHERE t.deleted_at IS NULL AND t.type = 'expense' AND t.date BETWEEN :from AND :to
+GROUP BY 1 ORDER BY spend DESC LIMIT 5`
+
+func seedSpec(sp query.Spec) string {
+	sp.V = query.SpecVersion
+	b, _ := json.Marshal(sp)
 	return string(b)
 }
 
-// seedPlanTopMerchants names no dates, so it follows the selected date range.
-func seedPlanTopMerchants() string {
-	b, _ := json.Marshal(query_Plan{
-		V: 1, Metric: "spend", Breakdown: "merchant",
-		AccountScope: "all", Limit: 5, ChartHint: "table", Title: "Top merchants",
-	})
-	return string(b)
+func seedSpecSpendByCategory() string {
+	return seedSpec(query.Spec{SQL: spendByCategorySQL,
+		Columns: map[string]query.SpecColumn{"spend": {Label: "Spend", Format: "money"}}})
+}
+
+func seedSpecSavingsRate() string {
+	return seedSpec(query.Spec{SQL: savingsRateSQL, Caption: "of income not spent",
+		Columns: map[string]query.SpecColumn{"rate": {Format: "percent"}}})
+}
+
+func seedSpecTopMerchants() string {
+	return seedSpec(query.Spec{SQL: topMerchantsSQL,
+		Columns: map[string]query.SpecColumn{"merchant": {Label: "Merchant"}, "spend": {Label: "Spend", Format: "money"}},
+		Links:   &query.SpecLinks{By: "merchant", Type: "expense"}})
 }

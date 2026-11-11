@@ -2,6 +2,7 @@ package query
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -46,6 +47,11 @@ func newAgentService(t *testing.T, provider ai.Provider) *Service {
 	db := newAgentTestDB(t)
 	seedAgentData(t, db)
 	return &Service{DB: db, Provider: provider, Clock: fixedClock{}, Repo: &ConvRepo{DB: db}}
+}
+
+// ask puts a question with no earlier turns and no view period.
+func ask(svc *Service, question string) (*Answer, error) {
+	return svc.Ask(question, nil, nil, nil)
 }
 
 type fixedClock struct{}
@@ -118,7 +124,7 @@ func TestAgentLoopRunsQueryThenAnswers(t *testing.T) {
 	defer func() { _ = svc.DB.Close() }()
 
 	var steps []string
-	ans, err := svc.AskStream("how much did I spend on transport?", func(step string) { steps = append(steps, step) })
+	ans, err := svc.Ask("how much did I spend on transport?", nil, nil, func(step string) { steps = append(steps, step) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +156,7 @@ func TestAgentLoopFeedsResultBack(t *testing.T) {
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawResult})
 	defer func() { _ = svc.DB.Close() }()
-	if _, err := svc.Ask("count my transactions"); err != nil {
+	if _, err := ask(svc, "count my transactions"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(sawResult, "TOOL RESULT") || !strings.Contains(sawResult, "columns") {
@@ -173,28 +179,28 @@ func (c *captureAgent) CompleteStructured(req *ai.StructuredRequest) (string, *a
 	return c.inner.CompleteStructured(req)
 }
 
-func TestAgentFallsBackToLegacyPipeline(t *testing.T) {
-	svc := newAgentService(t, &brokenAgentProvider{})
+// A model that never replies with an action ends in an error worded for
+// the person asking, once the rounds and the forced final call are spent.
+func TestAgentGivesUpOnUnreadableReplies(t *testing.T) {
+	provider := &proseProvider{}
+	svc := newAgentService(t, provider)
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("How much have I spent on Transport over the past year?")
-	if err != nil {
-		t.Fatal(err)
+	ans, err := ask(svc, "How much have I spent on Transport over the past year?")
+	var none *NoAnswerError
+	if !errors.As(err, &none) || ans != nil {
+		t.Fatalf("ans = %+v, err = %v, want a NoAnswerError", ans, err)
 	}
-	if ans.Plan == nil {
-		t.Error("expected the legacy plan pipeline to produce the answer")
-	}
-	if len(ans.Widgets) != 1 {
-		t.Errorf("widgets = %d, want 1", len(ans.Widgets))
+	if provider.calls != agentMaxRounds+1 {
+		t.Errorf("calls = %d, want %d", provider.calls, agentMaxRounds+1)
 	}
 }
 
-type brokenAgentProvider struct{ ai.Mock }
+type proseProvider struct{ calls int }
 
-func (p brokenAgentProvider) CompleteStructured(req *ai.StructuredRequest) (string, *ai.Usage, error) {
-	if req.Capability == "query_agent" {
-		return "sorry, I cannot answer that in JSON", nil, nil
-	}
-	return p.Mock.CompleteStructured(req)
+func (p *proseProvider) Name() string { return "prose" }
+func (p *proseProvider) CompleteStructured(*ai.StructuredRequest) (string, *ai.Usage, error) {
+	p.calls++
+	return "sorry, I cannot answer that in JSON", nil, nil
 }
 
 func TestSanitizeWidgets(t *testing.T) {
@@ -420,7 +426,7 @@ func TestListAnswerEmptyTextWithTransactionsWidget(t *testing.T) {
 	}}
 	svc := newAgentService(t, provider)
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("list my recent transactions")
+	ans, err := ask(svc, "list my recent transactions")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,14 +463,14 @@ func TestWidgetSpecNormalisation(t *testing.T) {
 	}
 }
 
-func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
+func TestEmptyFinalRetriesOnce(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{
 		`{"action":"final","text":"","widgets":[]}`,
 		`{"action":"final","text":"","widgets":[{"type":"transactions","title":"Recent","sql":"SELECT date, description, amount_minor, type FROM transactions LIMIT 5"}]}`,
 	}}
 	svc := newAgentService(t, provider)
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("list my recent transactions")
+	ans, err := ask(svc, "list my recent transactions")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,28 +478,12 @@ func TestEmptyFinalRetriesThenLegacy(t *testing.T) {
 		t.Errorf("corrective retry failed: %+v", ans)
 	}
 
-	svc2 := newAgentService(t, &emptyThenBroken{})
+	empty := `{"action":"final","text":"","widgets":[]}`
+	svc2 := newAgentService(t, &ai.MockAgent{Replies: []string{empty, empty}})
 	defer func() { _ = svc2.DB.Close() }()
-	ans2, err := svc2.Ask("list my recent transactions")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := ask(svc2, "list my recent transactions"); !errors.Is(err, errNoAnswer) {
+		t.Errorf("err = %v, want errNoAnswer", err)
 	}
-	if ans2.Plan == nil {
-		t.Errorf("expected legacy fallback, got %+v", ans2)
-	}
-}
-
-type emptyThenBroken struct {
-	rounds int
-}
-
-func (p *emptyThenBroken) Name() string { return "empty-broken" }
-func (p *emptyThenBroken) CompleteStructured(req *ai.StructuredRequest) (string, *ai.Usage, error) {
-	if req.Capability == "query_agent" {
-		p.rounds++
-		return `{"action":"final","text":"","widgets":[]}`, nil, nil
-	}
-	return (&ai.Mock{}).CompleteStructured(req)
 }
 
 // A widget's query runs before the answer is shown; one that fails, or
@@ -507,7 +497,7 @@ func TestAgentWidgetCheckFeedsErrorsBack(t *testing.T) {
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("how much have I spent?")
+	ans, err := ask(svc, "how much have I spent?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +518,7 @@ func TestAgentWidgetCheckGivesUp(t *testing.T) {
 	provider := &ai.MockAgent{Replies: []string{snapshot, snapshot, snapshot}}
 	svc := newAgentService(t, provider)
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("how much have I spent?")
+	ans, err := ask(svc, "how much have I spent?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +530,7 @@ func TestAgentWidgetCheckGivesUp(t *testing.T) {
 func TestRunSpecDatesAndFormats(t *testing.T) {
 	svc := newAgentService(t, nil)
 	defer func() { _ = svc.DB.Close() }()
-	sp := ParseSpec(`{"v":2,"sql":"SELECT COUNT(*) AS n, SUM(-amount_minor) AS spend, SUM(-amount_minor) * 1.0 / 24000 AS share FROM transactions WHERE date BETWEEN :from AND :to","columns":{"n":"number","spend":"money","share":{"label":"Share","format":"percent"}},"caption":"on buses"}`)
+	sp := ParseSpec(`{"v":1,"sql":"SELECT COUNT(*) AS n, SUM(-amount_minor) AS spend, SUM(-amount_minor) * 1.0 / 24000 AS share FROM transactions WHERE date BETWEEN :from AND :to","columns":{"n":"number","spend":"money","share":{"label":"Share","format":"percent"}},"caption":"on buses"}`)
 	if sp == nil || !sp.UsesDates() {
 		t.Fatalf("spec = %+v", sp)
 	}
@@ -595,7 +585,7 @@ func TestAgentDraftsGroupRule(t *testing.T) {
 	}}
 	svc := newAgentService(t, &captureAgent{inner: provider, capture: &sawCheck})
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("group my bus trips")
+	ans, err := ask(svc, "group my bus trips")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,7 +614,7 @@ func TestAgentDraftsChange(t *testing.T) {
 	defer func() { _ = svc.DB.Close() }()
 	var before int
 	_ = svc.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE deleted_at IS NULL`).Scan(&before)
-	ans, err := svc.Ask("delete my bus trips")
+	ans, err := ask(svc, "delete my bus trips")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -659,7 +649,7 @@ func TestAgentDraftsValuation(t *testing.T) {
 		VALUES ('a2','ISA','savings','#0e6f51','GBP','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
-	ans, err := svc.Ask("the balance in my ISA is 50,000")
+	ans, err := ask(svc, "the balance in my ISA is 50,000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,7 +677,7 @@ func TestAgentDraftsTransferLinking(t *testing.T) {
 		`{"action":"final","text":"Press Link to link them.","widgets":[{"type":"link_transfers"}]}`,
 	}})
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("run transaction linking")
+	ans, err := ask(svc, "run transaction linking")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -754,14 +744,14 @@ func (p *badThenScripted) CompleteStructured(req *ai.StructuredRequest) (string,
 }
 
 // A reply with no JSON goes back to the model as invalid instead of ending
-// the agent (which would fall back to the old planner).
+// the answer.
 func TestAgentRetriesAfterReplyWithNoJSON(t *testing.T) {
 	provider := &badThenScripted{MockAgent: ai.MockAgent{Replies: []string{
 		`{"action":"final","text":"£50.00 on transport.","widgets":[]}`,
 	}}}
 	svc := newAgentService(t, provider)
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.AskAgentWindow("transport spend", nil, nil)
+	ans, err := ask(svc, "transport spend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -892,7 +882,7 @@ func TestAgentDraftsDebitBalance(t *testing.T) {
 	}}
 	svc := newAgentService(t, provider)
 	defer func() { _ = svc.DB.Close() }()
-	ans, err := svc.Ask("my main balance is 85.99")
+	ans, err := ask(svc, "my main balance is 85.99")
 	if err != nil {
 		t.Fatal(err)
 	}

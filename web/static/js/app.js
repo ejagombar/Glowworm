@@ -938,7 +938,7 @@ function sendChat(text) {
     }
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
-    let buf = "", out = { text: "", steps: [], widgets: [], isError: false, suggestions: [] };
+    let buf = "", out = { text: "", steps: [], widgets: [], isError: false };
     let finished = false;
     try {
       for (;;) {
@@ -966,7 +966,6 @@ function sendChat(text) {
             out.text = ev.message || "Query failed.";
             out.isError = true;
             out.steps = [];
-            out.suggestions = ev.suggestions || [];
           }
         }
       }
@@ -996,7 +995,6 @@ function pinWidget(card, btn) {
     title: card.dataset.widgetTitle || "",
     type: card.dataset.widgetType || "bar",
     data: card.dataset.widgetData ? JSON.parse(card.dataset.widgetData) : null,
-    dataset: card.dataset.widgetDataset ? JSON.parse(card.dataset.widgetDataset) : null,
     plan: card.dataset.widgetPlan ? JSON.parse(card.dataset.widgetPlan) : null,
   };
   fetch("/api/v1/widgets/pinned", {
@@ -1069,18 +1067,12 @@ function fmtAssistantText(text) {
 
 function finishAssistant(pending, out) {
   out = out || {};
-  const { text = "", steps = [], widgets = [], isError = false, suggestions = [] } = out;
+  const { text = "", steps = [], widgets = [], isError = false } = out;
   const loader = pending.querySelector(".glowworm-loader");
   const reveal = () => {
     let content = "";
-    const errCls = isError && !(suggestions && suggestions.length) ? " msg-error" : "";
-    if (text) content += `<div class="msg-text${errCls}">${fmtAssistantText(text)}</div>`;
+    if (text) content += `<div class="msg-text${isError ? " msg-error" : ""}">${fmtAssistantText(text)}</div>`;
     if (!isError && steps && steps.length) content += msgReasonHTML(steps);
-    if (suggestions && suggestions.length) {
-      content += `<div class="msg-suggestions">${suggestions
-        .map((s) => `<button class="chip" data-chat-suggest="${esc(s)}">${esc(s)}</button>`)
-        .join("")}</div>`;
-    }
     if (!isError && widgets) {
       for (const w of widgets) content += widgetCardHTML(w);
     }
@@ -1142,7 +1134,6 @@ function widgetCardHTML(widget) {
   el.dataset.widgetTitle = widget.title || "";
   el.dataset.widgetData = JSON.stringify(widget.data || {});
   if (widget.plan) el.dataset.widgetPlan = JSON.stringify(widget.plan);
-  if (widget.dataset) el.dataset.widgetDataset = JSON.stringify(widget.dataset);
   el.innerHTML = `
     <div class="widget-head">
       <div class="widget-title">${esc(widget.title || "Widget")}</div>

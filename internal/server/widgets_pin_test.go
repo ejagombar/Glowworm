@@ -21,13 +21,9 @@ func TestPinRequiresASavedQuery(t *testing.T) {
 	if rec := c.do("POST", "/api/v1/widgets/pinned", "application/json", snapshot); rec.Code != 400 || !strings.Contains(rec.Body.String(), "no saved query") {
 		t.Errorf("pinning a chart with no query: %d %s", rec.Code, rec.Body)
 	}
-	live := `{"title":"Spend","type":"bar","data":{},"plan":{"v":2,"sql":"SELECT 'a' AS label, 1 AS n"}}`
+	live := `{"title":"Spend","type":"bar","data":{},"plan":{"v":1,"sql":"SELECT 'a' AS label, 1 AS n"}}`
 	if code := pin(live); code != 200 {
 		t.Errorf("pinning a chart with a saved query: %d", code)
-	}
-	older := `{"title":"Spend","type":"bar","data":{},"plan":{"v":1,"metric":"spend","breakdown":"category"}}`
-	if code := pin(older); code != 200 {
-		t.Errorf("pinning a chart with an older plan: %d", code)
 	}
 	if code := pin(`{"title":"Note","type":"text","data":{"body":"Hi"}}`); code != 200 {
 		t.Errorf("pinning text: %d", code)

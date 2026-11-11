@@ -237,7 +237,7 @@ CREATE TABLE pinned_widgets (
   rows        INTEGER NOT NULL DEFAULT 4,
   title       TEXT NOT NULL,
   type        TEXT NOT NULL,
-  dataset     TEXT NOT NULL,
+  data        TEXT NOT NULL,
   plan        TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
@@ -256,8 +256,6 @@ CREATE TABLE messages (
   text            TEXT NOT NULL DEFAULT '',
   steps           TEXT NOT NULL DEFAULT '[]',
   widget          TEXT,
-  dataset         TEXT,
-  plan            TEXT,
   created_at      TEXT NOT NULL
 );
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, created_at);
