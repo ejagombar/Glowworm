@@ -391,23 +391,6 @@ func (r *Transactions) transferByID(id string, liveOnly bool) (*core.Transfer, e
 	return &tr, nil
 }
 
-func (r *Transactions) TransferByPeerTx(txID string) (*core.Transfer, error) {
-	var tr core.Transfer
-	var conf sql.NullFloat64
-	var deletedAt sql.NullString
-	err := r.DB.QueryRow(`SELECT id, source_transaction_id, destination_transaction_id, detected, method, confidence, created_at, deleted_at
-		FROM transfers WHERE (source_transaction_id = ? OR destination_transaction_id = ?) AND deleted_at IS NULL`, txID, txID).
-		Scan(&tr.ID, &tr.SourceTxID, &tr.DestinationTxID, &tr.Detected, &tr.Method, &conf, &tr.CreatedAt, &deletedAt)
-	if err != nil {
-		return nil, err
-	}
-	if conf.Valid {
-		f := conf.Float64
-		tr.Confidence = &f
-	}
-	return &tr, nil
-}
-
 func (r *Transactions) UnlinkedCandidates(accountID string, from, to string) ([]*core.Transaction, error) {
 	q := `SELECT ` + txCols + ` FROM transactions t
 		WHERE t.deleted_at IS NULL AND t.transfer_id IS NULL
@@ -508,19 +491,6 @@ func (r *Transactions) RecurringSeries(key string) ([]*core.Transaction, error) 
 		return nil, err
 	}
 	return r.enrich(rows)
-}
-
-func (r *Transactions) ClearRecurringKeys(tx *sql.Tx, keys []string) error {
-	if len(keys) == 0 {
-		return nil
-	}
-	ph := strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")
-	args := make([]any, len(keys))
-	for i, k := range keys {
-		args[i] = k
-	}
-	_, err := exec(r.DB, tx, `UPDATE transactions SET recurring_key = NULL WHERE recurring_key IN (`+ph+`)`, args...)
-	return err
 }
 
 type DisplayRow struct {

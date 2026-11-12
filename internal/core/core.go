@@ -2,7 +2,6 @@ package core
 
 import (
 	"regexp"
-	"time"
 )
 
 const (
@@ -227,15 +226,6 @@ type DiffLine struct {
 	Cls  string `json:"cls"`
 }
 
-type AuditPath struct {
-	ID           string  `json:"id"`
-	ParentPathID *string `json:"parent_path_id"`
-	ForkEntryID  *int64  `json:"fork_entry_id"`
-	Label        string  `json:"label"`
-	IsActive     bool    `json:"is_active"`
-	CreatedAt    string  `json:"created_at"`
-}
-
 type Conversation struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -269,5 +259,3 @@ func (t *Transaction) RecurringLabel() string {
 	}
 	return ""
 }
-
-var _ = time.Now

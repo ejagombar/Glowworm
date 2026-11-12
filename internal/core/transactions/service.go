@@ -2,7 +2,6 @@ package transactions
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 
 	"glowworm/internal/clock"
@@ -32,10 +31,6 @@ type ConflictError struct{ Description string }
 
 func (e *ConflictError) Error() string {
 	return "“" + e.Description + "” was changed somewhere else after you opened it. Reload to see the change, then edit again."
-}
-
-func (s *Service) Display(f repos.ListFilter, accountID string) ([]*repos.DisplayRow, error) {
-	return s.Repos.DisplayRows(f, accountID)
 }
 
 func (s *Service) InternalCategoryID() (string, error) {
@@ -412,8 +407,6 @@ func (s *Service) accountName(id string) string {
 	}
 	return name
 }
-
-func IsNotFound(err error) bool { return errors.Is(err, sql.ErrNoRows) }
 
 func (s *Service) Get(id string) (*core.Transaction, error) {
 	return s.Repos.Get(id)

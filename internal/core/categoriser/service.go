@@ -3,7 +3,6 @@ package categoriser
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	"glowworm/internal/ai"
 	"glowworm/internal/classifier"
@@ -12,6 +11,7 @@ import (
 	"glowworm/internal/core/normalize"
 	"glowworm/internal/store"
 	"glowworm/internal/store/repos"
+	"glowworm/internal/util"
 )
 
 type Service struct {
@@ -22,8 +22,6 @@ type Service struct {
 	Provider   ai.Provider
 	Model      *classifier.Model
 }
-
-func utilNow() string { return time.Now().UTC().Format(time.RFC3339) }
 
 func (s *Service) RefreshRules() error {
 	return s.DB.WithTx(func(tx *sql.Tx) error {
@@ -60,7 +58,7 @@ func (s *Service) RefreshRules() error {
 			}
 			if total >= 2 && float64(bestN)/float64(total) >= 0.6 {
 				if _, err := tx.Exec(`INSERT OR REPLACE INTO category_rules (pattern, category_id, votes, updated_at)
-					VALUES (?,?,?,?)`, pattern, best, bestN, utilNow()); err != nil {
+					VALUES (?,?,?,?)`, pattern, best, bestN, util.NowStr()); err != nil {
 					return err
 				}
 			}
@@ -93,7 +91,7 @@ func (s *Service) TrainFromUserRows() (*classifier.Model, error) {
 	}
 	var version int
 	_ = s.DB.QueryRow(`SELECT COALESCE(MAX(version),0)+1 FROM classifier_models`).Scan(&version)
-	model, err := classifier.Train(samples, version, utilNow())
+	model, err := classifier.Train(samples, version, util.NowStr())
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +100,7 @@ func (s *Service) TrainFromUserRows() (*classifier.Model, error) {
 		return nil, err
 	}
 	_, err = s.DB.Exec(`INSERT INTO classifier_models (version, trained_at, training_count, payload, metrics)
-		VALUES (?,?,?,?,?)`, version, utilNow(), len(samples), payload, "{}")
+		VALUES (?,?,?,?,?)`, version, util.NowStr(), len(samples), payload, "{}")
 	if err != nil {
 		return nil, err
 	}

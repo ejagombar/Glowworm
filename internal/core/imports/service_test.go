@@ -487,7 +487,7 @@ func TestImportDecodesHTMLEntities(t *testing.T) {
 	csv := "Date,Description,Payee,Amount\n2026-06-01,Marks &amp; Spencer,B&amp;Q &lt;Ltd&gt;,-10.00\n2026-06-02,Marks &amp; Spencer,,-7.00\n"
 	if _, err := s.DB.Exec(`INSERT INTO transactions (id, account_id, date, description, amount_minor, currency, type, dedupe_hash, created_at, updated_at)
 		VALUES ('old','acc-main','2026-06-02','Marks & Spencer',-700,'GBP','expense',?,'2026-06-03T00:00:00Z','2026-06-03T00:00:00Z')`,
-		repos.DedupeHash("acc-main", "2026-06-02", -700, "Marks &amp; Spencer")); err != nil {
+		repos.DedupeHash("acc-main", "2026-06-02", -700, "Marks & Spencer")); err != nil {
 		t.Fatal(err)
 	}
 	acc := "acc-main"

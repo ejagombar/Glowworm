@@ -76,10 +76,6 @@ func All(db *sql.DB, date string) (map[string]int64, error) {
 	return out, nil
 }
 
-func SumTransactions(db *sql.DB, accountID, fromExclusive, toInclusive string) (int64, error) {
-	return sumTransactions(db, accountID, fromExclusive, toInclusive)
-}
-
 func sumTransactions(db *sql.DB, accountID, fromExclusive, toInclusive string) (int64, error) {
 	q := `SELECT COALESCE(SUM(amount_minor),0) FROM transactions
 		WHERE account_id = ? AND deleted_at IS NULL AND date <= ?`

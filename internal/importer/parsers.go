@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
@@ -366,16 +365,3 @@ func StructuredTable(kind Kind, data []byte) ([][]string, error) {
 	}
 	return QIFTable(data)
 }
-
-func atoi(s string) int {
-	n := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return n
-		}
-		n = n*10 + int(s[i]-'0')
-	}
-	return n
-}
-
-var _ = strconv.Itoa

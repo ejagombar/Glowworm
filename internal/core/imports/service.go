@@ -535,15 +535,9 @@ func (s *Service) stageRows(batchID string, rows []importer.Row) (int, error) {
 // duplicateOf is the id of a transaction already in the account that a
 // staged row repeats, or nil.
 func duplicateOf(tx *sql.Tx, accountID, date string, amount int64, desc string) any {
-	// Transactions imported before descriptions were unescaped keep the hash
-	// of their escaped description, so a re-import must match that too.
-	hashes := []any{repos.DedupeHash(accountID, date, amount, desc)}
-	if escaped := strings.ReplaceAll(desc, "&", "&amp;"); escaped != desc {
-		hashes = append(hashes, repos.DedupeHash(accountID, date, amount, escaped))
-	}
 	var existing string
-	err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash IN (?`+strings.Repeat(",?", len(hashes)-1)+`)
-		AND deleted_at IS NULL LIMIT 1`, append([]any{accountID}, hashes...)...).Scan(&existing)
+	err := tx.QueryRow(`SELECT id FROM transactions WHERE account_id = ? AND dedupe_hash = ?
+		AND deleted_at IS NULL LIMIT 1`, accountID, repos.DedupeHash(accountID, date, amount, desc)).Scan(&existing)
 	if err != nil {
 		return nil
 	}

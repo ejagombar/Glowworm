@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"glowworm/internal/ai"
+	"glowworm/internal/util"
 )
 
 type DayEntry struct {
@@ -163,7 +164,7 @@ func (s *Service) SummariseDay(day string) (string, error) {
 	if summary == "" {
 		return "", fmt.Errorf("summary: empty model reply")
 	}
-	now := util_now()
+	now := util.NowStr()
 	var count int
 	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE substr(date(created_at,'localtime'),1,10) = ?`, day).Scan(&count)
 	if _, err := s.DB.Exec(`INSERT INTO chat_day_summaries (day, summary, message_count, created_at, updated_at)
@@ -174,8 +175,6 @@ func (s *Service) SummariseDay(day string) (string, error) {
 	}
 	return summary, nil
 }
-
-func util_now() string { return time.Now().UTC().Format(time.RFC3339) }
 
 func (s *Service) logCall(capability string, started time.Time, usage *ai.Usage, err error) {
 	model := ""
@@ -194,5 +193,5 @@ func (s *Service) logCall(capability string, started time.Time, usage *ai.Usage,
 	}
 	_, _ = s.DB.Exec(`INSERT INTO ai_calls (capability, provider, model, prompt_tokens, completion_tokens, latency_ms, ok, error, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?)`,
-		capability, provider, model, pt, ct, time.Since(started).Milliseconds(), errMsg == "", truncateChars(errMsg, 500), util_now())
+		capability, provider, model, pt, ct, time.Since(started).Milliseconds(), errMsg == "", truncateChars(errMsg, 500), util.NowStr())
 }

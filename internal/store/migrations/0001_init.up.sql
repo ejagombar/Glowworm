@@ -354,9 +354,7 @@ INSERT INTO settings (key, value, updated_at) VALUES
   ('cat_local_threshold',      '0.75',        '1970-01-01T00:00:00Z'),
   ('cat_ai_threshold',         '0.8',         '1970-01-01T00:00:00Z'),
   ('cat_min_examples',         '3',           '1970-01-01T00:00:00Z'),
-  ('transfer_threshold',       '0.7',         '1970-01-01T00:00:00Z'),
-  ('transfer_date_window_days','4',           '1970-01-01T00:00:00Z'),
-  ('ai_daily_token_cap',       '0',           '1970-01-01T00:00:00Z');
+  ('transfer_threshold',       '0.7',         '1970-01-01T00:00:00Z');
 
 INSERT INTO audit_paths (id, parent_path_id, fork_entry_id, label, is_active, created_at) VALUES
   ('main', NULL, NULL, 'Main', 1, '1970-01-01T00:00:00Z');

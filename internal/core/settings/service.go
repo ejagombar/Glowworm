@@ -2,6 +2,7 @@ package settings
 
 import (
 	"database/sql"
+	"strings"
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
@@ -10,18 +11,16 @@ import (
 )
 
 const (
-	KeyTheme           = "theme"
-	KeyCurrency        = "currency"
-	KeyUserName        = "user_name"
-	KeyDefaultPeriod   = "default_period"
-	KeyPrivacyDefault  = "privacy_default"
-	KeySetupCompleted  = "setup_completed"
-	KeyCatLocalThresh  = "cat_local_threshold"
-	KeyCatAIThresh     = "cat_ai_threshold"
-	KeyCatMinExamples  = "cat_min_examples"
-	KeyTransferThresh  = "transfer_threshold"
-	KeyTransferWindow  = "transfer_date_window_days"
-	KeyAIDailyTokenCap = "ai_daily_token_cap"
+	KeyTheme          = "theme"
+	KeyCurrency       = "currency"
+	KeyUserName       = "user_name"
+	KeyDefaultPeriod  = "default_period"
+	KeyPrivacyDefault = "privacy_default"
+	KeySetupCompleted = "setup_completed"
+	KeyCatLocalThresh = "cat_local_threshold"
+	KeyCatAIThresh    = "cat_ai_threshold"
+	KeyCatMinExamples = "cat_min_examples"
+	KeyTransferThresh = "transfer_threshold"
 )
 
 var notAudited = map[string]bool{
@@ -36,34 +35,22 @@ type Service struct {
 }
 
 type Snapshot struct {
-	Theme           string
-	Currency        string
-	UserName        string
-	DefaultPeriod   string
-	PrivacyDefault  bool
-	SetupCompleted  bool
-	CatLocalThresh  float64
-	CatAIThresh     float64
-	CatMinExamples  int
-	TransferThresh  float64
-	TransferWindow  int
-	AIDailyTokenCap int
+	Theme          string
+	Currency       string
+	UserName       string
+	DefaultPeriod  string
+	PrivacyDefault bool
+	SetupCompleted bool
 }
 
 func (s *Service) Get() *Snapshot {
 	return &Snapshot{
-		Theme:           s.Repos.GetString(KeyTheme),
-		Currency:        s.Repos.GetString(KeyCurrency),
-		UserName:        s.Repos.GetString(KeyUserName),
-		DefaultPeriod:   s.Repos.GetString(KeyDefaultPeriod),
-		PrivacyDefault:  s.Repos.GetBool(KeyPrivacyDefault),
-		SetupCompleted:  s.Repos.GetBool(KeySetupCompleted),
-		CatLocalThresh:  s.Repos.GetFloat(KeyCatLocalThresh, 0.75),
-		CatAIThresh:     s.Repos.GetFloat(KeyCatAIThresh, 0.8),
-		CatMinExamples:  int(s.Repos.GetFloat(KeyCatMinExamples, 3)),
-		TransferThresh:  s.Repos.GetFloat(KeyTransferThresh, 0.7),
-		TransferWindow:  int(s.Repos.GetFloat(KeyTransferWindow, 4)),
-		AIDailyTokenCap: int(s.Repos.GetFloat(KeyAIDailyTokenCap, 0)),
+		Theme:          s.Repos.GetString(KeyTheme),
+		Currency:       s.Repos.GetString(KeyCurrency),
+		UserName:       s.Repos.GetString(KeyUserName),
+		DefaultPeriod:  s.Repos.GetString(KeyDefaultPeriod),
+		PrivacyDefault: s.Repos.GetBool(KeyPrivacyDefault),
+		SetupCompleted: s.Repos.GetBool(KeySetupCompleted),
 	}
 }
 
@@ -76,7 +63,7 @@ func (s *Service) Patch(m map[string]any) error {
 		KeyTheme: true, KeyCurrency: true, KeyUserName: true, KeyDefaultPeriod: true,
 		KeyPrivacyDefault: true, KeySetupCompleted: true,
 		KeyCatLocalThresh: true, KeyCatAIThresh: true, KeyCatMinExamples: true,
-		KeyTransferThresh: true, KeyTransferWindow: true, KeyAIDailyTokenCap: true,
+		KeyTransferThresh: true,
 	}
 	return s.DB.WithTx(func(tx *sql.Tx) error {
 		var audited []string
@@ -96,7 +83,7 @@ func (s *Service) Patch(m map[string]any) error {
 				Actor: core.ActorUser, Action: "settings.updated",
 				EntityType: "settings", EntityID: "app",
 				Title: "Updated settings",
-				Sub:   "Changed: " + joinKeys(audited),
+				Sub:   "Changed: " + strings.Join(audited, ", "),
 				After: audited,
 			})
 			if err != nil {
@@ -105,15 +92,4 @@ func (s *Service) Patch(m map[string]any) error {
 		}
 		return nil
 	})
-}
-
-func joinKeys(keys []string) string {
-	out := ""
-	for i, k := range keys {
-		if i > 0 {
-			out += ", "
-		}
-		out += k
-	}
-	return out
 }

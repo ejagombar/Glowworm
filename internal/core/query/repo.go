@@ -13,14 +13,12 @@ import (
 type ConvRepo struct{ DB *store.DB }
 
 func (r *ConvRepo) CreateConversation(title string) (*core.Conversation, error) {
-	c := &core.Conversation{ID: util.NewID(), Title: title, CreatedAt: util.NowStr(), UpdatedAt: c0()}
+	c := &core.Conversation{ID: util.NewID(), Title: title, CreatedAt: util.NowStr(), UpdatedAt: util.NowStr()}
 	c.UpdatedAt = c.CreatedAt
 	_, err := r.DB.Exec(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?,?,?,?)`,
 		c.ID, c.Title, c.CreatedAt, c.UpdatedAt)
 	return c, err
 }
-
-func c0() string { return util.NowStr() }
 
 func (r *ConvRepo) AddMessage(conversationID, role, text string, steps []string, widget *string) (*core.Message, error) {
 	stepsJSON := "[]"

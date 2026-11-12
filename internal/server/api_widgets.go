@@ -29,13 +29,17 @@ func (a *App) viewWindow(period, from, to string) *query.TimeWindow {
 	return &query.TimeWindow{From: f, To: t, Label: label}
 }
 
-func (a *App) askQueryWindow(in struct {
+// queryRequest is a question for the Queries page, asked in a conversation
+// (a new one when ConversationID is empty) over the page's period.
+type queryRequest struct {
 	Text           string  `json:"text"`
 	ConversationID *string `json:"conversation_id"`
 	Period         string  `json:"period"`
 	From           string  `json:"from"`
 	To             string  `json:"to"`
-}, onStep func(string)) (*query.Answer, string, error) {
+}
+
+func (a *App) askQueryWindow(in queryRequest, onStep func(string)) (*query.Answer, string, error) {
 	win := a.viewWindow(in.Period, in.From, in.To)
 	text := in.Text
 	var conv *core.Conversation
@@ -89,13 +93,7 @@ func marshalAny(v any) string {
 }
 
 func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		Text           string  `json:"text"`
-		ConversationID *string `json:"conversation_id"`
-		Period         string  `json:"period"`
-		From           string  `json:"from"`
-		To             string  `json:"to"`
-	}
+	var in queryRequest
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}

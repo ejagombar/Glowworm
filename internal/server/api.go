@@ -30,10 +30,6 @@ import (
 	"glowworm/internal/store/repos"
 )
 
-func timeNow() time.Time { return time.Now() }
-
-type repos_ListFilter = repos.ListFilter
-
 func verifyPassword(password, hash string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
@@ -322,9 +318,9 @@ func (a *App) apiValuationDelete(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *App) txFilter(r *http.Request) (repos_ListFilter, string) {
+func (a *App) txFilter(r *http.Request) (repos.ListFilter, string) {
 	q := r.URL.Query()
-	f := repos_ListFilter{
+	f := repos.ListFilter{
 		Q:          q.Get("q"),
 		CategoryID: q.Get("category_id"),
 		Type:       q.Get("type"),
@@ -942,8 +938,8 @@ func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	key := decodeKey(a.Secret, keyCipher)
-	cat, _ := ai.New(in.Provider, modelFor(models, modelRoleCategorisation), baseURL, key)
-	queries, _ := ai.New(in.Provider, modelFor(models, modelRoleQueries), baseURL, key)
+	cat, _ := ai.New(in.Provider, models[modelRoleCategorisation], baseURL, key)
+	queries, _ := ai.New(in.Provider, models[modelRoleQueries], baseURL, key)
 	a.setProviders(cat, queries)
 	writeJSON(w, map[string]any{"ok": true})
 	return nil
@@ -1027,7 +1023,7 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 	tested := map[string]bool{}
 	latency := 0
 	for _, role := range []string{modelRoleQueries, modelRoleCategorisation} {
-		model := modelFor(row.Models, role)
+		model := row.Models[role]
 		if tested[model] {
 			continue
 		}
@@ -1037,12 +1033,12 @@ func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return nil
 		}
-		start := timeNow()
+		start := time.Now()
 		_, _, err = p.CompleteStructured(&ai.StructuredRequest{
 			Capability: "schema_naming",
 			PromptJSON: map[string]any{"columns": []string{"Date", "Description", "Amount"}, "bank_hint": "Test"},
 		})
-		ms := int(timeNow().Sub(start).Milliseconds())
+		ms := int(time.Since(start).Milliseconds())
 		if err != nil {
 			modelLabel := model
 			if modelLabel == "" {

@@ -977,8 +977,8 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	if aiRow != nil {
 		data.AIHasKey = aiRow.KeyCipher != ""
 		data.AIBaseURL = aiRow.BaseURL
-		data.AIQueriesModel = modelFor(aiRow.Models, modelRoleQueries)
-		data.AICatModel = modelFor(aiRow.Models, modelRoleCategorisation)
+		data.AIQueriesModel = aiRow.Models[modelRoleQueries]
+		data.AICatModel = aiRow.Models[modelRoleCategorisation]
 	}
 	return a.Render.Render(w, "settings", data)
 }

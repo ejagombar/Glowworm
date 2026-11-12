@@ -49,17 +49,3 @@ func stripSuffixes(s string) string {
 	}
 	return s
 }
-
-func Tokens(desc string) []string {
-	return strings.Fields(Text(desc))
-}
-
-func Bigrams(desc string) []string {
-	toks := strings.Fields(Text(desc))
-	out := make([]string, 0, len(toks)*2)
-	out = append(out, toks...)
-	for i := 0; i+1 < len(toks); i++ {
-		out = append(out, toks[i]+"_"+toks[i+1])
-	}
-	return out
-}

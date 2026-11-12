@@ -6,11 +6,6 @@ import (
 	"glowworm/internal/store"
 )
 
-type DBTX interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
-}
-
 type Scanner interface {
 	Scan(dest ...any) error
 }

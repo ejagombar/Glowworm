@@ -222,19 +222,11 @@ func (a *App) startMidnightSummariser(log *slog.Logger) {
 	}()
 }
 
-// Models are chosen per role; either falls back to the older single
-// "default" model.
+// Models are chosen per role.
 const (
 	modelRoleCategorisation = "categorisation"
 	modelRoleQueries        = "queries"
 )
-
-func modelFor(models map[string]string, role string) string {
-	if m := models[role]; m != "" {
-		return m
-	}
-	return models["default"]
-}
 
 // resolveProviders returns the provider for import/categorisation work and
 // the one for the Queries page; they differ only in model.
@@ -259,12 +251,12 @@ func resolveProviders(db *store.DB, secret *crypto.Secret, log *slog.Logger) (ca
 			log.Error("ai key decryption failed", "err", err)
 		}
 	}
-	cat, err = ai.New(provider, modelFor(modelMap, modelRoleCategorisation), baseURL, apiKey)
+	cat, err = ai.New(provider, modelMap[modelRoleCategorisation], baseURL, apiKey)
 	if err != nil {
 		log.Error("ai provider", "err", err)
 		return nil, nil
 	}
-	queries, _ = ai.New(provider, modelFor(modelMap, modelRoleQueries), baseURL, apiKey)
+	queries, _ = ai.New(provider, modelMap[modelRoleQueries], baseURL, apiKey)
 	return cat, queries
 }
 

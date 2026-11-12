@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"glowworm/internal/clock"
@@ -143,7 +144,7 @@ func (s *Service) find() ([]*Pair, error) {
 				method = "marked"
 			} else {
 				for _, kw := range lexicon {
-					if strings_contains(text, kw) {
+					if kw != "" && strings.Contains(text, kw) {
 						score += scoreKeywords
 						method = "description"
 						break
@@ -231,24 +232,11 @@ func normalizeIdentifier(s string) string {
 
 func matchesIdentifier(text string, fragments []string) bool {
 	for _, f := range fragments {
-		if f != "" && strings_contains(text, f) {
+		if f != "" && strings.Contains(text, f) {
 			return true
 		}
 	}
 	return false
-}
-
-func strings_contains(s, sub string) bool {
-	return len(sub) > 0 && len(s) >= len(sub) && indexOf(s, sub) >= 0
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }
 
 func dateGap(a, b string) int {
@@ -455,8 +443,6 @@ func shiftDate(date string, days int) string {
 	}
 	return t.AddDate(0, 0, days).Format("2006-01-02")
 }
-
-var _ = normalize.Text
 
 func (s *Service) CounterpartOf(txID string) (*core.Transaction, error) {
 	t, err := s.Txs.Get(txID)
