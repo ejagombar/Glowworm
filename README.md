@@ -85,16 +85,8 @@ cmd/glowworm/          entrypoint (serve | backup | restore | version | healthch
 internal/              config, store (+migrations), repos, core services,
                        classifier, importer, ai, server (HTTP + templates)
 web/static/            css, js, fonts
-docs/design/           the original design specification
 deploy/                Dockerfile, compose, NGINX, systemd
 ```
-
-## Design & development
-
-The product was first specified in `docs/design/` — start at
-[`docs/design/README.md`](docs/design/README.md), which lists where the
-implementation has since diverged. The running app
-(`web/static/` + `internal/render/templates/`) is the visual reference.
 
 ## License
 
