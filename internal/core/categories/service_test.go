@@ -1,7 +1,6 @@
 package categories_test
 
 import (
-	"database/sql"
 	"strings"
 	"testing"
 
@@ -64,7 +63,7 @@ func TestDescriptionKeptClearedAndUndone(t *testing.T) {
 	if err := db.QueryRow(`SELECT MAX(id) FROM audit_entries WHERE action = 'category.updated'`).Scan(&entry); err != nil {
 		t.Fatal(err)
 	}
-	x := &auditexec.Executor{DB: db, Categories: cats, InternalCat: func(*sql.Tx) (string, error) { return "", nil }}
+	x := &auditexec.Executor{DB: db, Categories: cats}
 	if _, err := audit.NewEngine(db, w).Undo(entry, x.Apply); err != nil {
 		t.Fatal(err)
 	}

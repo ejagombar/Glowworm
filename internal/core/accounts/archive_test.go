@@ -61,7 +61,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f.shopTx, f.outTx, f.inTx = shop.ID, out.ID, in.ID
 	tr := &core.Transfer{SourceTxID: out.ID, DestinationTxID: in.ID, Detected: "manual", Method: "manual"}
-	must(f.s.Txs.CreateTransfer(nil, tr, out, in, "c-system-internal"))
+	must(f.s.Txs.CreateTransfer(nil, tr, out, in))
 	f.transferID = tr.ID
 	_, err = f.s.CreateValuation(f.main, ValuationInput{ValueMinor: 100000, Date: "2026-06-03"}, "manual")
 	must(err)

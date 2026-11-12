@@ -264,10 +264,6 @@ func (s *Service) Delete(id string) (*Archive, error) {
 // Foreign keys aren't enforced on every pooled connection (see store.Open), so
 // dependents are deleted explicitly instead of relying on ON DELETE CASCADE.
 func purgeAccount(tx *sql.Tx, id string) error {
-	internalCat, err := internalCategoryID(tx)
-	if err != nil {
-		return err
-	}
 	const legs = `SELECT id FROM transactions WHERE account_id = ?`
 	if _, err := tx.Exec(`UPDATE transactions SET
 			type = CASE WHEN amount_minor > 0 THEN 'income' ELSE 'expense' END,
@@ -279,7 +275,7 @@ func purgeAccount(tx *sql.Tx, id string) error {
 		WHERE account_id != ? AND id IN (
 			SELECT source_transaction_id FROM transfers WHERE destination_transaction_id IN (`+legs+`)
 			UNION SELECT destination_transaction_id FROM transfers WHERE source_transaction_id IN (`+legs+`))`,
-		internalCat, internalCat, internalCat, util.NowStr(), id, id, id); err != nil {
+		core.InternalTransferCategoryID, core.InternalTransferCategoryID, core.InternalTransferCategoryID, util.NowStr(), id, id, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM transfers WHERE source_transaction_id IN (`+legs+`)
@@ -372,10 +368,6 @@ func (s *Service) RestoreArchive(archiveID string) (*RestoredAccount, error) {
 			return err
 		}
 		res.CategoriesCreated = created
-		internalCat, err := internalCategoryID(tx)
-		if err != nil {
-			return err
-		}
 		now := util.NowStr()
 		if _, err := tx.Exec(`INSERT INTO accounts (id, name, type, color, currency, opening_balance_minor,
 			opening_balance_date, account_number, sort_code, iban, bic, notes, created_at, updated_at)
@@ -436,7 +428,7 @@ func (s *Service) RestoreArchive(archiveID string) (*RestoredAccount, error) {
 			for _, leg := range []string{src, dst} {
 				if _, err := tx.Exec(`UPDATE transactions SET type = 'transfer', transfer_id = ?, category_id = ?,
 					category_source = 'none', category_confidence = NULL, updated_at = ? WHERE id = ?`,
-					trID, nullIfEmpty(internalCat), now, leg); err != nil {
+					trID, core.InternalTransferCategoryID, now, leg); err != nil {
 					return err
 				}
 			}
@@ -445,7 +437,7 @@ func (s *Service) RestoreArchive(archiveID string) (*RestoredAccount, error) {
 		// Legs whose other side is gone stay transfers waiting to be paired
 		// again, so they stay out of spend and income.
 		if _, err := tx.Exec(`UPDATE transactions SET category_id = ?, category_source = 'none'
-			WHERE account_id = ? AND type = 'transfer' AND transfer_id IS NULL`, nullIfEmpty(internalCat), a.ID); err != nil {
+			WHERE account_id = ? AND type = 'transfer' AND transfer_id IS NULL`, core.InternalTransferCategoryID, a.ID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE import_batches SET account_id = ? WHERE account_id IS NULL
@@ -509,15 +501,6 @@ func mapCategories(tx *sql.Tx, cats []snapCategory) (map[string]string, []string
 		}
 	}
 	return out, created, nil
-}
-
-func internalCategoryID(q querier) (string, error) {
-	var id string
-	err := q.QueryRow(`SELECT id FROM categories WHERE name = 'Internal transfer' COLLATE NOCASE AND deleted_at IS NULL`).Scan(&id)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return id, err
 }
 
 func legFree(tx *sql.Tx, id string) bool {

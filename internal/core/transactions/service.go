@@ -33,14 +33,6 @@ func (e *ConflictError) Error() string {
 	return "“" + e.Description + "” was changed somewhere else after you opened it. Reload to see the change, then edit again."
 }
 
-func (s *Service) InternalCategoryID() (string, error) {
-	c, err := s.Categories.ByName("Internal transfer")
-	if err != nil {
-		return "", fmt.Errorf("system category missing: %w", err)
-	}
-	return c.ID, nil
-}
-
 func (s *Service) deriveType(categoryID *string, linked bool) string {
 	if linked {
 		return core.TypeTransfer
@@ -76,8 +68,7 @@ func (s *Service) eligibleCategory(txType string, categoryID *string) error {
 			return &ValidationError{Message: "Income can only use income categories"}
 		}
 	case core.TypeTransfer:
-		internal, _ := s.InternalCategoryID()
-		if *categoryID != internal {
+		if *categoryID != core.InternalTransferCategoryID {
 			return &ValidationError{Message: "Transfers are always the Internal transfer category"}
 		}
 	}

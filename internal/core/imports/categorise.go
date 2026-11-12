@@ -109,10 +109,6 @@ func (s *Service) CategoriseLocal(ctx context.Context, batchID string, emit func
 	if err != nil {
 		return err
 	}
-	internalCat, err := s.internalCategoryID()
-	if err != nil {
-		return err
-	}
 	cats, err := s.Cat.Categories.List()
 	if err != nil {
 		return err
@@ -132,7 +128,7 @@ func (s *Service) CategoriseLocal(ctx context.Context, batchID string, emit func
 				events = append(events, ev)
 				continue
 			}
-			catID, conf := s.decideLocal(g, rules, examples, catByID, internalCat, localThresh, minExamples)
+			catID, conf := s.decideLocal(g, rules, examples, catByID, localThresh, minExamples)
 			if catID == "" {
 				ev.NeedsReview = true
 				groups[i].CategoryID, groups[i].Source = "", core.CategorySourceNone
@@ -527,12 +523,11 @@ func (s *Service) decideLocal(
 	rules map[string]string,
 	examples map[string]int,
 	catByID map[string]*core.Category,
-	internalCat string,
 	localThresh float64,
 	minExamples int,
 ) (categoryID string, confidence float64) {
-	if g.Type == core.TypeTransfer && internalCat != "" {
-		return internalCat, 1.0
+	if g.Type == core.TypeTransfer {
+		return core.InternalTransferCategoryID, 1.0
 	}
 	allowed := map[string]bool{}
 	for id, cat := range catByID {
@@ -656,18 +651,6 @@ func (s *Service) loadExampleCounts() (map[string]int, error) {
 		out[id] = n
 	}
 	return out, rows.Err()
-}
-
-func (s *Service) internalCategoryID() (string, error) {
-	var id string
-	err := s.DB.QueryRow(`SELECT id FROM categories WHERE name = 'Internal transfer' COLLATE NOCASE AND deleted_at IS NULL`).Scan(&id)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("internal category lookup: %w", err)
-	}
-	return id, nil
 }
 
 func (s *Service) catThresholds() (local, aiT float64, minExamples int) {

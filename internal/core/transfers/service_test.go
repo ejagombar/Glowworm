@@ -19,7 +19,6 @@ func newService(t *testing.T) (*Service, string, string) {
 	s := &Service{
 		DB: db, Txs: &repos.Transactions{DB: db}, Accounts: &repos.Accounts{DB: db},
 		Audit: &audit.Writer{DB: db}, Settings: &repos.Settings{DB: db},
-		InternalCat: func() (string, error) { return "c-system-internal", nil },
 	}
 	current := &core.Account{Name: "Current", Type: core.AccountDebit, Currency: "GBP"}
 	broker := &core.Account{Name: "Broker", Type: core.AccountSavings, Currency: "GBP"}

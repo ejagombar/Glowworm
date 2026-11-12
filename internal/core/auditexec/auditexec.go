@@ -15,11 +15,10 @@ import (
 )
 
 type Executor struct {
-	DB          *store.DB
-	Accounts    *repos.Accounts
-	Categories  *repos.Categories
-	Txs         *repos.Transactions
-	InternalCat func(tx *sql.Tx) (string, error)
+	DB         *store.DB
+	Accounts   *repos.Accounts
+	Categories *repos.Categories
+	Txs        *repos.Transactions
 }
 
 func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
@@ -396,10 +395,6 @@ func (x *Executor) applyTransfer(tx *sql.Tx, ent *audit.AuditRow, before, after,
 	if transferID == "" {
 		transferID = str(after["transfer_id"])
 	}
-	internalCat, err := x.InternalCat(tx)
-	if err != nil {
-		return err
-	}
 	legsOf := func(m map[string]any) (string, string) {
 		legs, _ := m["legs"].([]any)
 		if len(legs) != 2 {
@@ -430,7 +425,7 @@ func (x *Executor) applyTransfer(tx *sql.Tx, ent *audit.AuditRow, before, after,
 			}
 			tr := &core.Transfer{SourceTxID: src.ID, DestinationTxID: dst.ID,
 				Detected: "manual", Method: "restore"}
-			return x.Txs.CreateTransfer(tx, tr, src, dst, internalCat)
+			return x.Txs.CreateTransfer(tx, tr, src, dst)
 		}
 		if transferID == "" {
 			return fmt.Errorf("auditexec: transfer id missing in payload")
@@ -468,7 +463,7 @@ func (x *Executor) applyTransfer(tx *sql.Tx, ent *audit.AuditRow, before, after,
 	}
 	tr := &core.Transfer{SourceTxID: src.ID, DestinationTxID: dst.ID,
 		Detected: "manual", Method: "restore"}
-	return x.Txs.CreateTransfer(tx, tr, src, dst, internalCat)
+	return x.Txs.CreateTransfer(tx, tr, src, dst)
 }
 
 func (x *Executor) unstampLegs(tx *sql.Tx, ent *audit.AuditRow, snapshot map[string]any) error {

@@ -1,7 +1,6 @@
 package changes_test
 
 import (
-	"database/sql"
 	"fmt"
 	"sync"
 	"testing"
@@ -58,13 +57,12 @@ func setup(t *testing.T) *fixture {
 	writer := &audit.Writer{DB: db}
 	txs := &transactions.Service{DB: db, Repos: txRepo, Categories: &repos.Categories{DB: db}, Audit: writer}
 	trs := &transfers.Service{DB: db, Txs: txRepo, Accounts: &repos.Accounts{DB: db}, Audit: writer,
-		Settings: &repos.Settings{DB: db}, InternalCat: txs.InternalCategoryID}
+		Settings: &repos.Settings{DB: db}}
 	return &fixture{
 		db:     db,
 		svc:    &changes.Service{DB: db, Transactions: txs, Transfers: trs, Audit: writer},
 		engine: audit.NewEngine(db, writer),
-		x: &auditexec.Executor{DB: db, Txs: txRepo, Accounts: &repos.Accounts{DB: db}, Categories: &repos.Categories{DB: db},
-			InternalCat: func(*sql.Tx) (string, error) { return txs.InternalCategoryID() }},
+		x:      &auditexec.Executor{DB: db, Txs: txRepo, Accounts: &repos.Accounts{DB: db}, Categories: &repos.Categories{DB: db}},
 	}
 }
 

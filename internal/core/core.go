@@ -28,6 +28,10 @@ const (
 	CategoryInternal = "internal"
 )
 
+// InternalTransferCategoryID is the system category every transfer leg is
+// in. The schema seeds it, and system categories can't be renamed or deleted.
+const InternalTransferCategoryID = "c-system-internal"
+
 const (
 	CategorySourceUser  = "user"
 	CategorySourceLocal = "local"

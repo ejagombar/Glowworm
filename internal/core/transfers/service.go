@@ -17,13 +17,12 @@ import (
 )
 
 type Service struct {
-	DB          *store.DB
-	Txs         *repos.Transactions
-	Accounts    *repos.Accounts
-	Audit       *audit.Writer
-	Settings    *repos.Settings
-	Clock       *clock.Clock
-	InternalCat func() (string, error)
+	DB       *store.DB
+	Txs      *repos.Transactions
+	Accounts *repos.Accounts
+	Audit    *audit.Writer
+	Settings *repos.Settings
+	Clock    *clock.Clock
 }
 
 type ValidationError struct{ Message string }
@@ -62,13 +61,9 @@ func (s *Service) Detect() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	internalCat, err := s.InternalCat()
-	if err != nil {
-		return 0, err
-	}
 	made := 0
 	for _, p := range pairs {
-		if err := s.linkDetected(p, internalCat); err != nil {
+		if err := s.linkDetected(p); err != nil {
 			return made, err
 		}
 		made++
@@ -185,7 +180,7 @@ func (s *Service) find() ([]*Pair, error) {
 	return pairs, nil
 }
 
-func (s *Service) linkDetected(p *Pair, internalCat string) error {
+func (s *Service) linkDetected(p *Pair) error {
 	src, dst, bestMethod := p.Source, p.Destination, p.Method
 	conf := p.Score
 	tr := &core.Transfer{SourceTxID: src.ID, DestinationTxID: dst.ID,
@@ -193,7 +188,7 @@ func (s *Service) linkDetected(p *Pair, internalCat string) error {
 	preSrcType, preSrcCat := src.Type, deref(src.CategoryID)
 	preDstType, preDstCat := dst.Type, deref(dst.CategoryID)
 	return s.DB.WithTx(func(tx *sql.Tx) error {
-		if err := s.Txs.CreateTransfer(tx, tr, src, dst, internalCat); err != nil {
+		if err := s.Txs.CreateTransfer(tx, tr, src, dst); err != nil {
 			return err
 		}
 		_, err := s.Audit.Write(tx, audit.Input{
@@ -210,8 +205,8 @@ func (s *Service) linkDetected(p *Pair, internalCat string) error {
 			After: map[string]any{
 				"transfer_id": tr.ID,
 				"legs": []map[string]any{
-					{"id": src.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
-					{"id": dst.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
+					{"id": src.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
+					{"id": dst.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
 				},
 			},
 			Revert: map[string]any{"transfer_id": tr.ID},
@@ -273,10 +268,6 @@ func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error
 	if a.AccountID == b.AccountID {
 		return nil, &ValidationError{Message: "Transfers link two different accounts"}
 	}
-	internalCat, err := s.InternalCat()
-	if err != nil {
-		return nil, err
-	}
 	src, dst := a, b
 	if src.AmountMinor > 0 {
 		src, dst = dst, src
@@ -288,7 +279,7 @@ func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error
 	preSrcType, preSrcCat := src.Type, deref(src.CategoryID)
 	preDstType, preDstCat := dst.Type, deref(dst.CategoryID)
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
-		if err := s.Txs.CreateTransfer(tx, tr, src, dst, internalCat); err != nil {
+		if err := s.Txs.CreateTransfer(tx, tr, src, dst); err != nil {
 			return err
 		}
 		_, err := s.Audit.Write(tx, audit.Input{
@@ -305,8 +296,8 @@ func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error
 			After: map[string]any{
 				"transfer_id": tr.ID,
 				"legs": []map[string]any{
-					{"id": src.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
-					{"id": dst.ID, "type": core.TypeTransfer, "category_id": internalCat, "category_source": "none"},
+					{"id": src.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
+					{"id": dst.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
 				},
 			},
 			Revert: map[string]any{"transfer_id": tr.ID},
@@ -339,10 +330,6 @@ func (s *Service) Unlink(txID string, actor string) error {
 	if err != nil {
 		return err
 	}
-	internalCat, err := s.InternalCat()
-	if err != nil {
-		return err
-	}
 	return s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Txs.DeleteTransfer(tx, tr.ID); err != nil {
 			return err
@@ -366,8 +353,8 @@ func (s *Service) Unlink(txID string, actor string) error {
 			Before: map[string]any{
 				"transfer_id": tr.ID,
 				"legs": []map[string]any{
-					{"id": src.ID, "type": "transfer", "category_id": internalCat, "category_source": "none"},
-					{"id": dst.ID, "type": "transfer", "category_id": internalCat, "category_source": "none"},
+					{"id": src.ID, "type": "transfer", "category_id": core.InternalTransferCategoryID, "category_source": "none"},
+					{"id": dst.ID, "type": "transfer", "category_id": core.InternalTransferCategoryID, "category_source": "none"},
 				},
 			},
 			Revert: map[string]any{"transfer_id": tr.ID},

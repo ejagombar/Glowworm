@@ -145,13 +145,6 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.Transfers = &transfers.Service{
 		DB: db, Txs: rp.Transactions, Accounts: rp.Accounts, Audit: writer,
 		Settings: rp.Settings, Clock: clk,
-		InternalCat: func() (string, error) {
-			c, err := rp.Categories.ByName("Internal transfer")
-			if err != nil {
-				return "", err
-			}
-			return c.ID, nil
-		},
 	}
 	app.Recurring = &recurring.Service{DB: db, Txs: rp.Transactions, Audit: writer}
 	app.Grouping = &grouping.Service{DB: db, Audit: writer}
@@ -163,13 +156,6 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	app.startMidnightSummariser(log)
 	app.Exec = &auditexec.Executor{
 		DB: db, Accounts: rp.Accounts, Categories: rp.Categories, Txs: rp.Transactions,
-		InternalCat: func(tx *sql.Tx) (string, error) {
-			c, err := rp.Categories.ByName("Internal transfer")
-			if err != nil {
-				return "", err
-			}
-			return c.ID, nil
-		},
 	}
 	if err := app.SeedExamples(); err != nil {
 		return nil, fmt.Errorf("seed examples: %w", err)

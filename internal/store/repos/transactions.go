@@ -346,7 +346,7 @@ func (r *Transactions) Restore(tx *sql.Tx, id string) error {
 	return err
 }
 
-func (r *Transactions) CreateTransfer(tx *sql.Tx, tr *core.Transfer, sourceTx, destTx *core.Transaction, internalCategoryID string) error {
+func (r *Transactions) CreateTransfer(tx *sql.Tx, tr *core.Transfer, sourceTx, destTx *core.Transaction) error {
 	tr.ID = util.NewID()
 	tr.CreatedAt = util.NowStr()
 	if _, err := exec(r.DB, tx, `INSERT INTO transfers (id, source_transaction_id, destination_transaction_id, detected, method, confidence, created_at)
@@ -355,7 +355,7 @@ func (r *Transactions) CreateTransfer(tx *sql.Tx, tr *core.Transfer, sourceTx, d
 	}
 	for _, t := range []*core.Transaction{sourceTx, destTx} {
 		if _, err := exec(r.DB, tx, `UPDATE transactions SET type='transfer', transfer_id=?, category_id=?, category_source='none', category_confidence=NULL, updated_at=? WHERE id=?`,
-			tr.ID, internalCategoryID, util.NowStr(), t.ID); err != nil {
+			tr.ID, core.InternalTransferCategoryID, util.NowStr(), t.ID); err != nil {
 			return err
 		}
 	}
