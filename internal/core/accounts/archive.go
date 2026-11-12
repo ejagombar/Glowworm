@@ -7,6 +7,7 @@ import (
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/audit"
+	"glowworm/internal/store/repos"
 	"glowworm/internal/util"
 )
 
@@ -363,7 +364,7 @@ func (s *Service) RestoreArchive(archiveID string) (*RestoredAccount, error) {
 		if n > 0 {
 			return &ValidationError{Message: fmt.Sprintf("“%s” already exists", a.Name)}
 		}
-		catMap, created, err := mapCategories(tx, snap.Categories)
+		catMap, created, err := mapCategories(&repos.Categories{DB: s.DB}, tx, snap.Categories)
 		if err != nil {
 			return err
 		}
@@ -470,7 +471,7 @@ func (s *Service) RestoreArchive(archiveID string) (*RestoredAccount, error) {
 	return res, nil
 }
 
-func mapCategories(tx *sql.Tx, cats []snapCategory) (map[string]string, []string, error) {
+func mapCategories(repo *repos.Categories, tx *sql.Tx, cats []snapCategory) (map[string]string, []string, error) {
 	out := map[string]string{}
 	var created []string
 	now := util.NowStr()
@@ -484,7 +485,15 @@ func mapCategories(tx *sql.Tx, cats []snapCategory) (map[string]string, []string
 		switch err {
 		case nil:
 			if deleted.Valid {
-				if _, err := tx.Exec(`UPDATE categories SET deleted_at = NULL, updated_at = ? WHERE id = ?`, now, id); err != nil {
+				// It comes back, unless another category has its name now:
+				// then its transactions go to that one.
+				_, by, err := repo.Namesake(tx, id)
+				if err != nil {
+					return nil, nil, err
+				}
+				if by != "" {
+					id = by
+				} else if err := repo.Restore(tx, id); err != nil {
 					return nil, nil, err
 				}
 			}

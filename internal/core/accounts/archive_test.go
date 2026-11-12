@@ -185,3 +185,41 @@ func TestPurgedArchiveIsGoneAndRestoreRecreatesCategories(t *testing.T) {
 		t.Errorf("purge audit entries = %d, want 1", n)
 	}
 }
+
+func TestRestoreUsesTheCategoryThatTookADeletedOnesName(t *testing.T) {
+	f := newFixture(t)
+	cats := &repos.Categories{DB: f.s.DB}
+	arc, err := f.s.Delete(f.main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Groceries is deleted and a new category takes its name.
+	if err := cats.Delete(nil, f.groceries); err != nil {
+		t.Fatal(err)
+	}
+	fresh := &core.Category{Name: "groceries", Color: "#000000", Type: core.CategorySpend}
+	if err := cats.Create(nil, fresh); err != nil {
+		t.Fatalf("a deleted category held on to its name: %v", err)
+	}
+	if _, err := f.s.RestoreArchive(arc.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, cat := f.txState(t, f.shopTx); cat != fresh.ID {
+		t.Errorf("the restored transaction is in %q, want the category that has the name now (%q)", cat, fresh.ID)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM categories WHERE deleted_at IS NULL AND name LIKE 'groceries%'`); n != 1 {
+		t.Errorf("%d live Groceries categories, want the one", n)
+	}
+
+	// With the name free again, the old one comes back as it was.
+	if err := cats.Delete(nil, fresh.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := cats.Restore(nil, f.groceries); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	if err := f.s.DB.QueryRow(`SELECT name FROM categories WHERE id = ? AND deleted_at IS NULL`, f.groceries).Scan(&name); err != nil || name != "Groceries" {
+		t.Errorf("the old category came back as %q (%v), want Groceries", name, err)
+	}
+}
