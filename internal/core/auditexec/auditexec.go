@@ -224,6 +224,13 @@ func (x *Executor) applyTxEdit(tx *sql.Tx, id string, from, to map[string]any) e
 		if !changed {
 			continue
 		}
+		if !conflict && f.label == "account" {
+			ok, err := x.canMove(tx, t, snapVal(to["account_id"]))
+			if err != nil {
+				return err
+			}
+			conflict = !ok
+		}
 		if conflict {
 			kept = append(kept, f.label)
 			continue
@@ -265,6 +272,21 @@ func (x *Executor) applyTxEdit(tx *sql.Tx, id string, from, to map[string]any) e
 		return &audit.Partial{Notes: []string{fmt.Sprintf("%s: kept the %s from a later change", t.Description, joinAnd(kept))}}
 	}
 	return nil
+}
+
+// canMove reports whether a transaction can go to another account, by the
+// rules an edit follows: not while it is one side of a transfer, and only to
+// an account that is still there and in its currency.
+func (x *Executor) canMove(tx *sql.Tx, t *core.Transaction, account string) (bool, error) {
+	if t.TransferID != nil {
+		return false, nil
+	}
+	var currency string
+	err := tx.QueryRow(`SELECT currency FROM accounts WHERE id = ? AND deleted_at IS NULL`, account).Scan(&currency)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return currency == t.Currency, err
 }
 
 // snapVal is a snapshot value as text, so values read back from JSON
@@ -363,13 +385,22 @@ func (x *Executor) applyImportMove(tx *sql.Tx, revert map[string]any, from, to s
 	if batchID == "" || from == "" || to == "" {
 		return fmt.Errorf("auditexec: batch or account missing in payload")
 	}
+	var live int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM accounts WHERE id = ? AND deleted_at IS NULL`, to).Scan(&live); err != nil {
+		return err
+	}
+	if live == 0 {
+		return conflict("the account they would go to has been deleted")
+	}
+	// Like the move itself, this leaves alone a transaction that is one side
+	// of a transfer, as well as any that has left the account or been deleted.
 	ids, _ := revert["transaction_ids"].([]any)
 	kept := 0
 	for _, v := range ids {
 		var date, desc string
 		var amount int64
 		err := tx.QueryRow(`SELECT date, description, amount_minor FROM transactions
-			WHERE id = ? AND account_id = ? AND deleted_at IS NULL`, str(v), from).Scan(&date, &desc, &amount)
+			WHERE id = ? AND account_id = ? AND deleted_at IS NULL AND transfer_id IS NULL`, str(v), from).Scan(&date, &desc, &amount)
 		if err == sql.ErrNoRows {
 			kept++
 			continue
@@ -382,11 +413,17 @@ func (x *Executor) applyImportMove(tx *sql.Tx, revert map[string]any, from, to s
 			return err
 		}
 	}
+	if kept == len(ids) && kept > 0 {
+		return conflict("none of its transactions are where it left them")
+	}
 	if _, err := tx.Exec(`UPDATE import_batches SET account_id = ? WHERE id = ?`, to, batchID); err != nil {
 		return err
 	}
-	if kept > 0 {
-		return &audit.Partial{Notes: []string{fmt.Sprintf("%d transactions were changed or removed since, so they were left where they are", kept)}}
+	if kept == 1 {
+		return &audit.Partial{Notes: []string{"1 transaction was changed, linked or removed since, so it was left where it is"}}
+	}
+	if kept > 1 {
+		return &audit.Partial{Notes: []string{fmt.Sprintf("%d transactions were changed, linked or removed since, so they were left where they are", kept)}}
 	}
 	return nil
 }
