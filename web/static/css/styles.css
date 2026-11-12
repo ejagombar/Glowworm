@@ -1228,7 +1228,8 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
   background: var(--surface); padding: 12px 14px;
   display: flex; gap: 12px; align-items: flex-start;
 }
-.history-item.inactive { opacity: 0.55; }
+/* Undone: the change fades, the rail through it doesn't. */
+.history-item.inactive > :not(.hg) { opacity: 0.55; }
 .history-older { margin-top: 12px; }
 .history-main { flex: 1; min-width: 0; display: block; }
 .history-title { display: block; font-weight: 500; font-size: 13px; line-height: 26px; }
@@ -1709,9 +1710,122 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
   transition: transform 0.15s;
 }
 .history-group[open] > summary::before { transform: rotate(90deg); }
-.history-group > .history-item { border-top: 1px solid var(--line); padding-left: 36px; background: var(--surface-2); }
+.history-group > .history-item { border-top: 1px solid var(--line); background: var(--surface-2); }
 .history-undone > summary { color: var(--muted); }
 .history-undone > summary .history-title { color: var(--muted); }
+/* History rail. Every change in effect sits on one line, newest at the top
+   with "Now" on what is current; undone changes hang off it on a dashed
+   branch from the point they were undone at. */
+.history-list { --hg-w: 56px; --hg-main: 21px; --hg-lane: 39px; }
+.hg-row, .hg-block > summary { position: relative; }
+.history-list .hg-row, .history-list .hg-block > summary { padding-left: var(--hg-w); }
+.hg { position: absolute; z-index: 2; left: 0; top: 0; bottom: 0; width: var(--hg-w); pointer-events: none; }
+.hg::before {
+  content: ""; position: absolute; left: var(--hg-main); width: 2px; top: -1px; bottom: -1px;
+  background: var(--line-2);
+}
+.hg-no-up > .hg::before, .hg-no-up > summary > .hg::before { top: 25px; }
+.hg-row.hg-no-down > .hg::before,
+.hg-block.hg-no-down:not([open]) > summary > .hg::before,
+.hg-block.hg-no-down[open] > .hg-row:last-child > .hg::before { bottom: auto; height: 26px; }
+.hg-row.hg-no-up.hg-no-down > .hg::before,
+.hg-block.hg-no-up.hg-no-down:not([open]) > summary > .hg::before { display: none; }
+.hg-node {
+  position: absolute; left: calc(var(--hg-main) - 4px); top: 20px; width: 10px; height: 10px;
+  box-sizing: border-box; border: 2px solid var(--primary); border-radius: 50%;
+  background: var(--primary); box-shadow: 0 0 0 3px var(--surface);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.hg-node.system, .hg-node.import { background: var(--transfer); border-color: var(--transfer); }
+.hg-child .hg-node { left: calc(var(--hg-main) - 2px); top: 22px; width: 6px; height: 6px; border-width: 0; box-shadow: 0 0 0 3px var(--surface-2); }
+.is-head > .hg .hg-node, .is-head > summary > .hg .hg-node,
+.pv-head > .hg .hg-node, .pv-head > summary > .hg .hg-node {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 5px var(--primary-tint-line);
+}
+.is-head > .history-time::before, .is-head > summary > .history-time::before,
+.pv-head > .history-time::before, .pv-head > summary > .history-time::before {
+  content: "Now"; display: inline-block; margin-right: 8px; padding: 0 6px; line-height: 17px;
+  border: 1px solid var(--primary-tint-line); border-radius: 2px;
+  background: var(--primary-soft); color: var(--primary-600);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; vertical-align: 1px;
+}
+.history-list.is-previewing .is-head:not(.pv-head) > .history-time::before,
+.history-list.is-previewing .is-head:not(.pv-head) > summary > .history-time::before { content: none; }
+.history-list.is-previewing .is-head:not(.pv-head) > .hg .hg-node,
+.history-list.is-previewing .is-head:not(.pv-head) > summary > .hg .hg-node { box-shadow: 0 0 0 3px var(--surface); }
+
+/* The branch: hollow nodes off to the side of the line. */
+.hg-undone { position: relative; --lane: var(--line-2); }
+.hg-undone:not(.hg-through) .hg::before { display: none; }
+.hg-undone::before {
+  content: ""; position: absolute; z-index: 1; left: var(--hg-lane); top: 25px; bottom: 12px;
+  border-left: 2px solid var(--lane); pointer-events: none;
+}
+.hg-undone::after {
+  content: ""; position: absolute; z-index: 1; left: var(--hg-main); bottom: -1px;
+  width: calc(var(--hg-lane) - var(--hg-main) + 2px); height: 14px; box-sizing: border-box;
+  border-right: 2px solid var(--lane); border-bottom: 2px solid var(--lane);
+  border-bottom-right-radius: 12px; pointer-events: none;
+}
+.hg-undone.hg-no-down::before, .hg-undone.hg-no-down::after { display: none; }
+.hg-undone .hg-node { left: calc(var(--hg-lane) - 4px); background: var(--surface); border-color: var(--muted-2); }
+.hg-undone .hg-child .hg-node { left: calc(var(--hg-lane) - 3px); top: 21px; width: 8px; height: 8px; border-width: 2px; }
+
+.history-actions .btn-xs { gap: 5px; }
+.history-actions .btn .icon { width: 13px; height: 13px; }
+/* Undo and Rewind show on the row being pointed at; what's current and
+   what's undone keep theirs in view. */
+@media (hover: hover) {
+  .hg-row { --row-bg: var(--surface); }
+  .hg-child { --row-bg: var(--surface-2); }
+  .hg-row:not(.is-head):not(.pv-source) > .history-actions {
+    position: absolute; top: 12px; right: 14px; padding-left: 16px;
+    background: linear-gradient(to right, transparent, var(--row-bg) 14px);
+    opacity: 0; transition: opacity 0.12s;
+  }
+  .hg-row:hover > .history-actions, .hg-row:focus-within > .history-actions,
+  .hg-row.pv-source > .history-actions { opacity: 1; }
+}
+
+/* Preview: before an action runs, the rows it touches take on how they'll
+   look after it. */
+.history-list .history-item, .history-group > summary { transition: background 0.15s; }
+.history-list .history-main, .history-list .history-time { transition: opacity 0.15s; }
+.pv-undo > .history-main, .pv-undo > .history-time,
+.pv-undo > summary > .history-main, .pv-undo > summary > .history-time { opacity: 0.45; }
+.pv-undo > .history-main > .history-title, .pv-undo > summary .history-title { text-decoration: line-through; text-decoration-color: var(--muted-2); }
+.pv-undo > .hg .hg-node, .pv-undo > summary > .hg .hg-node { background: var(--surface); border: 2px solid var(--muted-2); }
+.pv-undo.hg-child > .hg .hg-node { width: 8px; height: 8px; left: calc(var(--hg-main) - 3px); top: 21px; border-width: 1.5px; }
+.hg-undone.pv-redo { --lane: var(--primary); }
+.hg-undone.pv-redo > summary, .hg-undone.pv-redo > .history-item { background: var(--primary-soft); }
+.hg-undone.pv-redo > .history-item.inactive > * { opacity: 1; }
+.hg-undone.pv-redo .history-title { color: var(--text); }
+.hg-undone.pv-redo .hg-node { background: var(--primary); border-color: var(--primary); }
+.hg-undone.pv-delete { --lane: var(--danger); }
+.hg-undone.pv-delete > summary, .hg-undone.pv-delete > .history-item { background: var(--danger-soft); }
+.hg-undone.pv-delete .history-title { color: var(--danger); text-decoration: line-through; }
+.hg-undone.pv-delete .hg-node { border-color: var(--danger); }
+.pv-source { box-shadow: inset 0 0 0 1px var(--primary); }
+/* While a preview is up, only the action being confirmed keeps its buttons. */
+.history-list.is-previewing .hg-row:not(.pv-source) > .history-actions,
+.history-list.is-previewing summary:not(.pv-source) > .history-actions { visibility: hidden; }
+.hg-undone.pv-delete > summary.pv-source { box-shadow: inset 0 0 0 1px var(--danger); }
+
+.history-confirm {
+  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  z-index: 70; width: min(560px, calc(100% - 32px)); box-sizing: border-box;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 4px; box-shadow: var(--shadow-2);
+  padding: 10px 12px 10px 14px; animation: toast-in 0.2s ease;
+}
+.history-confirm[hidden] { display: none; }
+.history-confirm-icon { color: var(--primary); }
+.history-confirm.danger .history-confirm-icon { color: var(--danger); }
+.history-confirm-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.history-confirm-text strong { font-size: 13px; font-weight: 600; }
+.history-confirm-text span { font-size: 12px; color: var(--muted); }
+.history-confirm-text span:empty { display: none; }
+#view-history.is-confirming { padding-bottom: 76px; }
 .progress-bar { position: relative; width: 100%; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px; }
 .progress-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--primary); transition: width 150ms linear; }
 
@@ -2076,7 +2190,7 @@ html.app-covered body > * { visibility: hidden; }
   .history-group > summary > .history-main { flex: 1 1 calc(100% - 22px); }
   .history-group > summary > .history-time { margin-left: 22px; }
   .history-item > .history-actions, .history-group > summary > .history-actions { margin-left: auto; }
-  .history-group > .history-item { padding-left: 22px; }
+  .history-list { --hg-w: 42px; --hg-main: 13px; --hg-lane: 29px; }
   .history-diff { font-size: 11px; }
 
   .tx-editor { flex-direction: column; align-items: stretch; }

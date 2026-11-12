@@ -812,8 +812,23 @@ func (a *App) historyData(base *viewBase, filter string, show int, timeline bool
 	for i := range entryViews {
 		v := &entryViews[i]
 		v.Undoable = a.Audit.Policy.Evaluate(v.Action, v.State).Revert
+		if c := a.Audit.Policy.Evaluate(v.Action, "active"); !c.Revert && !c.Derived {
+			v.Fixed = true
+		}
 		// Only where something after it would actually be undone.
 		v.Rewindable = v.State == "active" && v.ID < latest
+	}
+
+	blocks := groupAuditEntries(entryViews)
+	layoutRail(blocks, more, filter == "all")
+	for i := range blocks {
+		if b := &blocks[i]; b.Kind == "undone" {
+			// What a Redo would set aside, so the page can show it first.
+			// A block that can't be redone sets nothing aside; the Redo says why.
+			if ids, err := a.Audit.RedoSetsAside(idsOf(b.Entries)); err == nil {
+				b.SetsAside = idsCSV(ids)
+			}
+		}
 	}
 
 	data := struct {
@@ -836,7 +851,7 @@ func (a *App) historyData(base *viewBase, filter string, show int, timeline bool
 		LatestDate: a.Clock.Today(), LatestBalance: latestBalance,
 		TxCountToDate: txCount, Accounts: cards,
 		Series:          series,
-		Blocks:          groupAuditEntries(entryViews),
+		Blocks:          blocks,
 		OlderHref:       older,
 		ImportAccounts:  importAccounts,
 		ReconcileStatus: reconStatus, ReconcileLabel: reconLabel, ReconcileHint: reconHint,

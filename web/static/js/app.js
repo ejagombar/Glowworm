@@ -2711,26 +2711,93 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // History actions: each button confirms, posts, then reloads the log.
-  function auditAction(url, body, title, text, confirmLabel, okMsg) {
-    showConfirm(title, text, confirmLabel, () => {
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-        body: body ? JSON.stringify(body) : undefined,
-      }).then(async (r) => {
-        if (!r.ok) {
-          const b = await r.json().catch(() => ({}));
-          toast(apiErrorFrom(r, b, "That didn't work"));
-          return;
-        }
-        // Parts changed again later are kept; say which.
-        const out = await r.json().catch(() => ({}));
-        reloadWithToast(out.notes && out.notes.length ? okMsg + ". " + out.notes.join(". ") + "." : okMsg);
-      }).catch(() => toast("That didn't work"));
+  // History actions don't ask in a dialog. The rows an action touches first
+  // take on how they'll look after it (struck through and hollow if they'll
+  // be undone, solid if they come back, "Now" where the present will be),
+  // and a bar at the bottom confirms or cancels.
+  const confirmBar = document.getElementById("historyConfirm");
+  let pending = null;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
+  const entryIdsIn = (v) => new Set((v || "").split(",").filter(Boolean));
+  function clearPreview() {
+    const list = document.getElementById("historyList");
+    list?.classList.remove("is-previewing");
+    document.querySelectorAll(".pv-undo, .pv-redo, .pv-delete, .pv-head, .pv-source").forEach((el) =>
+      el.classList.remove("pv-undo", "pv-redo", "pv-delete", "pv-head", "pv-source"));
+    document.getElementById("view-history")?.classList.remove("is-confirming");
+    if (confirmBar) confirmBar.hidden = true;
+    pending = null;
+  }
+  // Rows inside a folded group mark the group too, so it shows while closed.
+  function mark(rows, cls) {
+    rows.forEach((row) => {
+      row.classList.add(cls);
+      const group = row.closest(".history-group");
+      if (group && cls === "pv-undo") group.classList.add(cls);
     });
   }
+  // The newest block that will be in effect once the action has run.
+  function markNextHead(list) {
+    if (!list.querySelector(".is-head")) return; // a filtered list has no "Now"
+    for (const block of list.children) {
+      let active;
+      if (block.classList.contains("hg-undone")) active = block.classList.contains("pv-redo");
+      else if (block.classList.contains("history-group")) active = [...block.querySelectorAll(".history-item")].some((r) => !r.classList.contains("pv-undo"));
+      else active = block.matches(".hg-row:not(.inactive):not(.pv-undo)");
+      if (active) { block.classList.add("pv-head"); return; }
+    }
+  }
+  function preview(source, opts) {
+    clearPreview();
+    const list = document.getElementById("historyList");
+    if (!list || !confirmBar) return;
+    list.classList.add("is-previewing");
+    source.classList.add("pv-source");
+    mark(opts.undo || [], "pv-undo");
+    if (opts.block) opts.block.classList.add(opts.redo ? "pv-redo" : "pv-delete");
+    markNextHead(list);
+    document.getElementById("historyConfirmTitle").textContent = opts.title;
+    document.getElementById("historyConfirmDetail").textContent = opts.detail || "";
+    confirmBar.querySelector("use").setAttribute("href", opts.icon);
+    confirmBar.classList.toggle("danger", !!opts.danger);
+    const ok = document.getElementById("historyConfirmOk");
+    ok.textContent = opts.ok;
+    ok.disabled = false;
+    ok.classList.toggle("btn-primary", !opts.danger);
+    ok.classList.toggle("btn-danger", !!opts.danger);
+    document.getElementById("view-history")?.classList.add("is-confirming");
+    confirmBar.hidden = false;
+    pending = opts;
+    ok.focus({ preventScroll: true });
+  }
+  function runPending() {
+    if (!pending) return;
+    const { url, body, done } = pending;
+    const ok = document.getElementById("historyConfirmOk");
+    ok.disabled = true;
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(async (r) => {
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        ok.disabled = false;
+        toast(apiErrorFrom(r, b, "That didn't work"));
+        return;
+      }
+      // Parts changed again later are kept; say which.
+      const out = await r.json().catch(() => ({}));
+      reloadWithToast(out.notes && out.notes.length ? done + ". " + out.notes.join(". ") + "." : done);
+    }).catch(() => { ok.disabled = false; toast("That didn't work"); });
+  }
+  document.getElementById("historyConfirmOk")?.addEventListener("click", runPending);
+  document.getElementById("historyConfirmCancel")?.addEventListener("click", clearPreview);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && pending) clearPreview(); });
+  window.clearHistoryPreview = clearPreview;
+
   const idsOf = (v) => v.split(",").map(Number).filter(Boolean);
+  const rowsIn = (root) => [...root.querySelectorAll(".history-item[data-entry-id]")];
   function wireAuditActions(root) {
     const wire = (sel, fn) => (root || document).querySelectorAll(sel).forEach((btn) => {
       if (btn.dataset.wired) return;
@@ -2741,18 +2808,50 @@ document.addEventListener("DOMContentLoaded", () => {
         fn(btn);
       });
     });
-    wire("[data-jump-back]", (btn) => auditAction(`/api/v1/audit/${btn.dataset.jumpBack}/jump-back`, null,
-      "Rewind to here?", "Everything after this change is undone. Those changes stay in the log, greyed out, and can be redone.",
-      "Rewind", "Rewound to this point"));
-    wire("[data-undo]", (btn) => auditAction(`/api/v1/audit/${btn.dataset.undo}/revert`, null,
-      "Undo this change?", "Just this change is undone, along with anything the system did because of it. It stays in the log, greyed out, and can be redone.",
-      "Undo", "Change undone"));
-    wire("[data-redo]", (btn) => auditAction("/api/v1/audit/redo", { ids: idsOf(btn.dataset.redo) },
-      "Redo these changes?", "The greyed-out changes are applied again. If they were undone by a rewind, anything done since then is undone instead.",
-      "Redo", "Changes redone"));
-    wire("[data-discard]", (btn) => auditAction("/api/v1/audit/discard", { ids: idsOf(btn.dataset.discard) },
-      "Delete these changes for good?", "They're removed from the log and can't be redone. Nothing else changes: they're already undone.",
-      "Delete", "Removed from the log"));
+    wire("[data-undo]", (btn) => {
+      const row = btn.closest(".history-item");
+      const effects = row.querySelectorAll(".history-effects li").length;
+      preview(row, {
+        undo: [row], icon: "#i-undo", ok: "Undo", done: "Change undone",
+        title: "Undo this change",
+        detail: effects ? `Along with ${plural(effects, "change")} it caused` : "",
+        url: `/api/v1/audit/${btn.dataset.undo}/revert`,
+      });
+    });
+    wire("[data-jump-back]", (btn) => {
+      const row = btn.closest(".history-item");
+      const id = Number(btn.dataset.jumpBack);
+      const later = rowsIn(document.getElementById("historyList")).filter((r) =>
+        Number(r.dataset.entryId) > id && !r.classList.contains("inactive") && !("fixed" in r.dataset));
+      preview(row, {
+        undo: later, icon: "#i-rewind", ok: "Rewind", done: "Rewound to this point",
+        title: "Rewind to here",
+        detail: `Undoes ${plural(later.length, "later change")}`,
+        url: `/api/v1/audit/${id}/jump-back`,
+      });
+    });
+    wire("[data-redo]", (btn) => {
+      const block = btn.closest(".history-group");
+      const aside = entryIdsIn(block.dataset.setsAside);
+      const undo = rowsIn(document.getElementById("historyList")).filter((r) => aside.has(r.dataset.entryId));
+      const n = idsOf(btn.dataset.redo).length;
+      preview(btn.closest("summary"), {
+        block, redo: true, undo, icon: "#i-redo", ok: "Redo", done: n === 1 ? "Change redone" : "Changes redone",
+        title: `Redo ${plural(n, "change")}`,
+        detail: aside.size ? `Undoes ${plural(aside.size, "newer change")}` : "",
+        url: "/api/v1/audit/redo", body: { ids: idsOf(btn.dataset.redo) },
+      });
+    });
+    wire("[data-discard]", (btn) => {
+      const block = btn.closest(".history-group");
+      const n = idsOf(btn.dataset.discard).length;
+      preview(btn.closest("summary"), {
+        block, icon: "#i-trash", ok: "Delete", danger: true, done: "Removed from the log",
+        title: `Delete ${plural(n, "undone change")}`,
+        detail: "They can't be redone after this",
+        url: "/api/v1/audit/discard", body: { ids: idsOf(btn.dataset.discard) },
+      });
+    });
     wire("[data-edit-import]", openImportEdit);
   }
 
@@ -4256,6 +4355,7 @@ function loadHistoryPane(url, push) {
     })
     .then((html) => {
       if (token !== historyPaneToken) return;
+      if (window.clearHistoryPreview) window.clearHistoryPreview();
       host.innerHTML = html;
       if (window.wireAuditActions) window.wireAuditActions(host);
     })

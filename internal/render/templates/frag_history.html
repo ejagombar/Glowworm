@@ -2,32 +2,34 @@
   <div class="history-list" id="historyList">
     {{range .Blocks}}
     {{if eq .Kind "single"}}
-    {{template "audit-entry" .First}}
+    {{template "audit-entry" (dict "E" .First "B" .)}}
     {{else if eq .Kind "repeat"}}
     {{$f := .First}}
-    <details class="history-group history-repeat">
+    <details class="history-group hg-block hg-repeat{{if not .Up}} hg-no-up{{end}}{{if not .Down}} hg-no-down{{end}}{{if .Head}} is-head{{end}}">
       <summary>
+        <span class="hg" aria-hidden="true"><span class="hg-node {{$f.Kind}}"></span></span>
         <span class="history-main">
           <span class="history-title"><span class="who {{$f.Kind}}">{{$f.Actor}}</span> {{$f.Title}} <span class="badge badge-soft">×{{.Count}}</span></span>
         </span>
         <span class="history-time">{{.When}}</span>
       </summary>
-      {{range .Entries}}{{template "audit-entry" .}}{{end}}
+      {{range .Entries}}{{template "audit-entry" (dict "E" .)}}{{end}}
     </details>
     {{else}}
-    <details class="history-group history-undone">
+    <details class="history-group hg-block hg-undone{{if not .Up}} hg-no-up{{end}}{{if not .Down}} hg-no-down{{end}}{{if .Through}} hg-through{{end}}"{{if .SetsAside}} data-sets-aside="{{.SetsAside}}"{{end}}>
       <summary>
+        <span class="hg" aria-hidden="true"><span class="hg-node"></span></span>
         <span class="history-main">
           <span class="history-title">{{.Count}} undone {{if eq .Count 1}}change{{else}}changes{{end}}</span>
-          <span class="history-sub">Greyed-out changes are no longer in effect</span>
+          <span class="history-sub">{{.Summary}}</span>
         </span>
         <span class="history-time">{{.When}}</span>
         <span class="history-actions">
-          <button class="btn btn-ghost btn-xs" type="button" data-redo="{{.IDs}}" title="Re-apply these changes">Redo</button>
-          <button class="btn btn-ghost btn-xs danger-text" type="button" data-discard="{{.IDs}}" title="Remove these changes from the log for good">Delete</button>
+          <button class="btn btn-ghost btn-xs" type="button" data-redo="{{.IDs}}"><svg class="icon" aria-hidden="true"><use href="#i-redo"/></svg>Redo</button>
+          <button class="btn btn-ghost btn-xs danger-text" type="button" data-discard="{{.IDs}}"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Delete</button>
         </span>
       </summary>
-      {{range .Entries}}{{template "audit-entry" .}}{{end}}
+      {{range .Entries}}{{template "audit-entry" (dict "E" .)}}{{end}}
     </details>
     {{end}}
     {{end}}
@@ -93,7 +95,9 @@
 </div>
 {{end}}
 {{define "audit-entry"}}
-<div class="history-item{{if eq .State "inactive"}} inactive{{end}}" data-entry-id="{{.ID}}">
+{{$b := .B}}{{with .E}}
+<div class="history-item hg-row{{if $b}}{{if not $b.Up}} hg-no-up{{end}}{{if not $b.Down}} hg-no-down{{end}}{{if $b.Head}} is-head{{end}}{{else}} hg-child{{end}}{{if eq .State "inactive"}} inactive{{end}}" data-entry-id="{{.ID}}"{{if .Fixed}} data-fixed{{end}}>
+  <span class="hg" aria-hidden="true"><span class="hg-node {{.Kind}}"></span></span>
   <div class="history-main">
     <div class="history-title"><span class="who {{.Kind}}">{{.Actor}}</span> {{.Title}}</div>
     {{if .Sub}}<div class="history-sub">{{.Sub}}</div>{{end}}
@@ -112,11 +116,12 @@
   {{if ne .State "inactive"}}
   {{if or .Rewindable .Undoable .EditImport}}
   <div class="history-actions">
-    {{if .EditImport}}<button class="btn btn-ghost btn-xs" data-edit-import="{{.EditImport}}" data-import-account="{{.ImportAccount}}" data-import-title="{{.Title}}" data-import-sub="{{.Sub}}" title="Change the account this import went into">Edit</button>{{end}}
-    {{if .Rewindable}}<button class="btn btn-ghost btn-xs" data-jump-back="{{.ID}}" title="Undo everything after this change">Rewind here</button>{{end}}
-    {{if .Undoable}}<button class="btn btn-ghost btn-xs" data-undo="{{.ID}}" title="Undo just this change">Undo</button>{{end}}
+    {{if .EditImport}}<button class="btn btn-ghost btn-xs" data-edit-import="{{.EditImport}}" data-import-account="{{.ImportAccount}}" data-import-title="{{.Title}}" data-import-sub="{{.Sub}}"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg>Edit</button>{{end}}
+    {{if .Rewindable}}<button class="btn btn-ghost btn-xs" data-jump-back="{{.ID}}"><svg class="icon" aria-hidden="true"><use href="#i-rewind"/></svg>Rewind to here</button>{{end}}
+    {{if .Undoable}}<button class="btn btn-ghost btn-xs" data-undo="{{.ID}}"><svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg>Undo</button>{{end}}
   </div>
   {{end}}
   {{end}}
 </div>
+{{end}}
 {{end}}

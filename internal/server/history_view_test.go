@@ -102,3 +102,32 @@ func TestListHistoryReachesOlderEntriesAndKeepsUndoneRunsWhole(t *testing.T) {
 		}
 	}
 }
+
+// The rail: "Now" on the newest block in effect, an undone block's branch
+// beside the line only where something in effect sits above it.
+func TestLayoutRail(t *testing.T) {
+	blocks := []auditBlock{{Kind: "undone"}, {Kind: "single"}, {Kind: "undone"}, {Kind: "repeat"}}
+	layoutRail(blocks, false, true)
+	type flags struct{ Up, Down, Head, Through bool }
+	got := make([]flags, len(blocks))
+	for i, b := range blocks {
+		got[i] = flags{b.Up, b.Down, b.Head, b.Through}
+	}
+	want := []flags{
+		{Up: false, Down: true},
+		{Up: true, Down: true, Head: true},
+		{Up: true, Down: true, Through: true},
+		{Up: true, Down: false},
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("block %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	// A filtered list has no "Now", and older entries carry the rail on.
+	layoutRail(blocks, true, false)
+	if blocks[1].Head || !blocks[3].Down {
+		t.Errorf("filtered: head %v, last block down %v", blocks[1].Head, blocks[3].Down)
+	}
+}

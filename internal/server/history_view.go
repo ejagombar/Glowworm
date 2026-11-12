@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"glowworm/internal/core"
@@ -56,8 +57,11 @@ type auditEntryView struct {
 	Action     string
 	Undoable   bool
 	Rewindable bool
-	CausedBy   int64
-	EntityID   string
+	// Fixed is an entry history can't take back (a record, a setup step):
+	// a rewind leaves it in effect.
+	Fixed    bool
+	CausedBy int64
+	EntityID string
 	// EditImport is set on an import still in effect: its batch id and
 	// account, for the Edit button.
 	EditImport    string
@@ -74,10 +78,37 @@ type auditBlock struct {
 	Entries []auditEntryView
 	PathID  string
 	When    string
+
+	// Where the block sits on the history rail: Up and Down say whether the
+	// rail carries on above and below it, Head marks what's in effect now,
+	// and Through says the main rail runs past an undone block's branch.
+	Up, Down, Head, Through bool
+	// SetsAside lists, for an undone block, the entries in effect that
+	// redoing it would undo, e.g. "14,13".
+	SetsAside string
 }
 
 func (b auditBlock) First() auditEntryView { return b.Entries[0] }
-func (b auditBlock) Count() int            { return len(b.Entries) }
+
+// Summary names what an undone block holds, briefly: "Coffee · Groceries
+// · Rainy day fund +1".
+func (b auditBlock) Summary() string {
+	const show = 3
+	var names []string
+	for _, e := range b.Entries {
+		n := e.Sub
+		if n == "" {
+			n = e.Title
+		}
+		names = append(names, n)
+	}
+	out := strings.Join(names[:min(show, len(names))], " · ")
+	if len(names) > show {
+		out += fmt.Sprintf(" +%d", len(names)-show)
+	}
+	return out
+}
+func (b auditBlock) Count() int { return len(b.Entries) }
 
 // IDs lists the block's entries for the Redo/Delete buttons, e.g. "12,11".
 func (b auditBlock) IDs() string {
@@ -220,6 +251,41 @@ func nestEffects(views []auditEntryView) []auditEntryView {
 	}
 	for i := range out {
 		out[i].Effects = effects[out[i].ID]
+	}
+	return out
+}
+
+// layoutRail sets where each block sits on the history rail. more says
+// older entries follow the list; head says the list is unfiltered, so its
+// newest block in effect is what's in effect now.
+func layoutRail(blocks []auditBlock, more, head bool) {
+	activeAbove := false
+	for i := range blocks {
+		b := &blocks[i]
+		b.Up = i > 0
+		b.Down = i < len(blocks)-1 || more
+		if b.Kind == "undone" {
+			b.Through = activeAbove
+			continue
+		}
+		b.Head = head && !activeAbove
+		activeAbove = true
+	}
+}
+
+// idsCSV lists ids for a data attribute, e.g. "14,13".
+func idsCSV(ids []int64) string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = strconv.FormatInt(id, 10)
+	}
+	return strings.Join(out, ",")
+}
+
+func idsOf(entries []auditEntryView) []int64 {
+	out := make([]int64, len(entries))
+	for i, e := range entries {
+		out[i] = e.ID
 	}
 	return out
 }
