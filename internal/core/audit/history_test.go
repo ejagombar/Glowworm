@@ -195,6 +195,32 @@ func TestRedoOfASingleUndoAfterARewindKeepsNewerWork(t *testing.T) {
 	h.want("redo a", "a", "b", "c", "e")
 }
 
+// RedoSetsAside answers what a redo would undo, and changes nothing.
+func TestRedoSetsAsideNamesWhatARedoWouldUndo(t *testing.T) {
+	h := newHistory(t)
+	a := h.add("a")
+	b := h.add("b")
+	c := h.add("c")
+	h.rewind(a)
+	d := h.add("d")
+	e := h.add("e")
+	h.undo(a)
+
+	got, err := h.e.RedoSetsAside([]int64{c, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int64{e, d}; !reflect.DeepEqual(got, want) {
+		t.Errorf("redoing the rewound block sets aside %v, want %v", got, want)
+	}
+	h.want("asking changes nothing", "d", "e")
+
+	// a was undone on its own: redoing it leaves the rest alone.
+	if got, err := h.e.RedoSetsAside([]int64{a}); err != nil || len(got) != 0 {
+		t.Errorf("redoing a single undo sets aside %v (%v), want nothing", got, err)
+	}
+}
+
 func TestRedoOnlyAppliesTheChosenChanges(t *testing.T) {
 	h := newHistory(t)
 	a := h.add("a")

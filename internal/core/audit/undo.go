@@ -318,60 +318,19 @@ func activate(tx *sql.Tx, pathID string) error {
 // An entry that can't be re-applied stays undone and is named in the notes;
 // if none can, that is the error and nothing changes.
 func (e *Engine) Redo(ids []int64, apply ApplyFunc) ([]string, error) {
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("audit: nothing to redo")
-	}
 	var notes []string
 	err := e.DB.WithTx(func(tx *sql.Tx) error {
 		notes = nil
-		in, args := idList(ids)
-		targets, err := e.loadMany(tx, `a.state = 'inactive' AND (a.id IN `+in+` OR a.caused_by IN `+in+`) ORDER BY a.id ASC`,
-			append(args, args...)...)
+		plan, err := e.planRedo(tx, ids)
 		if err != nil {
 			return err
 		}
-		if len(targets) == 0 {
-			return fmt.Errorf("audit: nothing to redo")
-		}
-
-		current, err := activePath(tx)
-		if err != nil {
-			return err
-		}
-		onCurrent, err := e.timeline(tx, current)
-		if err != nil {
-			return err
-		}
-		back := ""
-		for i := range targets {
-			if !onCurrent(&targets[i]) {
-				back = targets[i].linePath
-			}
-		}
-		if back != "" {
-			onTheirs, err := e.timeline(tx, back)
-			if err != nil {
+		targets := plan.targets
+		if plan.back != "" {
+			if _, err := e.shelve(tx, plan.outside, apply, &notes); err != nil {
 				return err
 			}
-			for i := range targets {
-				if !onTheirs(&targets[i]) {
-					return fmt.Errorf("audit: these changes were undone at different times and can't be redone together — redo them one block at a time")
-				}
-			}
-			active, err := e.loadMany(tx, `a.state = 'active' ORDER BY a.id DESC`)
-			if err != nil {
-				return err
-			}
-			var outside []AuditRow
-			for i := range active {
-				if !onTheirs(&active[i]) {
-					outside = append(outside, active[i])
-				}
-			}
-			if _, err := e.shelve(tx, outside, apply, &notes); err != nil {
-				return err
-			}
-			if err := activate(tx, back); err != nil {
+			if err := activate(tx, plan.back); err != nil {
 				return err
 			}
 		}
@@ -407,6 +366,88 @@ func (e *Engine) Redo(ids []int64, apply ApplyFunc) ([]string, error) {
 		return nil, err
 	}
 	return notes, nil
+}
+
+// redoPlan is what a redo would do: the entries it re-applies and, when
+// they belong to a timeline that was left, that timeline and the entries in
+// effect outside it, which are undone first.
+type redoPlan struct {
+	targets []AuditRow
+	back    string
+	outside []AuditRow
+}
+
+func (e *Engine) planRedo(tx *sql.Tx, ids []int64) (redoPlan, error) {
+	var plan redoPlan
+	if len(ids) == 0 {
+		return plan, fmt.Errorf("audit: nothing to redo")
+	}
+	in, args := idList(ids)
+	targets, err := e.loadMany(tx, `a.state = 'inactive' AND (a.id IN `+in+` OR a.caused_by IN `+in+`) ORDER BY a.id ASC`,
+		append(args, args...)...)
+	if err != nil {
+		return plan, err
+	}
+	if len(targets) == 0 {
+		return plan, fmt.Errorf("audit: nothing to redo")
+	}
+	plan.targets = targets
+
+	current, err := activePath(tx)
+	if err != nil {
+		return plan, err
+	}
+	onCurrent, err := e.timeline(tx, current)
+	if err != nil {
+		return plan, err
+	}
+	for i := range targets {
+		if !onCurrent(&targets[i]) {
+			plan.back = targets[i].linePath
+		}
+	}
+	if plan.back == "" {
+		return plan, nil
+	}
+	onTheirs, err := e.timeline(tx, plan.back)
+	if err != nil {
+		return plan, err
+	}
+	for i := range targets {
+		if !onTheirs(&targets[i]) {
+			return plan, fmt.Errorf("audit: these changes were undone at different times and can't be redone together — redo them one block at a time")
+		}
+	}
+	active, err := e.loadMany(tx, `a.state = 'active' ORDER BY a.id DESC`)
+	if err != nil {
+		return plan, err
+	}
+	for i := range active {
+		if !onTheirs(&active[i]) {
+			plan.outside = append(plan.outside, active[i])
+		}
+	}
+	return plan, nil
+}
+
+// RedoSetsAside lists the entries in effect that redoing ids would undo,
+// without changing anything: those on timelines that branched away from the
+// one the entries belong to. Entries history can't undo aren't listed.
+func (e *Engine) RedoSetsAside(ids []int64) ([]int64, error) {
+	var out []int64
+	err := e.DB.WithTx(func(tx *sql.Tx) error {
+		plan, err := e.planRedo(tx, ids)
+		if err != nil {
+			return err
+		}
+		for _, r := range plan.outside {
+			if cap := e.Policy.Evaluate(r.Action, r.State); cap.Revert || cap.Derived {
+				out = append(out, r.ID)
+			}
+		}
+		return nil
+	})
+	return out, err
 }
 
 // Discard permanently removes undone entries (and the undone system changes
