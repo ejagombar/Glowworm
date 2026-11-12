@@ -56,17 +56,17 @@ func (l *ledger) account(id string) string {
 func TestUndoingAnAccountEditPutsBackWhatItChanged(t *testing.T) {
 	l := newLedger(t)
 	svc := l.accounts()
-	a, err := svc.Create(accounts.Input{Name: "Main", Type: "debit", Color: "#111111", AccountNumber: "12345678", SortCode: "11-22-33"})
+	a, err := svc.Create(accounts.Input{Name: "Main", Type: "debit", Color: "#111111", AccountNumber: strp("12345678"), SortCode: strp("11-22-33")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The first edit changes the name, colour and account number; the second
 	// only the notes.
-	if _, err := svc.Update(a.ID, accounts.Input{Name: "Joint", Type: "debit", Color: "#222222", AccountNumber: "87654321", SortCode: "11-22-33"}); err != nil {
+	if _, err := svc.Update(a.ID, accounts.Input{Name: "Joint", Type: "debit", Color: "#222222", AccountNumber: strp("87654321")}); err != nil {
 		t.Fatal(err)
 	}
 	first := l.last()
-	if _, err := svc.Update(a.ID, accounts.Input{Name: "Joint", Type: "debit", AccountNumber: "87654321", SortCode: "11-22-33", Notes: "bills"}); err != nil {
+	if _, err := svc.Update(a.ID, accounts.Input{Name: "Joint", Type: "debit", Notes: strp("bills")}); err != nil {
 		t.Fatal(err)
 	}
 	second := l.last()
@@ -81,7 +81,7 @@ func TestUndoingAnAccountEditPutsBackWhatItChanged(t *testing.T) {
 	}
 
 	// A field changed again since keeps the later value, and the undo says so.
-	if _, err := svc.Update(a.ID, accounts.Input{Name: "Household", Type: "debit", AccountNumber: "87654321", SortCode: "11-22-33", Notes: "bills"}); err != nil {
+	if _, err := svc.Update(a.ID, accounts.Input{Name: "Household", Type: "debit"}); err != nil {
 		t.Fatal(err)
 	}
 	notes := l.undo(first)

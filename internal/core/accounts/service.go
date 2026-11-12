@@ -71,18 +71,38 @@ func (s *Service) Get(id string) (*core.Account, error) {
 	return s.enrich(a, nil)
 }
 
+// Input is an account as a form sends it. The bank details and notes are
+// optional: an edit that leaves one out keeps what the account has, so a
+// form with no field for it, or one that never loaded it, can't blank it.
+// Sending it empty clears it.
 type Input struct {
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	Currency            string `json:"currency"`
-	OpeningBalanceMinor int64  `json:"opening_balance_minor"`
-	OpeningBalanceDate  string `json:"opening_balance_date"`
-	AccountNumber       string `json:"account_number"`
-	SortCode            string `json:"sort_code"`
-	IBAN                string `json:"iban"`
-	BIC                 string `json:"bic"`
-	Notes               string `json:"notes"`
-	Color               string `json:"color"`
+	Name                string  `json:"name"`
+	Type                string  `json:"type"`
+	Currency            string  `json:"currency"`
+	OpeningBalanceMinor int64   `json:"opening_balance_minor"`
+	OpeningBalanceDate  string  `json:"opening_balance_date"`
+	AccountNumber       *string `json:"account_number"`
+	SortCode            *string `json:"sort_code"`
+	IBAN                *string `json:"iban"`
+	BIC                 *string `json:"bic"`
+	Notes               *string `json:"notes"`
+	Color               string  `json:"color"`
+}
+
+// sent sets dst to a value the input carries, and leaves it alone otherwise.
+func sent(dst *string, v *string) {
+	if v != nil {
+		*dst = strings.TrimSpace(*v)
+	}
+}
+
+// details puts the bank details and notes the input carries on an account.
+func (in *Input) details(a *core.Account) {
+	sent(&a.AccountNumber, in.AccountNumber)
+	sent(&a.SortCode, in.SortCode)
+	sent(&a.IBAN, in.IBAN)
+	sent(&a.BIC, in.BIC)
+	sent(&a.Notes, in.Notes)
 }
 
 func (in *Input) Validate() error {
@@ -126,9 +146,9 @@ func (s *Service) Create(in Input) (*core.Account, error) {
 	a := &core.Account{
 		Name: strings.TrimSpace(in.Name), Type: in.Type, Currency: in.Currency,
 		OpeningBalanceMinor: in.OpeningBalanceMinor, OpeningBalanceDate: in.OpeningBalanceDate,
-		AccountNumber: in.AccountNumber, SortCode: in.SortCode, IBAN: in.IBAN, BIC: in.BIC, Notes: in.Notes,
 		Color: color,
 	}
+	in.details(a)
 	var created *core.Account
 	err := s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Repos.Create(tx, a); err != nil {
@@ -170,14 +190,10 @@ func (s *Service) Update(id string, in Input) (*core.Account, error) {
 	}
 	a.OpeningBalanceMinor = in.OpeningBalanceMinor
 	a.OpeningBalanceDate = in.OpeningBalanceDate
-	a.AccountNumber = in.AccountNumber
-	a.SortCode = in.SortCode
-	a.IBAN = in.IBAN
-	a.BIC = in.BIC
 	if in.Color != "" {
 		a.Color = in.Color
 	}
-	a.Notes = in.Notes
+	in.details(a)
 	err = s.DB.WithTx(func(tx *sql.Tx) error {
 		if err := s.Repos.Update(tx, a); err != nil {
 			return err

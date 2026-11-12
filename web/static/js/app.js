@@ -2055,18 +2055,26 @@ document.addEventListener("glowworm-toast", (e) => {
   if (e.detail && e.detail.value) toast(e.detail.value);
 });
 
+const ACCOUNT_BANK_FIELDS = { account_number: "accNumber", sort_code: "accSortCode", iban: "accIban", bic: "accBic" };
+// The bank details of the account being edited, as the form loaded them.
+// Only the ones changed since are sent, and the server keeps the rest, so a
+// form that didn't load can't blank them.
+let accountLoaded = null;
+
 function accountPayload() {
   const opening = parseFloat(document.getElementById("accOpening").value);
-  return {
+  const body = {
     name: document.getElementById("accName").value.trim(),
     type: document.getElementById("accType").value,
     opening_balance_minor: isNaN(opening) ? 0 : Math.round(opening * 100),
     opening_balance_date: document.getElementById("accOpeningDate").value || "",
-    account_number: document.getElementById("accNumber").value.trim(),
-    sort_code: document.getElementById("accSortCode").value.trim(),
-    iban: document.getElementById("accIban").value.trim(),
-    bic: document.getElementById("accBic").value.trim(),
   };
+  const editing = !!document.getElementById("accountForm").dataset.accountId;
+  Object.entries(ACCOUNT_BANK_FIELDS).forEach(([key, el]) => {
+    const value = document.getElementById(el).value.trim();
+    if (!editing || (accountLoaded && value !== accountLoaded[key])) body[key] = value;
+  });
+  return body;
 }
 
 function openAccountForm(id) {
@@ -2079,22 +2087,25 @@ function openAccountForm(id) {
   document.getElementById("accountModalSub").textContent = id ? "Edit this account's details." : "Add a new account to Glowworm.";
   document.getElementById("accDangerZone").hidden = !id;
   resetValuationFields();
+  accountLoaded = null;
+  ["accName", "accOpening", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
+      if (form.dataset.accountId !== id) return;
       document.getElementById("accName").value = a.name || "";
       document.getElementById("accType").value = a.type || "debit";
       document.getElementById("accOpening").value = a.opening_balance_minor != null ? (a.opening_balance_minor / 100).toFixed(2) : "";
       document.getElementById("accOpeningDate").value = a.opening_balance_date || "";
-      document.getElementById("accNumber").value = a.account_number || "";
-      document.getElementById("accSortCode").value = a.sort_code || "";
-      document.getElementById("accIban").value = a.iban || "";
-      document.getElementById("accBic").value = a.bic || "";
+      accountLoaded = {};
+      Object.entries(ACCOUNT_BANK_FIELDS).forEach(([key, el]) => {
+        accountLoaded[key] = a[key] || "";
+        document.getElementById(el).value = accountLoaded[key];
+      });
       showAccountBalance(a);
       syncValuationBlock();
       loadValuations(id);
     }).catch((e) => toast(e.message || "Could not load account"));
   } else {
-    ["accName","accOpening","accNumber","accSortCode","accIban","accBic"].forEach((x) => (document.getElementById(x).value = ""));
     document.getElementById("accValuationHistory").hidden = true;
     document.getElementById("accType").value = "debit";
   }
@@ -2241,6 +2252,8 @@ function recordAccountValuation() {
 function saveAccount() {
   const form = document.getElementById("accountForm");
   const id = form.dataset.accountId;
+  // An account whose details never arrived isn't saved over with an empty form.
+  if (id && !accountLoaded) { toast("This account's details haven't loaded. Close and open it again.", "error"); return; }
   const body = accountPayload();
   const valuation = pendingValuation();
   if (valuation && valuation.error) { toast(valuation.error); return; }

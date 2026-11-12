@@ -249,7 +249,15 @@ func (a *App) apiAccountGet(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(w, acct)
+	// The one account being looked at comes with its bank details, for its
+	// settings form to show. Lists and everything else leave them out.
+	writeJSON(w, struct {
+		*core.Account
+		AccountNumber string `json:"account_number"`
+		SortCode      string `json:"sort_code"`
+		IBAN          string `json:"iban"`
+		BIC           string `json:"bic"`
+	}{acct, acct.AccountNumber, acct.SortCode, acct.IBAN, acct.BIC})
 	return nil
 }
 
