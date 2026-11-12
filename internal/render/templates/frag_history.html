@@ -36,6 +36,7 @@
       <div class="history-sub">Every change, by you or the system, will appear here.</div></div></div>
     {{end}}
   </div>
+  {{if .OlderHref}}<a class="btn btn-ghost history-older" href="{{.OlderHref}}">Show older changes</a>{{end}}
 {{end}}
 {{define "history-timeline"}}
 <div class="history-pane" id="historyTimelinePane">

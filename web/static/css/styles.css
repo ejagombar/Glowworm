@@ -1229,6 +1229,7 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
   display: flex; gap: 12px; align-items: flex-start;
 }
 .history-item.inactive { opacity: 0.55; }
+.history-older { margin-top: 12px; }
 .history-main { flex: 1; min-width: 0; display: block; }
 .history-title { display: block; font-weight: 500; font-size: 13px; line-height: 26px; }
 .history-title .who.you { color: var(--primary-600); }

@@ -4224,14 +4224,18 @@ function loadHistoryPane(url, push) {
   if (!host) return;
   const u = new URL(url, location.origin);
   const filter = u.searchParams.get("filter") || "all";
+  // "Show older changes" asks for a longer list; the one on screen stays
+  // until it arrives, so the page doesn't jump.
+  const show = u.searchParams.get("show") || "";
 
   document.querySelectorAll(".history-filter .chip").forEach((a) => {
     a.classList.toggle("active", new URL(a.href).searchParams.get("filter") === filter);
   });
-  host.innerHTML = historySkeletonHTML();
+  if (!show) host.innerHTML = historySkeletonHTML();
 
   const token = ++historyPaneToken;
-  fetch(`/history/pane?filter=${encodeURIComponent(filter)}`, { headers: { "X-Requested-With": "fetch" } })
+  const more = show ? `&show=${encodeURIComponent(show)}` : "";
+  fetch(`/history/pane?filter=${encodeURIComponent(filter)}${more}`, { headers: { "X-Requested-With": "fetch" } })
     .then((r) => {
       // A redirect (e.g. to /setup) would otherwise be injected as pane HTML.
       if (!r.ok || r.redirected) throw new Error("pane " + r.status);

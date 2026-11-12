@@ -2,10 +2,45 @@ package server
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"glowworm/internal/core"
+	"glowworm/internal/core/audit"
 )
+
+// historyPage is how many audit entries the history page lists to begin
+// with; historyMore is how many "Show older changes" adds.
+const (
+	historyPage = 50
+	historyMore = 100
+)
+
+// listHistory returns the newest show entries and whether there are older
+// ones. It runs on past show rather than cut a run of undone changes in two:
+// they're listed as one block, and its Redo and Delete act on what is listed.
+func listHistory(list func(audit.ListOptions) ([]core.AuditEntry, string, error), opt audit.ListOptions, show int) ([]core.AuditEntry, bool, error) {
+	opt.Limit = 200
+	var all []core.AuditEntry
+	cut := show
+	for {
+		page, next, err := list(opt)
+		if err != nil {
+			return nil, false, err
+		}
+		all = append(all, page...)
+		for cut < len(all) && all[cut].State == "inactive" && all[cut-1].State == "inactive" && all[cut].PathID == all[cut-1].PathID {
+			cut++
+		}
+		if cut < len(all) {
+			return all[:cut], true, nil
+		}
+		if next == "" {
+			return all, false, nil
+		}
+		opt.Cursor, _ = strconv.ParseInt(next, 10, 64)
+	}
+}
 
 type auditEntryView struct {
 	ID         int64

@@ -1,10 +1,13 @@
 package server
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"glowworm/internal/clock"
+	"glowworm/internal/core"
+	"glowworm/internal/core/audit"
 )
 
 func TestGroupAuditEntries(t *testing.T) {
@@ -47,5 +50,55 @@ func TestAuditWhenUsesInstanceTimezone(t *testing.T) {
 	}
 	if got := a.auditWhen("2026-03-01T09:00:00Z", now); got != "1 Mar, 09:00" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestListHistoryReachesOlderEntriesAndKeepsUndoneRunsWhole(t *testing.T) {
+	// 300 entries, newest first; 251 down to 41 were undone by one rewind.
+	var log []core.AuditEntry
+	for id := int64(300); id >= 1; id-- {
+		e := core.AuditEntry{ID: id, State: "active", PathID: "main"}
+		if id <= 251 && id >= 41 {
+			e.State = "inactive"
+		}
+		log = append(log, e)
+	}
+	calls := 0
+	list := func(opt audit.ListOptions) ([]core.AuditEntry, string, error) {
+		calls++
+		var out []core.AuditEntry
+		for _, e := range log {
+			if opt.Cursor > 0 && e.ID >= opt.Cursor {
+				continue
+			}
+			if len(out) == opt.Limit {
+				return out, fmt.Sprint(out[len(out)-1].ID), nil
+			}
+			out = append(out, e)
+		}
+		return out, "", nil
+	}
+	for _, c := range []struct {
+		show     int
+		wantLast int64
+		wantMore bool
+	}{
+		{20, 281, true},  // plain cut
+		{50, 41, true},   // the cut falls in the undone run: all of it is listed
+		{260, 41, true},  // and again from the middle of it
+		{261, 40, true},  // just past it
+		{300, 1, false},  // everything
+		{1000, 1, false}, // more than there is
+	} {
+		got, more, err := listHistory(list, audit.ListOptions{}, c.show)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1].ID; last != c.wantLast || more != c.wantMore {
+			t.Errorf("show %d: ends at %d (more %v), want %d (more %v)", c.show, last, more, c.wantLast, c.wantMore)
+		}
+		if got[0].ID != 300 {
+			t.Errorf("show %d: starts at %d", c.show, got[0].ID)
+		}
 	}
 }

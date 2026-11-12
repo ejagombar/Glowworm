@@ -716,7 +716,7 @@ func (a *App) handleHistory(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	data, err := a.historyData(base, historyFilter(r), true)
+	data, err := a.historyData(base, historyFilter(r), historyShow(r), true)
 	if err != nil {
 		return err
 	}
@@ -729,11 +729,19 @@ func (a *App) handleHistoryPane(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	data, err := a.historyData(base, historyFilter(r), false)
+	data, err := a.historyData(base, historyFilter(r), historyShow(r), false)
 	if err != nil {
 		return err
 	}
 	return a.Render.RenderFragment(w, "history-audit", data)
+}
+
+// historyShow is how many audit entries the page was asked to list.
+func historyShow(r *http.Request) int {
+	if n, _ := strconv.Atoi(r.URL.Query().Get("show")); n > historyPage {
+		return n
+	}
+	return historyPage
 }
 
 func historyFilter(r *http.Request) string {
@@ -745,7 +753,7 @@ func historyFilter(r *http.Request) string {
 
 // historyData builds the History page: the balance timeline (skipped when
 // only the audit log is being refreshed) and the audit log.
-func (a *App) historyData(base *viewBase, filter string, timeline bool) (any, error) {
+func (a *App) historyData(base *viewBase, filter string, show int, timeline bool) (any, error) {
 	months := []string{}
 	latestBalance := int64(0)
 	txCount := int64(0)
@@ -783,16 +791,20 @@ func (a *App) historyData(base *viewBase, filter string, timeline bool) (any, er
 	if err != nil {
 		return nil, err
 	}
-	opt := audit.ListOptions{Limit: 50}
+	opt := audit.ListOptions{}
 	switch filter {
 	case "you":
 		opt.Actor = core.ActorUser
 	case "system":
 		opt.Actors = []string{core.ActorAI, core.ActorSystem}
 	}
-	entries, _, err := a.Audit.List(opt)
+	entries, more, err := listHistory(a.Audit.List, opt, show)
 	if err != nil {
 		return nil, err
+	}
+	older := ""
+	if more {
+		older = fmt.Sprintf("/history?filter=%s&show=%d#audit", url.QueryEscape(filter), len(entries)+historyMore)
 	}
 	entryViews := a.toEntryViews(entries)
 	a.markEditableImports(entryViews)
@@ -814,6 +826,7 @@ func (a *App) historyData(base *viewBase, filter string, timeline bool) (any, er
 		Accounts        []*accountCard
 		Series          string
 		Blocks          []auditBlock
+		OlderHref       string
 		ImportAccounts  []*core.Account
 		ReconcileStatus string
 		ReconcileLabel  string
@@ -824,6 +837,7 @@ func (a *App) historyData(base *viewBase, filter string, timeline bool) (any, er
 		TxCountToDate: txCount, Accounts: cards,
 		Series:          series,
 		Blocks:          groupAuditEntries(entryViews),
+		OlderHref:       older,
 		ImportAccounts:  importAccounts,
 		ReconcileStatus: reconStatus, ReconcileLabel: reconLabel, ReconcileHint: reconHint,
 	}
