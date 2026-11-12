@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"glowworm/internal/core"
 	"glowworm/internal/store"
@@ -101,231 +100,26 @@ type Capabilities struct {
 	Reason  string
 }
 
+// AuditRow is a log entry as the history engine and its ApplyFunc see it.
 type AuditRow struct {
-	ID     int64
-	Action string
-	State  string
-	Before string
-	After  string
-	Revert string
+	ID       int64
+	Action   string
+	State    string
+	Before   string
+	After    string
+	Revert   string
+	Title    string
+	PathID   string
+	CausedBy int64
+
+	// Where the entry sits in history: its own place, or that of the change
+	// that caused it, which it never leaves.
+	linePath string
+	lineID   int64
 }
 
-func (e *Engine) load(tx *sql.Tx, id int64) (*AuditRow, error) {
-	var ent AuditRow
-	err := tx.QueryRow(`SELECT id, action, state, before, after, revert FROM audit_entries WHERE id = ?`, id).
-		Scan(&ent.ID, &ent.Action, &ent.State, &ent.Before, &ent.After, &ent.Revert)
-	if err != nil {
-		return nil, err
-	}
-	return &ent, nil
-}
-
+// ApplyFunc undoes an entry's change, or with reapply does it again.
 type ApplyFunc func(tx *sql.Tx, ent *AuditRow, reapply bool) error
-
-func (e *Engine) JumpBack(entryID int64, apply ApplyFunc) (JumpResult, error) {
-	var res JumpResult
-	err := e.DB.WithTx(func(tx *sql.Tx) error {
-		ent, err := e.load(tx, entryID)
-		if err != nil {
-			return err
-		}
-		if ent.State != "active" {
-			return fmt.Errorf("audit: cannot jump back to an inactive entry")
-		}
-		rows, err := tx.Query(`SELECT id, action, state, before, after, revert FROM audit_entries
-			WHERE id > ? AND state = 'active' ORDER BY id DESC`, entryID)
-		if err != nil {
-			return err
-		}
-		var targets []AuditRow
-		for rows.Next() {
-			var r AuditRow
-			if err := rows.Scan(&r.ID, &r.Action, &r.State, &r.Before, &r.After, &r.Revert); err != nil {
-				rows.Close()
-				return err
-			}
-			targets = append(targets, r)
-		}
-		rows.Close()
-
-		var deactivated []int64
-		var failed []map[string]any
-		for i := range targets {
-			t := targets[i]
-			cap := e.Policy.Evaluate(t.Action, t.State)
-			if !cap.Revert && !cap.Derived {
-				failed = append(failed, map[string]any{"id": t.ID, "reason": cap.Reason})
-				continue
-			}
-			if apply != nil {
-				var notes []string
-				if err := apply(tx, &t, false); err != nil && !partialNotes(err, &notes) {
-					failed = append(failed, map[string]any{"id": t.ID, "reason": err.Error()})
-					continue
-				}
-			}
-			if _, err := tx.Exec(`UPDATE audit_entries SET state = 'inactive' WHERE id = ?`, t.ID); err != nil {
-				return err
-			}
-			deactivated = append(deactivated, t.ID)
-		}
-
-		var parentPath string
-		if err := tx.QueryRow(`SELECT path_id FROM audit_entries WHERE id = ?`, entryID).Scan(&parentPath); err != nil {
-			return err
-		}
-		pathID := util.NewID()
-		if _, err := tx.Exec(`INSERT INTO audit_paths (id, parent_path_id, fork_entry_id, label, is_active, created_at)
-			VALUES (?,?,?,?,1,?)`, pathID, parentPath, entryID,
-			"Jump back · "+time.Now().Format("2 Jan"), util.NowStr()); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`UPDATE audit_paths SET is_active = 0 WHERE id != ? AND is_active = 1`, pathID); err != nil {
-			return err
-		}
-		// No record of the jump itself: the undone entries stay in the log,
-		// greyed out and collapsed, which says the same thing.
-		res = JumpResult{Deactivated: deactivated, Failed: failed}
-		return nil
-	})
-	return res, err
-}
-
-type JumpResult struct {
-	Deactivated []int64          `json:"deactivated"`
-	Failed      []map[string]any `json:"failed,omitempty"`
-}
-
-func (e *Engine) RestorePath(pathID string, apply ApplyFunc) (RestoreResult, error) {
-	var res RestoreResult
-	err := e.DB.WithTx(func(tx *sql.Tx) error {
-		var isActive bool
-		if err := tx.QueryRow(`SELECT is_active FROM audit_paths WHERE id = ?`, pathID).Scan(&isActive); err != nil {
-			return fmt.Errorf("audit: path %s: %w", pathID, err)
-		}
-
-		toShelve, err := e.activeOutsideChain(tx, pathID)
-		if err != nil {
-			return err
-		}
-		var shelved []int64
-		for i := len(toShelve) - 1; i >= 0; i-- {
-			t := toShelve[i]
-			if apply != nil {
-				var notes []string
-				if err := apply(tx, &t, false); err != nil && !partialNotes(err, &notes) {
-					continue // never block a restore on a failed shelve
-				}
-			}
-			if _, err := tx.Exec(`UPDATE audit_entries SET state = 'inactive' WHERE id = ?`, t.ID); err != nil {
-				return err
-			}
-			shelved = append(shelved, t.ID)
-		}
-
-		rows, err := tx.Query(`SELECT id, action, state, before, after, revert FROM audit_entries
-			WHERE path_id = ? ORDER BY id ASC`, pathID)
-		if err != nil {
-			return err
-		}
-		var reapplied, skipped []int64
-		for rows.Next() {
-			var r AuditRow
-			if err := rows.Scan(&r.ID, &r.Action, &r.State, &r.Before, &r.After, &r.Revert); err != nil {
-				rows.Close()
-				return err
-			}
-			if r.State != "inactive" {
-				continue
-			}
-			if apply != nil {
-				var notes []string
-				if err := apply(tx, &r, true); err != nil && !partialNotes(err, &notes) {
-					skipped = append(skipped, r.ID)
-					continue
-				}
-			}
-			if _, err := tx.Exec(`UPDATE audit_entries SET state = 'active' WHERE id = ?`, r.ID); err != nil {
-				return err
-			}
-			reapplied = append(reapplied, r.ID)
-		}
-		rows.Close()
-
-		if _, err := tx.Exec(`UPDATE audit_paths SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END`, pathID); err != nil {
-			return err
-		}
-		res = RestoreResult{Reactivated: reapplied, Shelved: shelved, Skipped: skipped}
-		return nil
-	})
-	return res, err
-}
-
-type RestoreResult struct {
-	Reactivated []int64 `json:"reactivated"`
-	Shelved     []int64 `json:"shelved"`
-	Skipped     []int64 `json:"skipped,omitempty"`
-}
-
-func (e *Engine) activeOutsideChain(tx *sql.Tx, pathID string) ([]AuditRow, error) {
-	var chain []struct {
-		id   string
-		fork *int64
-	}
-	p := pathID
-	for p != "" {
-		var parent *string
-		var fork *int64
-		if err := tx.QueryRow(`SELECT COALESCE(parent_path_id,''), fork_entry_id FROM audit_paths WHERE id = ?`, p).
-			Scan(&parent, &fork); err != nil {
-			return nil, err
-		}
-		chain = append(chain, struct {
-			id   string
-			fork *int64
-		}{p, fork})
-		if parent == nil || *parent == "" {
-			break
-		}
-		p = *parent
-	}
-	inChain := func(path string, id int64) bool {
-		for _, c := range chain {
-			if c.id != path {
-				continue
-			}
-			if c.fork != nil && id > *c.fork {
-				return false
-			}
-			return true
-		}
-		return false
-	}
-	rows, err := tx.Query(`SELECT id, action, path_id FROM audit_entries WHERE state = 'active' ORDER BY id DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []AuditRow
-	for rows.Next() {
-		var id int64
-		var action, path string
-		if err := rows.Scan(&id, &action, &path); err != nil {
-			return nil, err
-		}
-		if inChain(path, id) {
-			continue
-		}
-		var ent AuditRow
-		if err := tx.QueryRow(`SELECT before, after, revert FROM audit_entries WHERE id = ?`, id).
-			Scan(&ent.Before, &ent.After, &ent.Revert); err != nil {
-			return nil, err
-		}
-		ent.ID, ent.Action, ent.State = id, action, "active"
-		out = append(out, ent)
-	}
-	return out, rows.Err()
-}
 
 type ListOptions struct {
 	Actor      string

@@ -12,6 +12,12 @@ var derivedActions = map[string]bool{
 	"merchant.enriched":    true,
 }
 
+// logOnly reports whether an action only records that something happened,
+// leaving nothing behind that a rewind could be expected to take back.
+func logOnly(action string) bool {
+	return strings.HasPrefix(action, "setup.") || strings.HasPrefix(action, "import.")
+}
+
 func (p *Policy) Evaluate(action, state string) Capabilities {
 	var c Capabilities
 	switch {

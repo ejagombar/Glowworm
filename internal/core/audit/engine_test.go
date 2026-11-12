@@ -93,15 +93,9 @@ func TestHistoryEngineRoundTrip(t *testing.T) {
 	if len(live()) != 2 {
 		t.Fatalf("live = %v", live())
 	}
-	res2, err := e.RestorePath("main", apply)
-	if err != nil {
+	// Redoing the rewound block goes back to its timeline: "delta" is undone.
+	if _, err := e.Redo(res.Deactivated, apply); err != nil {
 		t.Fatal(err)
-	}
-	if len(res2.Reactivated) != 2 {
-		t.Fatalf("reactivated = %v", res2.Reactivated)
-	}
-	if len(res2.Shelved) != 1 { // just "delta": a jump-back writes no entry of its own
-		t.Fatalf("shelved = %v", res2.Shelved)
 	}
 	got = live()
 	if len(got) != 3 || got[0] != "alpha" || got[1] != "beta" || got[2] != "gamma" {

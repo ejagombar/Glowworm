@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"unicode"
 
 	"glowworm/internal/store"
 
@@ -514,6 +515,16 @@ func (a *App) apiAuditList(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// historyError says why an undo, redo or rewind was refused.
+func historyError(w http.ResponseWriter, err error) {
+	msg := audit.Reason(err)
+	if r := []rune(msg); len(r) > 0 {
+		r[0] = unicode.ToUpper(r[0])
+		msg = string(r)
+	}
+	apiError(w, http.StatusConflict, "conflict", msg)
+}
+
 func (a *App) apiAuditRevert(w http.ResponseWriter, r *http.Request) error {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -522,7 +533,7 @@ func (a *App) apiAuditRevert(w http.ResponseWriter, r *http.Request) error {
 	}
 	notes, err := a.Audit.Undo(id, a.applyEntry)
 	if err != nil {
-		apiError(w, http.StatusConflict, "conflict", err.Error())
+		historyError(w, err)
 		return nil
 	}
 	a.afterHistoryChange()
@@ -539,7 +550,7 @@ func (a *App) apiAuditRedo(w http.ResponseWriter, r *http.Request) error {
 	}
 	notes, err := a.Audit.Redo(in.IDs, a.applyEntry)
 	if err != nil {
-		apiError(w, http.StatusConflict, "conflict", err.Error())
+		historyError(w, err)
 		return nil
 	}
 	a.afterHistoryChange()
@@ -556,7 +567,7 @@ func (a *App) apiAuditDiscard(w http.ResponseWriter, r *http.Request) error {
 	}
 	n, err := a.Audit.Discard(in.IDs)
 	if err != nil {
-		apiError(w, http.StatusConflict, "conflict", err.Error())
+		historyError(w, err)
 		return nil
 	}
 	writeJSON(w, map[string]any{"ok": true, "removed": n})
@@ -571,7 +582,7 @@ func (a *App) apiAuditJumpBack(w http.ResponseWriter, r *http.Request) error {
 	}
 	res, err := a.Audit.JumpBack(id, a.applyEntry)
 	if err != nil {
-		apiError(w, http.StatusConflict, "conflict", err.Error())
+		historyError(w, err)
 		return nil
 	}
 	a.afterHistoryChange()

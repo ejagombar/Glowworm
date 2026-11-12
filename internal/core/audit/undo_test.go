@@ -110,7 +110,7 @@ func TestRewindDeactivatesDerivedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Deactivated) != 2 || len(res.Failed) != 0 {
+	if len(res.Deactivated) != 2 || len(res.Notes) != 0 {
 		t.Fatalf("rewind should undo the import and its derived entry: %+v", res)
 	}
 }
