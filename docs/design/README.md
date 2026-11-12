@@ -11,6 +11,28 @@ The documents in this folder are **normative**. They consolidate every prior
 requirements document, resolve the conflicts between them, and extract the
 many features that previously existed only implicitly inside the prototype UI.
 
+> **Read this first.** These documents are the specification the first
+> version was built from. The implementation has since moved on, and where
+> the two disagree **the code is right**. The differences that matter most:
+>
+> - **Storage** — SQLite only. There is no Postgres option, and the schema
+>   is the single migration `internal/store/migrations/0001_init.up.sql`
+>   rather than the tables listed in doc 02.
+> - **Queries** (docs 05, 10) — the model answers with query specs
+>   (`internal/core/query`) that are re-run whenever a widget is shown. The
+>   Plan engine and stored snapshot widgets described here no longer exist.
+> - **History** (doc 11) — the operations are undo, redo, rewind to an entry
+>   and discard. Revert links, forgetting or deleting single entries and
+>   restoring a named path were removed.
+> - **Categorisation** (doc 07) — runs per group inside the import pipeline
+>   (`internal/core/imports/categorise.go`); there is no standalone
+>   per-transaction categoriser or retrain endpoint.
+> - **API** (doc 03) — the route table in `internal/server/api.go` is the
+>   reference; a number of endpoints listed here were never used by the app
+>   and have been removed.
+> - **Settings** (doc 12) — `transfer_date_window_days` and
+>   `ai_daily_token_cap` do not exist.
+
 ---
 
 ## 1. Source documents & precedence
