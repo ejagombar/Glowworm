@@ -36,7 +36,6 @@ Environment variables (see `glowworm.example.toml` for the file equivalent):
 |---|---|---|
 | `GLOWWORM_ADDR` | `127.0.0.1:8080` | Listen address |
 | `GLOWWORM_DATA_DIR` | `./data` | SQLite DB + secret.key |
-| `GLOWWORM_DB` | `sqlite` | `sqlite` or `postgres` |
 | `GLOWWORM_TIMEZONE` | system | "Today" boundaries |
 | `GLOWWORM_AUTH_MODE` | `password` | `none` only for trusted networks |
 | `GLOWWORM_UPLOAD_MAX_MB` | `25` | Statement upload cap |

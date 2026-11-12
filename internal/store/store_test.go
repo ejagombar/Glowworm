@@ -3,7 +3,7 @@ package store
 import "testing"
 
 func TestResetMatchesFreshInstall(t *testing.T) {
-	db, err := Open("sqlite", t.TempDir()+"/t.db")
+	db, err := Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

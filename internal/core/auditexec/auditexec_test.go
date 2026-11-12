@@ -17,7 +17,7 @@ import (
 // a later edit changed again keeps the later value, and the undo says so;
 // redo works the same way.
 func TestUndoOlderEditKeepsLaterChanges(t *testing.T) {
-	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestUndoOlderEditKeepsLaterChanges(t *testing.T) {
 // A dated account value is undone and redone by its own id, so two values
 // that look the same don't get mixed up.
 func TestUndoValuation(t *testing.T) {
-	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

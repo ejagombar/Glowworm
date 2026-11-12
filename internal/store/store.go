@@ -20,35 +20,20 @@ var migrationsFS embed.FS
 
 type DB struct {
 	*sql.DB
-	Dialect string
 }
 
-func Open(dialect, dsn string) (*DB, error) {
-	if dialect == "" {
-		dialect = "sqlite"
-	}
-	var db *sql.DB
-	var err error
-	switch dialect {
-	case "sqlite":
-		db, err = sql.Open("sqlite", sqliteDSN(dsn))
-	case "postgres":
-		err = fmt.Errorf("postgres: dsn %q not supported in this build (set GLOWWORM_DB=sqlite)", dsn)
-		db = nil
-	default:
-		err = fmt.Errorf("unknown dialect %q", dialect)
-	}
+// Open opens the SQLite database at path, creating and migrating it as needed.
+func Open(path string) (*DB, error) {
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, err
 	}
 	// More than one connection: a goroutine holding a tx that reads via
 	// s.DB (not the tx) would deadlock on a single-connection pool.
 	db.SetMaxOpenConns(4)
-	s := &DB{DB: db, Dialect: dialect}
-	if dialect == "sqlite" {
-		if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-			return nil, fmt.Errorf("store: %w", err)
-		}
+	s := &DB{DB: db}
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		return nil, fmt.Errorf("store: %w", err)
 	}
 	if err := s.migrate(); err != nil {
 		return nil, err

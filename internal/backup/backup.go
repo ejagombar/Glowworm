@@ -168,7 +168,7 @@ func Restore(zipPath, dataDir, dbPath string, force bool) (*Summary, error) {
 }
 
 func verify(path string, sum *Summary) error {
-	db, err := store.Open("sqlite", path)
+	db, err := store.Open(path)
 	if err != nil {
 		return fmt.Errorf("backup database can't be opened: %w", err)
 	}

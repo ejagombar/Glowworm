@@ -17,7 +17,7 @@ func seededInstance(t *testing.T) (dir string, secret *crypto.Secret) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.Open("sqlite", filepath.Join(dir, "glowworm.db"))
+	db, err := store.Open(filepath.Join(dir, "glowworm.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func seededInstance(t *testing.T) (dir string, secret *crypto.Secret) {
 
 func writeBackup(t *testing.T, dir string, secret *crypto.Secret) string {
 	t.Helper()
-	db, err := store.Open("sqlite", filepath.Join(dir, "glowworm.db"))
+	db, err := store.Open(filepath.Join(dir, "glowworm.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestRestoreRoundTrip(t *testing.T) {
 			t.Errorf("%s left behind", leftover)
 		}
 	}
-	db, err := store.Open("sqlite", dbPath)
+	db, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}

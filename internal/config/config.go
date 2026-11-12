@@ -11,7 +11,6 @@ import (
 type Config struct {
 	Addr           string
 	DataDir        string
-	DBDialect      string
 	DBDSN          string
 	Timezone       string
 	SecretKey      string
@@ -31,7 +30,6 @@ func defaults() Config {
 	return Config{
 		Addr:        "127.0.0.1:8080",
 		DataDir:     "./data",
-		DBDialect:   "sqlite",
 		Timezone:    "Local",
 		AuthMode:    "password",
 		LogFormat:   "text",
@@ -56,9 +54,6 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("GLOWWORM_DATA_DIR"); v != "" {
 		c.DataDir = v
-	}
-	if v := os.Getenv("GLOWWORM_DB"); v != "" {
-		c.DBDialect = v
 	}
 	if v := os.Getenv("GLOWWORM_DB_DSN"); v != "" {
 		c.DBDSN = v
@@ -102,9 +97,6 @@ func Load() (Config, error) {
 	if c.AuthMode != "password" && c.AuthMode != "none" {
 		return c, fmt.Errorf("config: GLOWWORM_AUTH_MODE must be password|none (got %q)", c.AuthMode)
 	}
-	if c.DBDialect != "sqlite" && c.DBDialect != "postgres" {
-		return c, fmt.Errorf("config: GLOWWORM_DB must be sqlite|postgres (got %q)", c.DBDialect)
-	}
 	return c, nil
 }
 
@@ -146,8 +138,6 @@ func (c *Config) loadFile(path string) error {
 			c.Addr = val
 		case "data_dir":
 			c.DataDir = val
-		case "db":
-			c.DBDialect = val
 		case "db_dsn":
 			c.DBDSN = val
 		case "timezone":

@@ -18,7 +18,7 @@ func TestFrankfurterRatesFillWeekendsAndCache(t *testing.T) {
 		_, _ = w.Write([]byte(`{"base":"EUR","rates":{"2026-06-05":{"GBP":0.85},"2026-06-08":{"GBP":0.86}}}`))
 	}))
 	defer srv.Close()
-	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

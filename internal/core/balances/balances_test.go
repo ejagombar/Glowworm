@@ -7,7 +7,7 @@ import (
 )
 
 func TestAccountReplay(t *testing.T) {
-	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

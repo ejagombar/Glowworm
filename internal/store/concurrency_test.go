@@ -11,7 +11,7 @@ import (
 // failing with "database is locked", whichever pooled connection they get,
 // and every connection enforces foreign keys.
 func TestConcurrentWritersQueue(t *testing.T) {
-	db, err := Open("sqlite", t.TempDir()+"/t.db")
+	db, err := Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

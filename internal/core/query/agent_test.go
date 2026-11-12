@@ -14,7 +14,7 @@ import (
 
 func newAgentTestDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -35,7 +35,7 @@ func runUser(args []string) {
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		fail("data dir: %v", err)
 	}
-	db, err := store.Open(cfg.DBDialect, cfg.DSNSQLite())
+	db, err := store.Open(cfg.DSNSQLite())
 	if err != nil {
 		fail("store: %v", err)
 	}

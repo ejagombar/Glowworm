@@ -15,7 +15,7 @@ import (
 func strp(s string) *string { return &s }
 
 func TestDescriptionKeptClearedAndUndone(t *testing.T) {
-	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

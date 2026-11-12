@@ -35,7 +35,7 @@ func TestValidateReadonly(t *testing.T) {
 // Queries run on a connection SQLite keeps read-only, and the connection
 // writes normally again once it's back in the pool.
 func TestReadonlyConnectionCantWrite(t *testing.T) {
-	db, err := store.Open("sqlite", t.TempDir()+"/t.db")
+	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
 		t.Fatal(err)
 	}

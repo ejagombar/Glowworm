@@ -105,7 +105,7 @@ func serve() {
 	}
 
 	dsn := cfg.DSNSQLite()
-	db, err := store.Open(cfg.DBDialect, dsn)
+	db, err := store.Open(dsn)
 	if err != nil {
 		log.Error("store", "err", err)
 		os.Exit(1)
@@ -151,7 +151,7 @@ func runBackup(args []string) {
 	if err != nil {
 		fail("secret key: %v", err)
 	}
-	db, err := store.Open(cfg.DBDialect, dsn)
+	db, err := store.Open(dsn)
 	if err != nil {
 		fail("store: %v", err)
 	}

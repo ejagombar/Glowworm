@@ -3,8 +3,7 @@
 
 addr = "127.0.0.1:8080"
 data_dir = "./data"
-db = "sqlite"            # sqlite | postgres
-# db_dsn = "postgres://glowworm:secret@localhost:5432/glowworm"
+# db_dsn = "/var/lib/glowworm/glowworm.db"   # absolute path; default is data_dir/glowworm.db
 timezone = "Europe/London"
 # secret_key = "64 hex chars — auto-generated into data/secret.key when unset"
 auth_mode = "password"   # password | none (none: trusted networks only)
