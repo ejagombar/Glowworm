@@ -106,6 +106,9 @@ func accountSnapshot(a *core.Account) map[string]any {
 		"id": a.ID, "name": a.Name, "type": a.Type, "color": a.Color,
 		"currency": a.Currency, "opening_balance_minor": a.OpeningBalanceMinor,
 		"opening_balance_date": a.OpeningBalanceDate, "notes": a.Notes,
+		// The bank details too, or undoing an edit couldn't put them back.
+		// Snapshots stay in the database and are never shown.
+		"account_number": a.AccountNumber, "sort_code": a.SortCode, "iban": a.IBAN, "bic": a.BIC,
 	}
 }
 

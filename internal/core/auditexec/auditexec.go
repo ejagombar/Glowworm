@@ -54,20 +54,21 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	case "account.created":
 		id := str(revert["account_id"])
 		if reapply {
+			if err := expect(tx, "accounts", "account", id, false); err != nil {
+				return err
+			}
 			return x.Accounts.Restore(tx, id)
 		}
-		return x.Accounts.SoftDelete(tx, id)
+		return x.removeAccount(tx, id)
 
 	case "account.updated":
-		id := str(revert["account_id"])
-		fields := revertFields(revert)
-		if fields == nil {
-			fields = before
+		if len(before) == 0 {
+			before = revertFields(revert)
 		}
 		if reapply {
-			fields = after
+			return x.applyAccountUpdate(tx, str(revert["account_id"]), before, after)
 		}
-		return x.applyAccountFields(tx, id, fields)
+		return x.applyAccountUpdate(tx, str(revert["account_id"]), after, before)
 
 	case "account.deleted":
 		return fmt.Errorf("auditexec: account deletion can't be undone from history — restore it from Settings → Deleted accounts")
@@ -75,49 +76,32 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 	case "account.restored", "account.purged":
 		return fmt.Errorf("auditexec: %s can't be replayed from history — manage it from Settings → Accounts", ent.Action)
 
-	case "valuation.created":
-		vid := str(revert["valuation_id"])
-		if reapply {
-			return x.Accounts.RestoreValuation(tx, vid)
-		}
-		return x.Accounts.DeleteValuation(tx, vid)
-
-	case "valuation.deleted":
-		vid := str(revert["valuation_id"])
-		if reapply {
-			return x.Accounts.DeleteValuation(tx, vid)
-		}
-		return x.Accounts.RestoreValuation(tx, vid)
+	case "valuation.created", "valuation.deleted":
+		return x.setValuation(tx, str(revert["valuation_id"]), (ent.Action == "valuation.created") == reapply)
 
 	case "category.created":
 		id := str(revert["category_id"])
 		if reapply {
-			return x.Categories.Restore(tx, id)
+			return x.bringBackCategory(tx, id, after)
 		}
-		return x.Categories.Delete(tx, id)
+		return x.removeCategory(tx, id)
 
 	case "category.updated":
-		id := str(revert["category_id"])
-		fields := revertFields(revert)
-		if fields == nil {
-			fields = before
+		if len(before) == 0 {
+			before = revertFields(revert)
 		}
 		if reapply {
-			fields = after
+			return x.applyCategoryUpdate(tx, str(revert["category_id"]), before, after)
 		}
-		return x.applyCategoryFields(tx, id, fields)
+		return x.applyCategoryUpdate(tx, str(revert["category_id"]), after, before)
 
 	case "category.deleted":
 		// Deletion is soft, so undo brings the same row back.
 		id := str(revert["category_id"])
 		if reapply {
-			return x.Categories.Delete(tx, id)
+			return x.removeCategory(tx, id)
 		}
-		var exists int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM categories WHERE id = ?`, id).Scan(&exists); err == nil && exists == 0 {
-			return x.restoreCategory(tx, id, before)
-		}
-		return x.Categories.Restore(tx, id)
+		return x.bringBackCategory(tx, id, before)
 
 	case "classifier.retrained", "recurring.detected", "merchant.enriched":
 		// Derived from the data; recomputed after any undo or redo.
@@ -131,8 +115,14 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		if !on {
 			deletedAt = nowStr()
 		}
-		_, err := tx.Exec(`UPDATE group_rules SET deleted_at = ? WHERE id = ?`, deletedAt, str(revert["rule_id"]))
-		return err
+		res, err := tx.Exec(`UPDATE group_rules SET deleted_at = ? WHERE id = ?`, deletedAt, str(revert["rule_id"]))
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return conflict("that rule no longer exists")
+		}
+		return nil
 
 	case "change.applied":
 		// The edits it made are entries caused by it, undone and redone
@@ -208,6 +198,9 @@ var txEditFields = []struct {
 // other (to), touching only the fields the edit changed.
 func (x *Executor) applyTxEdit(tx *sql.Tx, id string, from, to map[string]any) error {
 	t, err := getTxIn(x.Txs, tx, id)
+	if err == sql.ErrNoRows {
+		return conflict("that transaction no longer exists")
+	}
 	if err != nil {
 		return err
 	}
@@ -307,81 +300,6 @@ func joinAnd(items []string) string {
 		return strings.Join(items, "")
 	}
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
-}
-
-func (x *Executor) applyAccountFields(tx *sql.Tx, id string, f map[string]any) error {
-	if f == nil {
-		return nil
-	}
-	a, err := scanAccountIn(x.Accounts, tx, id)
-	if err != nil {
-		return err
-	}
-	if v, ok := f["name"].(string); ok && v != "" {
-		a.Name = v
-	}
-	if v, ok := f["type"].(string); ok && v != "" {
-		a.Type = v
-	}
-	if v, ok := f["currency"].(string); ok && v != "" {
-		a.Currency = v
-	}
-	if v, ok := f["opening_balance_minor"]; ok {
-		a.OpeningBalanceMinor = int64F(v)
-	}
-	if v, ok := f["opening_balance_date"].(string); ok {
-		a.OpeningBalanceDate = v
-	}
-	if v, ok := f["notes"].(string); ok {
-		a.Notes = v
-	}
-	return x.Accounts.Update(tx, a)
-}
-
-func (x *Executor) applyCategoryFields(tx *sql.Tx, id string, f map[string]any) error {
-	if f == nil {
-		return nil
-	}
-	c, err := scanCategoryIn(x.Categories, tx, id)
-	if err != nil {
-		return err
-	}
-	if v, ok := f["name"].(string); ok && v != "" && !c.IsSystem {
-		c.Name = v
-	}
-	if v, ok := f["color"].(string); ok && v != "" {
-		c.Color = v
-	}
-	if v, ok := f["type"].(string); ok && v != "" && !c.IsSystem {
-		c.Type = v
-	}
-	// May be "" on purpose: the description was blank before.
-	if v, ok := f["description"].(string); ok && !c.IsSystem {
-		c.Description = v
-	}
-	return x.Categories.Update(tx, c)
-}
-
-func (x *Executor) restoreCategory(tx *sql.Tx, id string, before map[string]any) error {
-	c := &core.Category{
-		ID: id,
-	}
-	if before != nil {
-		c.Name, _ = before["name"].(string)
-		c.Color, _ = before["color"].(string)
-		c.Type, _ = before["type"].(string)
-		c.Description, _ = before["description"].(string)
-	}
-	if c.Name == "" {
-		return fmt.Errorf("auditexec: cannot restore category %s (no snapshot)", id)
-	}
-	if c.Color == "" {
-		c.Color = "#6b7280"
-	}
-	if c.Type == "" {
-		c.Type = core.CategorySpend
-	}
-	return x.Categories.CreateWithID(tx, c)
 }
 
 func (x *Executor) applyImportConfirmed(tx *sql.Tx, ent *audit.AuditRow, revert map[string]any, reapply bool) error {
@@ -526,9 +444,9 @@ func scanAccountIn(r *repos.Accounts, tx *sql.Tx, id string) (*core.Account, err
 func scanCategoryIn(r *repos.Categories, tx *sql.Tx, id string) (*core.Category, error) {
 	var c core.Category
 	var isSys, deletedAt sql.NullString
-	err := repos.Row(r.DB, tx, `SELECT id, name, color, type, is_system, sort_order, created_at, updated_at, deleted_at
+	err := repos.Row(r.DB, tx, `SELECT id, name, color, type, description, is_system, sort_order, created_at, updated_at, deleted_at
 		FROM categories WHERE id = ? AND deleted_at IS NULL`, id).
-		Scan(&c.ID, &c.Name, &c.Color, &c.Type, &isSys, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt, &deletedAt)
+		Scan(&c.ID, &c.Name, &c.Color, &c.Type, &c.Description, &isSys, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt, &deletedAt)
 	if err != nil {
 		return nil, err
 	}
