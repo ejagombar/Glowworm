@@ -204,6 +204,7 @@ func (s *Service) linkDetected(p *Pair) error {
 			},
 			After: map[string]any{
 				"transfer_id": tr.ID,
+				"detected":    tr.Detected, "method": tr.Method, "confidence": tr.Confidence,
 				"legs": []map[string]any{
 					{"id": src.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
 					{"id": dst.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
@@ -295,6 +296,7 @@ func (s *Service) Link(txID, counterpartID, actor string) (*core.Transfer, error
 			},
 			After: map[string]any{
 				"transfer_id": tr.ID,
+				"detected":    tr.Detected, "method": tr.Method, "confidence": tr.Confidence,
 				"legs": []map[string]any{
 					{"id": src.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
 					{"id": dst.ID, "type": core.TypeTransfer, "category_id": core.InternalTransferCategoryID, "category_source": "none"},
@@ -352,6 +354,7 @@ func (s *Service) Unlink(txID string, actor string) error {
 			Sub:   fmt.Sprintf("%s · %s", src.Description, dst.Description),
 			Before: map[string]any{
 				"transfer_id": tr.ID,
+				"detected":    tr.Detected, "method": tr.Method, "confidence": tr.Confidence,
 				"legs": []map[string]any{
 					{"id": src.ID, "type": "transfer", "category_id": core.InternalTransferCategoryID, "category_source": "none"},
 					{"id": dst.ID, "type": "transfer", "category_id": core.InternalTransferCategoryID, "category_source": "none"},

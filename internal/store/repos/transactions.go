@@ -346,8 +346,13 @@ func (r *Transactions) Restore(tx *sql.Tx, id string) error {
 	return err
 }
 
+// CreateTransfer links two transactions as one transfer. A transfer that
+// comes with an id keeps it: history puts a transfer back under the id its
+// entries know it by.
 func (r *Transactions) CreateTransfer(tx *sql.Tx, tr *core.Transfer, sourceTx, destTx *core.Transaction) error {
-	tr.ID = util.NewID()
+	if tr.ID == "" {
+		tr.ID = util.NewID()
+	}
 	tr.CreatedAt = util.NowStr()
 	if _, err := exec(r.DB, tx, `INSERT INTO transfers (id, source_transaction_id, destination_transaction_id, detected, method, confidence, created_at)
 		VALUES (?,?,?,?,?,?,?)`, tr.ID, tr.SourceTxID, tr.DestinationTxID, tr.Detected, tr.Method, nullFloat(tr.Confidence), tr.CreatedAt); err != nil {
