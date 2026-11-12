@@ -2,6 +2,7 @@ package transactions
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"glowworm/internal/clock"
@@ -48,6 +49,15 @@ func (s *Service) deriveType(categoryID *string, linked bool) string {
 		}
 	}
 	return core.TypeExpense
+}
+
+// categoryGone reports whether a transaction's category has been deleted.
+func (s *Service) categoryGone(categoryID *string) bool {
+	if categoryID == nil || *categoryID == "" {
+		return false
+	}
+	_, err := s.Categories.Get(*categoryID)
+	return errors.Is(err, repos.ErrNotFound)
 }
 
 func (s *Service) eligibleCategory(txType string, categoryID *string) error {
@@ -219,16 +229,22 @@ func (s *Service) Edit(id string, in CreateInput, categorySource string) (*core.
 		}
 		t.CategoryConfidence = nil
 	}
+	// A category deleted since is left on the transaction, which shows as
+	// uncategorised and goes back into it if the delete is undone. An edit
+	// that doesn't pick another one is not refused for it.
+	gone := in.CategoryID == nil && s.categoryGone(t.CategoryID)
 	if in.Type != "" {
 		if in.Type != t.Type && t.TransferID != nil {
 			return nil, &ValidationError{Message: "Break the transfer link before changing its type"}
 		}
 		t.Type = in.Type
-	} else if t.TransferID == nil {
+	} else if t.TransferID == nil && !gone {
 		t.Type = s.deriveType(t.CategoryID, false)
 	}
-	if err := s.eligibleCategory(t.Type, t.CategoryID); err != nil {
-		return nil, err
+	if !gone {
+		if err := s.eligibleCategory(t.Type, t.CategoryID); err != nil {
+			return nil, err
+		}
 	}
 	if len(t.Date) != 10 {
 		return nil, &ValidationError{Message: "Date is required (YYYY-MM-DD)"}

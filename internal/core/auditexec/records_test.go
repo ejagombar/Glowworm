@@ -8,6 +8,7 @@ import (
 
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/categories"
+	"glowworm/internal/core/transactions"
 	"glowworm/internal/store/repos"
 )
 
@@ -272,4 +273,31 @@ func TestADeletedCategoryDoesNotHoldItsName(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.refused("undo adding a category that was deleted", added, false)
+}
+
+func TestATransactionInADeletedCategoryCanStillBeEdited(t *testing.T) {
+	l := newLedger(t)
+	svc := l.categories()
+	c, err := svc.Create(categories.Input{Name: "Pets"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := l.last()
+	if _, err := l.txs.Edit("out", transactions.CreateInput{CategoryID: &c.ID}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Undoing "Added category" takes the category away from under it.
+	l.undo(added)
+	if _, err := l.txs.Edit("out", transactions.CreateInput{Description: "Vet"}, ""); err != nil {
+		t.Fatalf("editing a transaction whose category was undone: %v", err)
+	}
+	// It is still the category's, for when the category comes back.
+	l.redo(added)
+	l.want("category back", "out", "expense/"+c.ID+"/")
+
+	// A category that never existed is still refused.
+	if _, err := l.txs.Edit("out", transactions.CreateInput{CategoryID: strp("nope")}, ""); err == nil {
+		t.Fatal("an unknown category was accepted")
+	}
 }
