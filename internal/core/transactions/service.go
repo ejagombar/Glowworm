@@ -277,20 +277,25 @@ func (s *Service) Delete(id string) error {
 		return err
 	}
 	return s.DB.WithTx(func(tx *sql.Tx) error {
-		if t.TransferID != nil {
-			if err := s.Repos.DeleteTransfer(tx, *t.TransferID); err != nil {
-				return err
-			}
+		// One side of a transfer takes the link with it. The entry keeps the
+		// transfer so that undoing the delete can put it back.
+		revert := map[string]any{"transaction_id": id, "restore": true}
+		tr, err := s.Repos.BreakTransferOf(tx, id)
+		if err != nil {
+			return err
+		}
+		if tr != nil {
+			revert["transfers"] = []*core.Transfer{tr}
 		}
 		if err := s.Repos.SoftDelete(tx, id); err != nil {
 			return err
 		}
-		_, err := s.Audit.Write(tx, audit.Input{
+		_, err = s.Audit.Write(tx, audit.Input{
 			Actor: core.ActorUser, Action: "transaction.deleted",
 			EntityType: "transaction", EntityID: id,
 			Title: "Deleted transaction", Sub: t.Description,
 			Before: s.snapshot(t),
-			Revert: map[string]any{"transaction_id": id, "restore": true},
+			Revert: revert,
 		})
 		return err
 	})

@@ -341,11 +341,6 @@ func (r *Transactions) SoftDelete(tx *sql.Tx, id string) error {
 	return err
 }
 
-func (r *Transactions) Restore(tx *sql.Tx, id string) error {
-	_, err := exec(r.DB, tx, `UPDATE transactions SET deleted_at = NULL WHERE id = ?`, id)
-	return err
-}
-
 // CreateTransfer links two transactions as one transfer. A transfer that
 // comes with an id keeps it: history puts a transfer back under the id its
 // entries know it by.
@@ -370,6 +365,35 @@ func (r *Transactions) CreateTransfer(tx *sql.Tx, tr *core.Transfer, sourceTx, d
 func (r *Transactions) DeleteTransfer(tx *sql.Tx, transferID string) error {
 	_, err := exec(r.DB, tx, `DELETE FROM transfers WHERE id = ?`, transferID)
 	return err
+}
+
+// BreakTransferOf removes the transfer a transaction is one side of and
+// returns it, or nil if it isn't part of one. Both sides stay marked as
+// transfers, waiting to be paired again, so they stay out of spend and income.
+func (r *Transactions) BreakTransferOf(tx *sql.Tx, txID string) (*core.Transfer, error) {
+	var tr core.Transfer
+	var conf sql.NullFloat64
+	err := row(r.DB, tx, `SELECT id, source_transaction_id, destination_transaction_id, detected, method, confidence, created_at
+		FROM transfers WHERE source_transaction_id = ? OR destination_transaction_id = ?`, txID, txID).
+		Scan(&tr.ID, &tr.SourceTxID, &tr.DestinationTxID, &tr.Detected, &tr.Method, &conf, &tr.CreatedAt)
+	if err == sql.ErrNoRows {
+		// Nothing to remove, but it may still carry the id of a transfer that's gone.
+		_, err := exec(r.DB, tx, `UPDATE transactions SET transfer_id = NULL WHERE id = ? AND transfer_id IS NOT NULL`, txID)
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	if conf.Valid {
+		tr.Confidence = &conf.Float64
+	}
+	if _, err := exec(r.DB, tx, `DELETE FROM transfers WHERE id = ?`, tr.ID); err != nil {
+		return nil, err
+	}
+	if _, err := exec(r.DB, tx, `UPDATE transactions SET transfer_id = NULL, updated_at = ? WHERE transfer_id = ?`, util.NowStr(), tr.ID); err != nil {
+		return nil, err
+	}
+	return &tr, nil
 }
 
 func (r *Transactions) TransferByID(id string) (*core.Transfer, error) {

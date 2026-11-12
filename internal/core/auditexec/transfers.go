@@ -2,6 +2,8 @@ package auditexec
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"glowworm/internal/core"
@@ -16,10 +18,10 @@ func (c conflict) Error() string { return "auditexec: " + string(c) }
 
 // leg is what linking needs to know about a transaction.
 type leg struct {
-	id, account string
-	amount      int64
-	transfer    string
-	live        bool
+	id, account, typ string
+	amount           int64
+	transfer         string
+	live             bool
 }
 
 // loadLeg reads inside the transaction, so it sees what earlier entries of
@@ -27,8 +29,8 @@ type leg struct {
 func loadLeg(tx *sql.Tx, id string) (*leg, error) {
 	l := &leg{id: id}
 	var transfer, deleted sql.NullString
-	err := tx.QueryRow(`SELECT account_id, amount_minor, transfer_id, deleted_at FROM transactions WHERE id = ?`, id).
-		Scan(&l.account, &l.amount, &transfer, &deleted)
+	err := tx.QueryRow(`SELECT account_id, type, amount_minor, transfer_id, deleted_at FROM transactions WHERE id = ?`, id).
+		Scan(&l.account, &l.typ, &l.amount, &transfer, &deleted)
 	if err == sql.ErrNoRows {
 		return l, nil
 	}
@@ -42,8 +44,9 @@ func loadLeg(tx *sql.Tx, id string) (*leg, error) {
 
 // link puts a transfer back between its two transactions under the id it
 // had, which is the id the entries about it know. It refuses rather than
-// undo what has happened to either side since.
-func (x *Executor) link(tx *sql.Tx, tr *core.Transfer) error {
+// undo what has happened to either side since. With waiting, that includes
+// a side that is no longer a transfer waiting for its other side.
+func (x *Executor) link(tx *sql.Tx, tr *core.Transfer, waiting bool) error {
 	a, err := loadLeg(tx, tr.SourceTxID)
 	if err != nil {
 		return err
@@ -63,6 +66,8 @@ func (x *Executor) link(tx *sql.Tx, tr *core.Transfer) error {
 		return conflict("its transactions are now in the same account")
 	case (a.amount < 0) == (b.amount < 0):
 		return conflict("its transactions no longer move money in opposite directions")
+	case waiting && (a.typ != core.TypeTransfer || b.typ != core.TypeTransfer):
+		return conflict("one of its transactions has been changed since")
 	}
 	if a.amount > 0 {
 		a, b = b, a
@@ -157,5 +162,89 @@ func (x *Executor) applyTransfer(tx *sql.Tx, ent *audit.AuditRow, before, after,
 			tr.Confidence = &c
 		}
 	}
-	return x.link(tx, tr)
+	return x.link(tx, tr, false)
+}
+
+// hideTx deletes a transaction. If it is one side of a transfer the link
+// goes with it, leaving the other side a transfer waiting to be paired, and
+// the entry keeps the transfer so showTx can put it back.
+func (x *Executor) hideTx(tx *sql.Tx, ent *audit.AuditRow, revert map[string]any, id string) error {
+	l, err := loadLeg(tx, id)
+	if err != nil {
+		return err
+	}
+	if !l.live {
+		// Marking this undone as well would let a redo bring back a
+		// transaction that something else deleted.
+		return conflict("that transaction has already been deleted")
+	}
+	var broken []*core.Transfer
+	tr, err := x.Txs.BreakTransferOf(tx, id)
+	if err != nil {
+		return err
+	}
+	if tr != nil {
+		broken = append(broken, tr)
+	}
+	if err := x.Txs.SoftDelete(tx, id); err != nil {
+		return err
+	}
+	return x.remember(tx, ent, revert, broken)
+}
+
+// showTx brings a deleted transaction back, with the transfer it was part of.
+func (x *Executor) showTx(tx *sql.Tx, revert map[string]any, id string) error {
+	res, err := tx.Exec(`UPDATE transactions SET deleted_at = NULL WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return conflict("that transaction no longer exists")
+	}
+	return x.relink(tx, revert)
+}
+
+// remember notes on an entry the transfers that undoing or redoing it broke.
+// It replaces what was noted before, which described an earlier round.
+func (x *Executor) remember(tx *sql.Tx, ent *audit.AuditRow, revert map[string]any, broken []*core.Transfer) error {
+	if len(broken) == 0 && revert["transfers"] == nil {
+		return nil
+	}
+	if broken == nil {
+		broken = []*core.Transfer{}
+	}
+	b, err := json.Marshal(broken)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE audit_entries SET revert = json_set(revert, '$.transfers', json(?)) WHERE id = ?`, string(b), ent.ID)
+	return err
+}
+
+// relink puts back the transfers an entry remembers, each only if both its
+// sides are still transfers waiting to be paired.
+func (x *Executor) relink(tx *sql.Tx, revert map[string]any) error {
+	list, _ := revert["transfers"].([]any)
+	lost := 0
+	for _, v := range list {
+		m, _ := v.(map[string]any)
+		tr := &core.Transfer{ID: str(m["id"]), SourceTxID: str(m["source_transaction_id"]),
+			DestinationTxID: str(m["destination_transaction_id"]), Detected: str(m["detected"]), Method: str(m["method"])}
+		if c, ok := m["confidence"].(float64); ok {
+			tr.Confidence = &c
+		}
+		var changed conflict
+		if err := x.link(tx, tr, true); errors.As(err, &changed) {
+			lost++
+		} else if err != nil {
+			return err
+		}
+	}
+	switch {
+	case lost == 1:
+		return &audit.Partial{Notes: []string{"Its transfer link wasn't put back: the other side has changed since"}}
+	case lost > 1:
+		return &audit.Partial{Notes: []string{fmt.Sprintf("%d transfer links weren't put back: the other sides have changed since", lost)}}
+	}
+	return nil
 }

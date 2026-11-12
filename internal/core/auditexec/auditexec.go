@@ -36,16 +36,10 @@ func (x *Executor) Apply(tx *sql.Tx, ent *audit.AuditRow, reapply bool) error {
 		if id == "" {
 			return fmt.Errorf("auditexec: no transaction id in payload")
 		}
-		if ent.Action == "transaction.created" {
-			if reapply {
-				return x.Txs.Restore(tx, id)
-			}
-			return x.Txs.SoftDelete(tx, id)
+		if (ent.Action == "transaction.created") == reapply {
+			return x.showTx(tx, revert, id)
 		}
-		if reapply {
-			return x.Txs.SoftDelete(tx, id)
-		}
-		return x.Txs.Restore(tx, id)
+		return x.hideTx(tx, ent, revert, id)
 
 	case "transaction.edited":
 		id := str(revert["transaction_id"])
@@ -404,33 +398,44 @@ func (x *Executor) applyImportConfirmed(tx *sql.Tx, ent *audit.AuditRow, revert 
 		if !stamp.Valid {
 			return nil
 		}
-		_, err := tx.Exec(`UPDATE transactions SET deleted_at = NULL WHERE import_batch_id = ? AND deleted_at = ?`, batchID, stamp.String)
-		return err
+		if _, err := tx.Exec(`UPDATE transactions SET deleted_at = NULL WHERE import_batch_id = ? AND deleted_at = ?`, batchID, stamp.String); err != nil {
+			return err
+		}
+		return x.relink(tx, revert)
 	}
-	rows, err := tx.Query(`SELECT id FROM transactions WHERE import_batch_id = ? AND deleted_at IS NULL`, batchID)
+	// Rows that are one side of a transfer take the link with them; the
+	// entry keeps those transfers for the redo.
+	rows, err := tx.Query(`SELECT id FROM transactions WHERE import_batch_id = ? AND deleted_at IS NULL AND (transfer_id IS NOT NULL
+		OR id IN (SELECT source_transaction_id FROM transfers UNION SELECT destination_transaction_id FROM transfers))`, batchID)
 	if err != nil {
 		return err
 	}
-	var ids []string
+	var linked []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
-		ids = append(ids, id)
+		linked = append(linked, id)
 	}
-	rows.Close()
-	stamp := util.NowStr()
-	for _, id := range ids {
-		if _, err := tx.Exec(`UPDATE transactions SET deleted_at = ? WHERE id = ?`, stamp, id); err != nil {
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	var broken []*core.Transfer
+	for _, id := range linked {
+		tr, err := x.Txs.BreakTransferOf(tx, id)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM transfers WHERE source_transaction_id = ? OR destination_transaction_id = ?`, id, id); err != nil {
-			return err
+		if tr != nil {
+			broken = append(broken, tr)
 		}
 	}
-	return nil
+	if _, err := tx.Exec(`UPDATE transactions SET deleted_at = ? WHERE import_batch_id = ? AND deleted_at IS NULL`, util.NowStr(), batchID); err != nil {
+		return err
+	}
+	return x.remember(tx, ent, revert, broken)
 }
 
 // applyImportMove moves an import's transactions from one account to the
