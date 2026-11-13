@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -18,31 +19,53 @@ type Secret struct {
 	key []byte
 }
 
+// LoadOrCreate returns the instance key: fromEnv when set, else the one in
+// dataDir/secret.key, made on first run. A key file that is there but can't
+// be read is an error, never a reason to write a new one over it: the saved
+// AI key is encrypted with it and every sign-in is signed with it.
 func LoadOrCreate(fromEnv, dataDir string) (*Secret, error) {
-	raw := fromEnv
-	if raw == "" {
-		p := filepath.Join(dataDir, "secret.key")
-		if b, err := os.ReadFile(p); err == nil {
-			raw = string(b)
-		} else {
-			buf := make([]byte, 32)
-			if _, err := rand.Read(buf); err != nil {
-				return nil, err
-			}
-			hexed := hex.EncodeToString(buf)
-			if err := os.MkdirAll(dataDir, 0o700); err != nil {
-				return nil, err
-			}
-			if err := os.WriteFile(p, []byte(hexed), 0o600); err != nil {
-				return nil, err
-			}
-			raw = hexed
-		}
+	if fromEnv != "" {
+		return Parse(fromEnv)
 	}
-	return Parse(raw)
+	p := filepath.Join(dataDir, "secret.key")
+	b, err := os.ReadFile(p)
+	switch {
+	case err == nil:
+		if trimWhitespace(string(b)) == "" {
+			return nil, fmt.Errorf("crypto: %s is empty — restore it from a backup, or delete it to start with a new key (sign-ins and the saved AI key are lost)", p)
+		}
+		return Parse(string(b))
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, fmt.Errorf("crypto: reading the secret key: %w", err)
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return nil, err
+	}
+	hexed := hex.EncodeToString(buf)
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return nil, err
+	}
+	// Written whole under another name first: a crash mid-write must not
+	// leave a short or empty key behind.
+	tmp := p + ".new"
+	if err := os.WriteFile(tmp, []byte(hexed), 0o600); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		_ = os.Remove(tmp)
+		return nil, err
+	}
+	return Parse(hexed)
 }
 
+// Parse reads a key given as 32 bytes of hex or base64; anything else is
+// taken as a passphrase and hashed.
 func Parse(raw string) (*Secret, error) {
+	if trimWhitespace(raw) == "" {
+		// Hashing nothing would give a key anyone can work out.
+		return nil, errors.New("crypto: the secret key is empty")
+	}
 	key, err := decode32(raw)
 	if err != nil {
 		return nil, fmt.Errorf("crypto: %w", err)
