@@ -4286,11 +4286,12 @@ function initHistoryTimeline() {
     timer = setTimeout(() => render(idx), 80);
   });
   const ticks = document.getElementById("timelineTicks");
-  // As many date labels as fit the slider's width (up to 7); a middle one
-  // that would still run into its neighbour or the last is dropped.
+  // As many date labels as fit the slider's width (up to 7, and at least the
+  // two ends); a middle one that would still run into its neighbour or the
+  // last is dropped. A single date gets a single label, under the thumb.
   const layoutTicks = () => {
     if (!ticks || !months.length) return;
-    const count = Math.max(2, Math.min(months.length, 7, Math.floor(ticks.clientWidth / 64)));
+    const count = Math.min(months.length, Math.max(2, Math.min(7, Math.floor(ticks.clientWidth / 64))));
     const denom = count > 1 ? count - 1 : 1;
     let html = "";
     for (let i = 0; i < count; i++) {
