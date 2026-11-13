@@ -239,8 +239,10 @@ func (p *Gemini) CompleteStructured(req *StructuredRequest) (string, *Usage, err
 		if base == "" {
 			base = "https://generativelanguage.googleapis.com"
 		}
-		url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", strings.TrimRight(base, "/"), model, p.APIKey)
-		if err := postJSON(ctx, url, nil, body, &resp); err != nil {
+		// The key goes in a header, not the URL: a failed request's error
+		// quotes the URL, and that error reaches the log and the page.
+		url := fmt.Sprintf("%s/v1beta/models/%s:generateContent", strings.TrimRight(base, "/"), model)
+		if err := postJSON(ctx, url, googleKeyHeader(p.APIKey), body, &resp); err != nil {
 			return "", nil, err
 		}
 		if len(resp.Candidates) == 0 {
@@ -367,4 +369,11 @@ func New(provider, model, baseURL, apiKey string) (Provider, error) {
 	default:
 		return nil, &ErrUnavailable{Reason: "unknown provider " + provider}
 	}
+}
+
+func googleKeyHeader(apiKey string) map[string]string {
+	if apiKey == "" {
+		return nil
+	}
+	return map[string]string{"x-goog-api-key": apiKey}
 }

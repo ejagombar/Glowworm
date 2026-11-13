@@ -133,10 +133,7 @@ func ListModels(provider, baseURL, apiKey string, timeout time.Duration) ([]Mode
 			} `json:"models"`
 		}
 		url := "https://generativelanguage.googleapis.com/v1beta/models"
-		if apiKey != "" {
-			url += "?key=" + apiKey
-		}
-		if err := getJSON(ctx, url, nil, &resp); err != nil {
+		if err := getJSON(ctx, url, googleKeyHeader(apiKey), &resp); err != nil {
 			return nil, err
 		}
 		out := make([]ModelInfo, 0, len(resp.Models))
