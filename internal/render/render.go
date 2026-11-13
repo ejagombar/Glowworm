@@ -1,10 +1,12 @@
 package render
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"html/template"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,11 +141,23 @@ func (r *Renderer) Render(w http.ResponseWriter, name string, data any) error {
 	// No heuristic caching: binaries are updated in place, and a stale page
 	// with fresh JS breaks its handlers.
 	w.Header().Set("Cache-Control", "no-store")
-	_, ok := r.tmpl[name]
+	t, ok := r.tmpl[name]
 	if !ok {
 		return fmt.Errorf("render: unknown template %q", name)
 	}
-	return r.tmpl[name].ExecuteTemplate(w, "layout.html", data)
+	// The page goes out whole. Written straight to w it leaves in 2 KB
+	// pieces, and a phone paints what it has so far: a piece ending inside
+	// the masthead's tabs showed a bar with one icon across it for a moment.
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "layout.html", data); err != nil {
+		return err
+	}
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+	_, err := w.Write(buf.Bytes())
+	return err
 }
 
 func (r *Renderer) RenderFragment(w http.ResponseWriter, name string, data any) error {
