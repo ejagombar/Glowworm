@@ -1,15 +1,11 @@
 package server
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -249,7 +245,9 @@ func resolveProviders(db *store.DB, secret *crypto.Secret, log *slog.Logger) (ca
 func (a *App) Router() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle("GET /static/{path...}", a.staticHandlerFS(staticFS.FS, "/static/"))
+	assets := loadStatic(staticFS.FS)
+	static := assets.handler("/static/")
+	mux.Handle("GET /static/{path...}", static)
 	mux.HandleFunc("GET /static/splash/{name}", func(w http.ResponseWriter, r *http.Request) {
 		data, ok := staticFS.Splash(r.PathValue("name"))
 		if !ok {
@@ -260,10 +258,9 @@ func (a *App) Router() http.Handler {
 		w.Header().Set("Cache-Control", "public, max-age=2592000")
 		_, _ = w.Write(data)
 	})
-	mux.Handle("GET /sw.js", serviceWorkerHandler(staticFS.FS))
+	mux.Handle("GET /sw.js", assets.serviceWorker())
 	mux.HandleFunc("POST /sw-log", a.handleSWLog)
 	// Browsers and iOS ask for these at the root, whatever the page links to.
-	static := a.staticHandlerFS(staticFS.FS, "/static/")
 	for path, file := range map[string]string{
 		"/manifest.webmanifest":             "manifest.webmanifest",
 		"/favicon.ico":                      "icons/favicon-32.png",
@@ -436,79 +433,6 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
-	})
-}
-
-// serviceWorkerHandler serves js/sw.js from the site root, where a worker must
-// live to cover every page, versioned by a hash of what it caches so the
-// browser picks up a new offline page or stylesheet.
-func serviceWorkerHandler(fsys fs.FS) http.Handler {
-	src, _ := fs.ReadFile(fsys, "js/sw.js")
-	h := sha256.New()
-	h.Write(src)
-	for _, f := range []string{"offline.html", "css/styles.css"} {
-		b, _ := fs.ReadFile(fsys, f)
-		h.Write(b)
-	}
-	body := bytes.ReplaceAll(src, []byte("__VERSION__"), []byte(hex.EncodeToString(h.Sum(nil))[:12]))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(body)
-	})
-}
-
-func (a *App) staticHandlerFS(fsys fs.FS, strip string) http.Handler {
-	etags := map[string]string{}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, strip)
-		if path == "" || strings.Contains(path, "..") {
-			http.NotFound(w, r)
-			return
-		}
-		data, err := fs.ReadFile(fsys, path)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		sum := sha256.Sum256(data)
-		etag := hex.EncodeToString(sum[:8])
-		if etags[path] == "" {
-			etags[path] = etag
-		}
-		w.Header().Set("ETag", etag)
-		switch {
-		case r.URL.Query().Get("v") == etag:
-			// A versioned URL (the asset template func) names these exact bytes;
-			// a new build links a new URL, so it can be kept for good.
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		case strings.HasPrefix(path, "fonts/") || strings.HasPrefix(path, "icons/"):
-			// Linked from CSS and the manifest without a version; they don't change.
-			w.Header().Set("Cache-Control", "public, max-age=2592000")
-		default:
-			// Unversioned: the binary is updated in place and must never serve
-			// a stale app.js, so check every time.
-			w.Header().Set("Cache-Control", "no-cache")
-		}
-		if r.Header.Get("If-None-Match") == etag {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-		switch {
-		case strings.HasSuffix(path, ".css"):
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		case strings.HasSuffix(path, ".js"):
-			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		case strings.HasSuffix(path, ".woff2"):
-			w.Header().Set("Content-Type", "font/woff2")
-		case strings.HasSuffix(path, ".svg"):
-			w.Header().Set("Content-Type", "image/svg+xml")
-		case strings.HasSuffix(path, ".png"):
-			w.Header().Set("Content-Type", "image/png")
-		case strings.HasSuffix(path, ".webmanifest"):
-			w.Header().Set("Content-Type", "application/manifest+json")
-		}
-		_, _ = w.Write(data)
 	})
 }
 
