@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"glowworm/internal/backup"
@@ -41,6 +44,7 @@ func main() {
 	switch cmd {
 	case "serve":
 		serve()
+		os.Exit(exitCode)
 	case "backup":
 		runBackup(args)
 	case "restore":
@@ -84,6 +88,10 @@ func newLogger(cfg config.Config) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stdout, opts))
 }
 
+// exitCode is what main exits with once serve has returned and its deferred
+// cleanup has run.
+var exitCode int
+
 func serve() {
 	cfg := loadConfig()
 	log := newLogger(cfg)
@@ -122,9 +130,44 @@ func serve() {
 		log.Info("first-run setup gated by GLOWWORM_SETUP_TOKEN")
 	}
 	log.Info("glowworm listening", "addr", cfg.Addr, "version", version, "db", dsn, "auth", cfg.AuthMode, "log_level", cfg.LogLevel)
-	if err := http.ListenAndServe(cfg.Addr, app.Router()); err != nil {
+	srv := newHTTPServer(cfg.Addr, app.Router())
+	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	failed := make(chan error, 1)
+	go func() { failed <- srv.ListenAndServe() }()
+	select {
+	case err := <-failed:
+		// Not os.Exit: the deferred calls release the data directory and
+		// close the database.
 		log.Error("listen", "err", err)
-		os.Exit(1)
+		exitCode = 1
+	case <-stop.Done():
+		cancel() // a second signal stops the process the default way
+		log.Info("shutting down")
+		ctx, done := context.WithTimeout(context.Background(), shutdownGrace)
+		defer done()
+		// Requests in flight finish first, so a write isn't cut off halfway;
+		// open streams that outlast the grace period are dropped.
+		if err := srv.Shutdown(ctx); err != nil {
+			_ = srv.Close()
+		}
+	}
+}
+
+const shutdownGrace = 10 * time.Second
+
+// newHTTPServer bounds how long a client may take over its request headers
+// and how long an idle connection is kept, so slow or silent clients can't
+// tie up connections for good. There is deliberately no read or write
+// timeout: statement uploads over a slow link and the streamed import and
+// chat replies both run for as long as they need.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    64 << 10,
 	}
 }
 
