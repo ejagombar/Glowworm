@@ -569,7 +569,9 @@ body.privacy .pie-total { display: none; }
 .queries-composer textarea {
   flex: 1; min-width: 0; border: none; outline: none; background: transparent;
   font-family: inherit; font-size: 14px; line-height: 1.4; color: var(--text);
-  resize: none; max-height: 140px; padding: 8px 0;
+  resize: none; max-height: 140px;
+  /* One line is as tall as the send button, so the two line up. */
+  padding: calc((32px - 1.4em) / 2) 0;
 }
 .queries-composer textarea::placeholder { color: var(--muted-2); }
 .queries-suggestions {
@@ -2165,6 +2167,10 @@ html.app-covered body > * { visibility: hidden; }
   .content { padding-top: 12px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .content:has(#view-queries.active) { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
   #view-queries.active { height: calc(100dvh - var(--masthead-h) - 20px - env(safe-area-inset-bottom)); min-height: 0; }
+  /* With the keyboard up (app.js sets --vv-h), fit what's left of the screen. */
+  html.kb-up, html.kb-up body { overflow: hidden; }
+  html.kb-up .content:has(#view-queries.active) { padding-bottom: 8px; }
+  html.kb-up #view-queries.active { height: calc(var(--vv-h) - var(--masthead-h) - 20px); }
   .toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
 
   /* The filters right below say the same; the heading keeps its button. */
