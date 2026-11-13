@@ -319,6 +319,11 @@ document.addEventListener("click", (e) => {
   e.preventDefault();
   location.replace(u.href);
 });
+// A select marked data-autosubmit applies as soon as something is chosen.
+document.addEventListener("change", (e) => {
+  const el = e.target;
+  if (el && el.matches && el.matches("select[data-autosubmit]") && el.form) el.form.submit();
+});
 // Forms marked data-replace post in the background and then replace the
 // page with wherever the server sent them.
 document.addEventListener("submit", (e) => {

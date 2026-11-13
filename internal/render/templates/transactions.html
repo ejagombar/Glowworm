@@ -35,11 +35,11 @@
       <input type="hidden" name="period" value="{{.Period}}" />
       {{if .SelectedAcc}}<input type="hidden" name="account" value="{{.SelectedAcc}}" />{{end}}
       <input type="hidden" name="q" id="txSearchHid" value="{{.FiltersQ}}" />
-      <select id="txCategory" name="category" class="field select" onchange="this.form.submit()">
+      <select id="txCategory" name="category" class="field select" data-autosubmit>
         <option value="">All categories</option>
         {{range .Categories}}<option value="{{.ID}}"{{if eq .ID $.FiltersCat}} selected{{end}}>{{.Name}}</option>{{end}}
       </select>
-      <select id="txType" name="type" class="field select" onchange="this.form.submit()">
+      <select id="txType" name="type" class="field select" data-autosubmit>
         <option value="">All types</option>
         <option value="expense"{{if eq .FiltersType "expense"}} selected{{end}}>Expenses</option>
         <option value="income"{{if eq .FiltersType "income"}} selected{{end}}>Income</option>
@@ -49,8 +49,8 @@
     </form>
   </div>
 
-  <script>window.__CAT_OPTIONS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", internal: {{if eq .Type "internal"}}true{{else}}false{{end}}},{{end}}];</script>
-  <script>window.__ACCOUNT_OPTIONS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];</script>
+  <script nonce="{{$.Nonce}}">window.__CAT_OPTIONS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", internal: {{if eq .Type "internal"}}true{{else}}false{{end}}},{{end}}];</script>
+  <script nonce="{{$.Nonce}}">window.__ACCOUNT_OPTIONS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}"},{{end}}];</script>
   <div class="panel table-panel">
     <table class="tx-table{{if .SelectedAcc}} account-view{{end}}" id="transactionsTable"
       data-tx-next-offset="{{.NextOffset}}"{{if .HasMore}} data-tx-has-more="1"{{end}}

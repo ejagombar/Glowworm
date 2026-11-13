@@ -71,6 +71,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("X-Frame-Options", "DENY")
+		// Nothing here is meant to be embedded in, opened from or read by
+		// another site, and the app uses none of the device features below.
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -203,4 +208,18 @@ func isTrustedProxy(host, cidrs string) bool {
 		}
 	}
 	return false
+}
+
+// contentSecurityPolicy is sent with every page. Scripts run only from this
+// server, or inline when they carry the page's nonce, so text that reaches
+// the page as markup (a description, a category name, an assistant reply)
+// can't run as script; nothing loads from, posts to or is framed by another
+// site. Styles stay open to inline use: the templates and widgets set colours
+// and sizes with style attributes.
+func contentSecurityPolicy(nonce string) string {
+	return "default-src 'self'; " +
+		"script-src 'self' 'nonce-" + nonce + "'; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob:; " +
+		"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 }

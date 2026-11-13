@@ -9,7 +9,7 @@
     </div>
 
   </div>
-  <script>
+  <script nonce="{{$.Nonce}}">
     window.__IMPORT_CURRENCY__ = "{{.Currency}}";
     window.__IMPORT_ACCOUNTS__ = [{{range .Accounts}}{id: "{{.ID}}", name: "{{.Name}}", color: "{{.Color}}"},{{end}}];
     window.__IMPORT_CATS__ = [{{range .Categories}}{id: "{{.ID}}", name: "{{.Name}}", type: "{{.Type}}", color: "{{.Color}}"},{{end}}];

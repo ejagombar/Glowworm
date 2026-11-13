@@ -27,7 +27,7 @@
   <meta name="glowworm-lock" content="{{.LockAfter}}" />
   {{- end}}
   <link rel="stylesheet" href="{{asset "css/styles.css"}}" />
-  <script>
+  <script nonce="{{$.Nonce}}">
     (function () {
       try {
         var t = localStorage.getItem("glowworm-theme") || {{.Theme}};
@@ -225,10 +225,10 @@
   <div class="toast" id="toast" hidden></div>
 
   {{template "recurring-modal"}}
-  <script>window.__CSRF__ = {{.CSRFToken}};</script>
+  <script nonce="{{$.Nonce}}">window.__CSRF__ = {{.CSRFToken}};</script>
   <script src="{{asset "js/widgets.js"}}"></script>
   <script src="{{asset "js/app.js"}}"></script>
-  <script>
+  <script nonce="{{$.Nonce}}">
     // Keeps a "Can't connect" page ready for when the server is down.
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(function () {});
 

@@ -47,6 +47,9 @@ type viewBase struct {
 	SetupDone   bool
 	AuthMode    string
 	Standalone  bool
+	// Nonce marks the page's own inline scripts as allowed to run; see
+	// contentSecurityPolicy.
+	Nonce string
 	// DataVersion is the data this page was built from; see dataVersion.
 	DataVersion string
 	// LockAfter is the app lock's time in minutes on a device that has it
@@ -122,8 +125,10 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	if sess, ok := a.session(r); ok && a.Cfg.AuthMode == "password" && a.lockRequired(r, sess) {
 		lockAfter = a.lockAfter()
 	}
+	nonce := randomHex(16)
+	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
 	return &viewBase{
-		LockAfter: lockAfter,
+		LockAfter: lockAfter, Nonce: nonce,
 		Title:     title, View: view, Period: period, PeriodLabel: label,
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
