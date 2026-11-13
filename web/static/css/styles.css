@@ -1367,6 +1367,14 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .switch-label input:checked + .switch { background: var(--primary); }
 .switch-label input:checked + .switch::after { transform: translateX(16px); }
 
+/* Phones have no room in the masthead for the balances toggle, so it lives in Settings there. */
+.privacy-setting { display: none; }
+.field-row label.switch-label { display: flex; font-size: 13px; color: var(--text); margin-bottom: 0; }
+@media (max-width: 760px) {
+  #privacyToggle { display: none; }
+  .privacy-setting { display: block; }
+}
+
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(15, 23, 34, 0.5);
@@ -1455,7 +1463,7 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
 }
 @media (max-width: 760px) {
   .masthead { padding: 0 10px; }
-  .period-trigger { max-width: 130px; }
+  .period-trigger { max-width: 170px; }
   .tabnav-item { padding: 0 9px; }
   .content { --content-x: 14px; padding: 16px var(--content-x) 36px; }
   .stats-grid, .stats-grid.three { grid-template-columns: 1fr 1fr; }

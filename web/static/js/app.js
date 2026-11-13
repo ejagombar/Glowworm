@@ -1212,9 +1212,11 @@ document.addEventListener("DOMContentLoaded", () => {
   } catch (e) {}
 
   const privacyBtn = document.getElementById("privacyToggle");
+  const privacySwitch = document.getElementById("privacySwitch");
   const applyPrivacy = (on) => {
     state.privacy = on;
     document.body.classList.toggle("privacy", on);
+    if (privacySwitch) privacySwitch.checked = on;
     if (!privacyBtn) return;
     privacyBtn.classList.toggle("active", on);
     privacyBtn.setAttribute("aria-pressed", on ? "true" : "false");
@@ -1228,12 +1230,12 @@ document.addEventListener("DOMContentLoaded", () => {
     return m ? m[1] === "1" : null;
   };
   state.privacy = document.body.classList.contains("privacy");
-  if (privacyBtn) {
-    privacyBtn.addEventListener("click", () => {
-      applyPrivacy(!state.privacy);
-      document.cookie = `glowworm_privacy=${state.privacy ? "1" : "0"}; Path=/; Max-Age=31536000; SameSite=Lax`;
-    });
-  }
+  const savePrivacy = (on) => {
+    applyPrivacy(on);
+    document.cookie = `glowworm_privacy=${on ? "1" : "0"}; Path=/; Max-Age=31536000; SameSite=Lax`;
+  };
+  if (privacyBtn) privacyBtn.addEventListener("click", () => savePrivacy(!state.privacy));
+  if (privacySwitch) privacySwitch.addEventListener("change", () => savePrivacy(privacySwitch.checked));
   // bfcache restores the old state; resync with a choice made on another page.
   window.addEventListener("pageshow", (e) => {
     const saved = privacyCookie();

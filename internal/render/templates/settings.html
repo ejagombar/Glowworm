@@ -219,6 +219,13 @@
                     <option value="system" {{if eq .Theme "system" }} selected{{end}}>System</option>
                 </select>
             </div>
+            <div class="field-row privacy-setting">
+                <label class="switch-label" for="privacySwitch">
+                    <span>Hide balances</span>
+                    <input type="checkbox" id="privacySwitch" {{if .Privacy}}checked{{end}} />
+                    <span class="switch" aria-hidden="true"></span>
+                </label>
+            </div>
             <div class="field-row">
                 <label>Currency</label>
                 <select class="field select" id="currencySelect">
