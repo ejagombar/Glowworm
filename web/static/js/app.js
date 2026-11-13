@@ -1493,31 +1493,35 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const queryInput = document.getElementById("queryInput");
   const queryBtn = document.getElementById("queryBtn");
-  // iOS keeps the page its full height when the keyboard opens and scrolls
-  // it up to show the field, taking the masthead out of view. While the
-  // keyboard is up, Queries fits itself to the part of the screen still
-  // visible and the page stays at the top.
+  // iOS keeps the page its full height when the keyboard opens and slides
+  // the visible part of it up to show the field, taking the masthead out of
+  // view. While the keyboard is up, the whole app is pinned to the part of
+  // the screen still visible (--vv-h tall, moved down by --vv-top to follow
+  // that slide), so the masthead and the composer both stay in sight.
   const vv = window.visualViewport;
   if (queryInput && vv) {
     const root = document.documentElement;
     const list = document.getElementById("queryMessages");
+    const follow = () => root.style.setProperty("--vv-top", vv.offsetTop + "px");
     const fit = () => {
       const up = window.innerHeight - vv.height > 120;
       if (up) {
         const atEnd = list && list.scrollHeight - list.scrollTop - list.clientHeight < 40;
         root.style.setProperty("--vv-h", vv.height + "px");
-        root.classList.add("kb-up");
-        window.scrollTo(0, 0);
+        follow();
+        if (!root.classList.contains("kb-up")) {
+          root.classList.add("kb-up");
+          window.scrollTo(0, 0);
+        }
         if (atEnd) list.scrollTop = list.scrollHeight;
       } else if (root.classList.contains("kb-up")) {
         root.classList.remove("kb-up");
         root.style.removeProperty("--vv-h");
+        root.style.removeProperty("--vv-top");
       }
     };
     vv.addEventListener("resize", fit);
-    vv.addEventListener("scroll", () => {
-      if (root.classList.contains("kb-up") && (window.scrollY || vv.offsetTop)) window.scrollTo(0, 0);
-    });
+    vv.addEventListener("scroll", () => { if (root.classList.contains("kb-up")) follow(); });
   }
   if (queryInput) {
     const submit = () => {

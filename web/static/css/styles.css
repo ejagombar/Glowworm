@@ -107,6 +107,8 @@
 [hidden] { display: none !important; }
 
 /* No pinch or double-tap zoom of the page; charts zoom themselves. */
+/* No pull-down (or pull-up) bounce at the ends of the page: it does nothing here. */
+html, body { overscroll-behavior-y: none; }
 html {
   height: 100%; touch-action: pan-x pan-y;
   /* No grey flash on tapped links, and no text inflation when the phone turns. */
@@ -2169,6 +2171,11 @@ html.app-covered body > * { visibility: hidden; }
   #view-queries.active { height: calc(100dvh - var(--masthead-h) - 20px - env(safe-area-inset-bottom)); min-height: 0; }
   /* With the keyboard up (app.js sets --vv-h), fit what's left of the screen. */
   html.kb-up, html.kb-up body { overflow: hidden; }
+  html.kb-up .app {
+    position: fixed; left: env(safe-area-inset-left); right: env(safe-area-inset-right); top: 0;
+    height: var(--vv-h); min-height: 0;
+    overflow: hidden; transform: translateY(var(--vv-top, 0px));
+  }
   html.kb-up .content:has(#view-queries.active) { padding-bottom: 8px; }
   html.kb-up #view-queries.active { height: calc(var(--vv-h) - var(--masthead-h) - 20px); }
   .toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
