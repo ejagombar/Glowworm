@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -79,6 +80,7 @@ type limiter struct {
 	hits   map[string][]time.Time
 	limit  int
 	window time.Duration
+	swept  time.Time
 }
 
 func newLimiter(limit int, window time.Duration) *limiter {
@@ -88,6 +90,7 @@ func newLimiter(limit int, window time.Duration) *limiter {
 // recent drops hits older than the window, and forgets keys with none left
 // so the map doesn't grow with every address that ever connected.
 func (l *limiter) recent(key string, now time.Time) []time.Time {
+	l.sweep(now)
 	hits := l.hits[key][:0]
 	for _, t := range l.hits[key] {
 		if now.Sub(t) < l.window {
@@ -100,6 +103,23 @@ func (l *limiter) recent(key string, now time.Time) []time.Time {
 	}
 	l.hits[key] = hits
 	return hits
+}
+
+// sweep forgets keys whose hits have all expired. recent only tidies the key
+// it is asked about, so an address that fails once and never returns would
+// otherwise stay for good: someone cycling through addresses could grow the
+// map without limit. Run at most once a window, it costs next to nothing.
+func (l *limiter) sweep(now time.Time) {
+	if now.Sub(l.swept) < l.window {
+		return
+	}
+	l.swept = now
+	for key, hits := range l.hits {
+		// Hits are in time order: the last is the newest.
+		if len(hits) == 0 || now.Sub(hits[len(hits)-1]) >= l.window {
+			delete(l.hits, key)
+		}
+	}
 }
 
 // Allow records a hit and reports whether it's within the limit.
@@ -150,6 +170,24 @@ func clientIP(r *http.Request, trustedProxies string) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// limitKey is what an address is rate-limited under. A v6 client usually
+// holds a whole /64 and can pick a new address in it for every request, so
+// those are counted together; a v4 address stands for itself.
+func limitKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap().WithZone("")
+	if addr.Is4() {
+		return addr.String()
+	}
+	if p, err := addr.Prefix(64); err == nil {
+		return p.String()
+	}
+	return addr.String()
 }
 
 func isTrustedProxy(host, cidrs string) bool {

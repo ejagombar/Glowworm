@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -61,7 +62,7 @@ func (a *App) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	// Only failures count, so signing in on several devices never locks
 	// the owner out.
-	key := "login:" + clientIP(r, a.Cfg.TrustedProxies)
+	key := "login:" + limitKey(clientIP(r, a.Cfg.TrustedProxies))
 	if a.loginLimiter.Blocked(key) {
 		http.Redirect(w, r, "/login?e=2", http.StatusFound)
 		return
@@ -108,7 +109,7 @@ func (a *App) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 		return
 	}
-	ip := clientIP(r, a.Cfg.TrustedProxies)
+	ip := limitKey(clientIP(r, a.Cfg.TrustedProxies))
 	if !a.loginLimiter.Allow("setup:" + ip) {
 		http.Error(w, "Too many attempts. Try again later.", http.StatusTooManyRequests)
 		return
@@ -143,7 +144,8 @@ func (a *App) setupAllowed(w http.ResponseWriter, r *http.Request) bool {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return false
 	}
-	if a.Cfg.SetupToken != "" && r.URL.Query().Get("token") != a.Cfg.SetupToken {
+	if a.Cfg.SetupToken != "" &&
+		subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(a.Cfg.SetupToken)) != 1 {
 		http.Error(w, "Setup token required. Check the server log for the first-run token.", http.StatusForbidden)
 		return false
 	}

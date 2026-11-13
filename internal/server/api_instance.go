@@ -27,9 +27,22 @@ func (a *App) confirmOwner(r *http.Request, password string) error {
 	if err != nil {
 		return err
 	}
-	if !verifyPassword(password, u.PasswordHash) {
-		return &acctValidationError{Message: "Password is incorrect"}
+	return a.confirmPassword(r, password, u.PasswordHash, "Password is incorrect")
+}
+
+// confirmPassword checks a password typed to confirm something while signed
+// in. Wrong ones count against the address like failed sign-ins do, so a
+// borrowed session can't be used to guess the password without limit.
+func (a *App) confirmPassword(r *http.Request, password, hash, wrong string) error {
+	key := "login:" + limitKey(clientIP(r, a.Cfg.TrustedProxies))
+	if a.loginLimiter.Blocked(key) {
+		return &acctValidationError{Message: "Too many wrong passwords. Wait 15 minutes and try again."}
 	}
+	if !verifyPassword(password, hash) {
+		a.loginLimiter.Fail(key)
+		return &acctValidationError{Message: wrong}
+	}
+	a.loginLimiter.Reset(key)
 	return nil
 }
 

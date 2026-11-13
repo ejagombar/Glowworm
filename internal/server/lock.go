@@ -604,7 +604,7 @@ func (a *App) handleUnlockPassword(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	key := "login:" + clientIP(r, a.Cfg.TrustedProxies)
+	key := "login:" + limitKey(clientIP(r, a.Cfg.TrustedProxies))
 	if a.loginLimiter.Blocked(key) {
 		http.Redirect(w, r, back+"&e=2", http.StatusFound)
 		return

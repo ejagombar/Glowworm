@@ -67,6 +67,7 @@ type App struct {
 	AuditWriter  *audit.Writer
 	Exec         *auditexec.Executor
 	loginLimiter *limiter
+	swLogLimiter *limiter
 	version      *dataVersion
 	// derivedMu runs the jobs that rebuild data derived from transactions
 	// (groups, transfers, recurring series, the classifier) one at a time:
@@ -109,6 +110,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		AuditWriter:  writer,
 		Audit:        audit.NewEngine(db, writer),
 		loginLimiter: newLimiter(5, 15*time.Minute),
+		swLogLimiter: newLimiter(20, time.Minute),
 		version:      newDataVersion(dataVersionPath(cfg.DataDir)),
 	}
 	app.Accounts = &accounts.Service{DB: db, Repos: rp.Accounts, Txs: rp.Transactions, Audit: writer, Clock: clk}
@@ -332,8 +334,13 @@ var publicPaths = map[string]bool{
 
 // handleSWLog writes the service worker's diagnostics (what happened to page
 // loads while the server was out of reach) to the server log. Capped, and it
-// only ever logs, so it needs no session.
+// only ever logs, so it needs no session; each address gets a few posts a
+// minute, so it can't be used to fill the log either.
 func (a *App) handleSWLog(w http.ResponseWriter, r *http.Request) {
+	if !a.swLogLimiter.Allow(limitKey(clientIP(r, a.Cfg.TrustedProxies))) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
 	var in struct {
 		UA     string `json:"ua"`
 		Events []struct {

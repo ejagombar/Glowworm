@@ -26,8 +26,8 @@ func (a *App) apiChangePassword(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if !verifyPassword(in.Current, u.PasswordHash) {
-		return &acctValidationError{Message: "Current password is incorrect"}
+	if err := a.confirmPassword(r, in.Current, u.PasswordHash, "Current password is incorrect"); err != nil {
+		return err
 	}
 	if len(in.New) < 10 {
 		return &acctValidationError{Message: "New password must be at least 10 characters"}
