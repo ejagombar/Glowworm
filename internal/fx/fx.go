@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -126,6 +127,8 @@ func (f *Frankfurter) store(from, to string, rates map[string]float64) {
 	})
 }
 
+const maxResponse = 8 << 20
+
 func (f *Frankfurter) fetch(from, to, lo, hi string) (map[string]float64, error) {
 	base := f.BaseURL
 	if base == "" {
@@ -135,7 +138,8 @@ func (f *Frankfurter) fetch(from, to, lo, hi string) (map[string]float64, error)
 	if client == nil {
 		client = &http.Client{Timeout: 8 * time.Second}
 	}
-	u := fmt.Sprintf("%s/%s..%s?base=%s&symbols=%s", strings.TrimRight(base, "/"), lo, hi, url.QueryEscape(from), url.QueryEscape(to))
+	u := fmt.Sprintf("%s/%s..%s?base=%s&symbols=%s", strings.TrimRight(base, "/"),
+		url.PathEscape(lo), url.PathEscape(hi), url.QueryEscape(from), url.QueryEscape(to))
 	resp, err := client.Get(u)
 	if err != nil {
 		return nil, fmt.Errorf("fx: couldn't reach the exchange-rate service: %w", err)
@@ -147,7 +151,8 @@ func (f *Frankfurter) fetch(from, to, lo, hi string) (map[string]float64, error)
 	var body struct {
 		Rates map[string]map[string]float64 `json:"rates"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	// Decades of daily rates for one pair are well under a megabyte.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponse)).Decode(&body); err != nil {
 		return nil, fmt.Errorf("fx: unreadable exchange-rate response: %w", err)
 	}
 	out := map[string]float64{}

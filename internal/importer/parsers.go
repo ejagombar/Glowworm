@@ -151,8 +151,13 @@ func delimiterMode(lines [][]byte, sep byte) (count, freq int) {
 	return count, freq
 }
 
+// maxXLSXUnpacked caps how far a workbook may unpack. An xlsx is a zip, and a
+// few kilobytes of zip can unpack to gigabytes; a statement is nowhere near
+// this size.
+const maxXLSXUnpacked = 128 << 20
+
 func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err error) {
-	f, err := excelize.OpenReader(bytes.NewReader(data))
+	f, err := excelize.OpenReader(bytes.NewReader(data), excelize.Options{UnzipSizeLimit: maxXLSXUnpacked})
 	if err != nil {
 		return nil, nil, fmt.Errorf("couldn't read the Excel file: %w", err)
 	}
@@ -161,11 +166,13 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 	if len(sheets) == 0 {
 		return nil, nil, fmt.Errorf("the workbook has no sheets")
 	}
+	var rows [][]string
 	if sheet == "" {
+		// The first sheet with anything on it; its rows are kept rather than
+		// read a second time.
 		for _, s := range sheets {
-			rows, _ := f.GetRows(s)
-			if len(rows) > 0 {
-				sheet = s
+			if r, _ := f.GetRows(s); len(r) > 0 {
+				sheet, rows = s, r
 				break
 			}
 		}
@@ -173,16 +180,14 @@ func ReadXLSX(data []byte, sheet string) (sheets []string, table [][]string, err
 			sheet = sheets[0]
 		}
 	}
-	rows, err := f.GetRows(sheet)
-	if err != nil {
-		return sheets, nil, fmt.Errorf("couldn't read sheet %q: %w", sheet, err)
+	if rows == nil {
+		rows, err = f.GetRows(sheet)
+		if err != nil {
+			return sheets, nil, fmt.Errorf("couldn't read sheet %q: %w", sheet, err)
+		}
 	}
-	for _, r := range rows {
-		row := make([]string, len(r))
-		copy(row, r)
-		table = append(table, row)
-	}
-	return sheets, table, nil
+	// GetRows hands over fresh slices, so they are the table as they are.
+	return sheets, rows, nil
 }
 
 // qifFields are the QIF record codes shown as columns, in display order.
