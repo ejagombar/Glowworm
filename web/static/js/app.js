@@ -4435,12 +4435,40 @@ function historySkeletonHTML() {
   return `<div class="pane-skeleton">${Array.from({ length: 6 }, () => `<div class="sk-block sk-row"></div>`).join("")}</div>`;
 }
 
+// The audit log's filter is remembered on this device, so it's still chosen
+// after a visit to another page.
+const auditFilter = {
+  KEY: "glowworm-audit-filter",
+  get() {
+    try {
+      const f = localStorage.getItem(this.KEY);
+      return f === "you" || f === "system" ? f : "all";
+    } catch (e) { return "all"; }
+  },
+  set(f) {
+    try {
+      if (f === "you" || f === "system") localStorage.setItem(this.KEY, f);
+      else localStorage.removeItem(this.KEY);
+    } catch (e) {}
+  },
+  // The History tab asks for the page with the filter already applied.
+  pointTab() {
+    const f = this.get();
+    document.querySelectorAll('.tabnav a[href^="/history"]').forEach((a) => {
+      a.setAttribute("href", f === "all" ? "/history" : "/history?filter=" + f);
+    });
+  },
+};
+document.addEventListener("DOMContentLoaded", () => auditFilter.pointTab());
+
 // The audit log's filter chips reload just the log, not the timeline above it.
 function loadHistoryPane(url, push) {
   const host = document.getElementById("historyPaneHost");
   if (!host) return;
   const u = new URL(url, location.origin);
   const filter = u.searchParams.get("filter") || "all";
+  auditFilter.set(filter);
+  auditFilter.pointTab();
   // "Show older changes" asks for a longer list; the one on screen stays
   // until it arrives, so the page doesn't jump.
   const show = u.searchParams.get("show") || "";
@@ -4471,6 +4499,18 @@ function loadHistoryPane(url, push) {
 document.addEventListener("DOMContentLoaded", () => {
   const view = document.getElementById("view-history");
   if (!view) return;
+  // Reached by a link that names no filter (one in a page, a shortcut):
+  // the remembered one is applied here.
+  const asked = new URL(location.href).searchParams.get("filter");
+  if (asked) {
+    auditFilter.set(asked);
+    auditFilter.pointTab();
+  } else if (auditFilter.get() !== "all") {
+    const u = new URL(location.href);
+    u.searchParams.set("filter", auditFilter.get());
+    history.replaceState(history.state, "", u.href);
+    loadHistoryPane(u.href, false);
+  }
   view.addEventListener("click", (e) => {
     const a = e.target.closest && e.target.closest('a[href^="/history?"]');
     if (!a) return;
