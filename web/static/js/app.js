@@ -106,7 +106,7 @@ const connection = (() => {
       banner = document.createElement("div");
       banner.className = "conn-banner";
       banner.setAttribute("role", "status");
-      document.body.prepend(banner);
+      (document.querySelector(".app.shell") || document.body).prepend(banner);
     }
     banner.className = "conn-banner " + (cls || "");
     banner.innerHTML = html;
@@ -210,7 +210,7 @@ const dataVersion = (() => {
   const refresh = () => {
     if (!stale || document.hidden || busy()) return;
     stale = false;
-    try { sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ url: location.href, y: window.scrollY })); } catch (e) {}
+    try { sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ url: location.href, y: pageScroller().scrollTop })); } catch (e) {}
     // A replace, not reload(), so it gets the same crossfade as moving
     // between pages instead of a blank frame.
     location.replace(location.href);
@@ -256,7 +256,7 @@ const dataVersion = (() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(SCROLL_KEY) || "null");
       sessionStorage.removeItem(SCROLL_KEY);
-      if (saved && saved.url === location.href) window.scrollTo(0, saved.y);
+      if (saved && saved.url === location.href) pageScroller().scrollTop = saved.y;
     } catch (e) {}
     setTimeout(snapshot, 0); // after the page's own setup has filled its fields
   });
@@ -390,6 +390,29 @@ const scrollLock = (() => {
   });
   return { sync };
 })();
+
+// App pages scroll inside .content rather than the window (see .app.shell).
+function pageScroller() {
+  return document.querySelector(".app.shell .content") || document.scrollingElement || document.documentElement;
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const box = document.querySelector(".app.shell .content");
+  if (!box) return;
+  // Space, Page Down and the arrow keys scroll whatever has focus.
+  box.tabIndex = -1;
+  if (document.activeElement === document.body) box.focus({ preventScroll: true });
+  // The browser only puts the window back where it was on Back; do the
+  // same for the content.
+  const key = "glowworm-scroll:" + location.pathname + location.search;
+  addEventListener("pagehide", () => {
+    try { sessionStorage.setItem(key, String(box.scrollTop)); } catch (e) {}
+  });
+  try {
+    const nav = performance.getEntriesByType("navigation")[0];
+    const y = Number(sessionStorage.getItem(key));
+    if (nav && nav.type === "back_forward" && y > 0) box.scrollTop = y;
+  } catch (e) {}
+});
 
 // The keyboard: while it's up iOS lets the page scroll further, and in a
 // home screen app it can leave the page scrolled into space that's no
@@ -1493,35 +1516,79 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const queryInput = document.getElementById("queryInput");
   const queryBtn = document.getElementById("queryBtn");
-  // iOS keeps the page its full height when the keyboard opens and slides
-  // the visible part of it up to show the field, taking the masthead out of
-  // view. While the keyboard is up, the whole app is pinned to the part of
-  // the screen still visible (--vv-h tall, moved down by --vv-top to follow
-  // that slide), so the masthead and the composer both stay in sight.
+  // iOS keeps the page its full height when the keyboard opens and, if the
+  // field would be under it, slides the visible part of the page up to show
+  // it, taking the masthead out of view. Two things stop that here:
+  //  - A tap on the composer first shortens the app to the height the
+  //    keyboard will leave, and only then focuses the field. The field is
+  //    already clear of the keyboard, so iOS has nothing to slide.
+  //  - While the field has focus, the app is kept to the visible part of
+  //    the screen frame by frame (iOS doesn't always send the viewport's
+  //    resize and scroll events), so it follows whatever iOS does anyway.
   const vv = window.visualViewport;
-  if (queryInput && vv) {
+  const composer = queryInput && queryInput.closest(".queries-composer");
+  if (composer && vv) {
     const root = document.documentElement;
     const list = document.getElementById("queryMessages");
-    const follow = () => root.style.setProperty("--vv-top", vv.offsetTop + "px");
+    const phone = window.matchMedia("(max-width: 760px) and (pointer: coarse)");
+    const KB_KEY = "glowworm-kb";
+    let raf = 0, lastH = -1, lastTop = -1;
+    let guess = 0, guessFrom = 0, guessUntil = 0; // height held until the keyboard arrives
     const fit = () => {
-      const up = window.innerHeight - vv.height > 120;
-      if (up) {
-        const atEnd = list && list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-        root.style.setProperty("--vv-h", vv.height + "px");
-        follow();
-        if (!root.classList.contains("kb-up")) {
-          root.classList.add("kb-up");
-          window.scrollTo(0, 0);
-        }
-        if (atEnd) list.scrollTop = list.scrollHeight;
-      } else if (root.classList.contains("kb-up")) {
-        root.classList.remove("kb-up");
-        root.style.removeProperty("--vv-h");
-        root.style.removeProperty("--vv-top");
+      let h = vv.height;
+      if (guess) {
+        if (performance.now() > guessUntil || h < guessFrom - 120) guess = 0;
+        else h = Math.min(h, guess);
+      }
+      const top = vv.offsetTop;
+      if (h === lastH && top === lastTop) return;
+      const atEnd = list && list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+      lastH = h; lastTop = top;
+      root.style.setProperty("--app-h", h + "px");
+      root.style.setProperty("--app-top", top + "px");
+      if (atEnd) list.scrollTop = list.scrollHeight;
+      // Remember what the keyboard leaves, for the next tap's guess.
+      if (!guess && h < window.innerHeight - 120) {
+        try { localStorage.setItem(KB_KEY, JSON.stringify({ screen: window.innerHeight, h })); } catch (e) {}
       }
     };
-    vv.addEventListener("resize", fit);
-    vv.addEventListener("scroll", () => { if (root.classList.contains("kb-up")) follow(); });
+    const loop = () => { fit(); raf = requestAnimationFrame(loop); };
+    const start = () => {
+      if (raf) return;
+      root.classList.add("kb-fit");
+      loop();
+    };
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      raf = 0; guess = 0; lastH = lastTop = -1;
+      root.classList.remove("kb-fit");
+      root.style.removeProperty("--app-h");
+      root.style.removeProperty("--app-top");
+    };
+    queryInput.addEventListener("focus", start);
+    queryInput.addEventListener("blur", stop);
+
+    let downY = 0;
+    composer.addEventListener("touchstart", (e) => { downY = e.touches[0].clientY; }, { passive: true });
+    composer.addEventListener("touchend", (e) => {
+      if (!phone.matches || document.activeElement === queryInput) return; // typing: taps place the caret
+      if (e.target.closest("button") || !e.cancelable) return;
+      if (Math.abs(e.changedTouches[0].clientY - downY) > 10) return; // a drag
+      e.preventDefault(); // we focus it ourselves, once it's out of the keyboard's way
+      let left = 0;
+      try {
+        const saved = JSON.parse(localStorage.getItem(KB_KEY) || "null");
+        if (saved && saved.screen === window.innerHeight) left = saved.h;
+      } catch (err) {}
+      guess = left || Math.round(window.innerHeight * 0.45);
+      guessFrom = vv.height;
+      guessUntil = performance.now() + 1000;
+      start();
+      composer.getBoundingClientRect(); // lay out at the new height before focusing
+      queryInput.focus({ preventScroll: true });
+      const end = queryInput.value.length;
+      queryInput.setSelectionRange(end, end);
+    }, { passive: false });
   }
   if (queryInput) {
     const submit = () => {
@@ -2984,14 +3051,14 @@ document.addEventListener("DOMContentLoaded", () => {
       for (const entry of entries) {
         if (entry.isIntersecting) loadNext();
       }
-    }, { rootMargin: "200px" });
+    }, { root: document.getElementById("content"), rootMargin: "200px" });
     io.observe(sentinel);
   } else {
     window.addEventListener("scroll", () => {
       if (!sentinel) return;
       const rect = sentinel.getBoundingClientRect();
       if (rect.top < window.innerHeight + 200) loadNext();
-    }, { passive: true });
+    }, { passive: true, capture: true });
   }
 });
 

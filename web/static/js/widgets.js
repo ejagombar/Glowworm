@@ -509,7 +509,7 @@ function ensureChartHover() {
   });
   document.addEventListener("mouseleave", () => { tip.style.display = "none"; });
   // Fixed-position tip would go stale when the page scrolls under the pointer.
-  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); }, { passive: true });
+  window.addEventListener("scroll", () => { tip.style.display = "none"; pickSlice(null); }, { passive: true, capture: true });
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", ensureChartHover);

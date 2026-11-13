@@ -174,6 +174,22 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 }
 
 .app { min-height: 100%; }
+/* App pages: the window itself never scrolls. The masthead stays put and
+   .content scrolls beneath it, so the scrollbar runs only beside what moves.
+   --app-h is the height of the screen still in view; app.js shortens it (and
+   sets --app-top) while the keyboard is up on Queries. */
+:root { --app-h: 100dvh; }
+html:has(.app.shell), html:has(.app.shell) body { overflow: hidden; }
+.app.shell {
+  position: fixed; top: var(--app-top, 0px);
+  left: env(safe-area-inset-left); right: env(safe-area-inset-right);
+  height: var(--app-h); min-height: 0;
+  display: flex; flex-direction: column;
+}
+.app.shell > .main { flex: 1; min-height: 0; }
+.app.shell .masthead, .app.shell > .conn-banner { flex: none; }
+.app.shell .content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: none; }
+.app.shell .content:focus { outline: none; }
 .main { display: flex; flex-direction: column; min-width: 0; }
 
 .masthead {
@@ -467,11 +483,11 @@ body.privacy .pie-total { display: none; }
 
 /* The message list runs from the masthead down to the composer; only a
    small gap is left under the suggestions. */
-.content:has(#view-queries.active) { padding-top: 0; padding-bottom: 12px; }
+.content:has(#view-queries.active) { padding-top: 0; padding-bottom: 12px; display: flex; flex-direction: column; }
 #view-queries.active {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - var(--masthead-h) - 12px);
+  flex: 1 0 0;
   min-height: 460px;
 }
 .queries-page { flex: 1; min-height: 0; display: flex; flex-direction: row; }
@@ -1407,6 +1423,7 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .modal-body { max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
 /* The page behind an open pop-up stays put while it's scrolled. */
 html:has(.modal-backdrop:not([hidden])), html.scroll-locked { overflow: hidden; }
+html:has(.modal-backdrop:not([hidden])) .app.shell .content, html.scroll-locked .app.shell .content { overflow: hidden; }
 html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
 .drawer-body, .chat-panel { overscroll-behavior: contain; }
 .modal-backdrop { overscroll-behavior: contain; }
@@ -2105,7 +2122,7 @@ html.app-covered body > * { visibility: hidden; }
   .content:has(#view-import.import-reviewing) { padding-bottom: 20px; }
   #view-import.import-reviewing.active {
     display: flex; flex-direction: column;
-    height: calc(100dvh - var(--masthead-h) - 40px);
+    height: calc(var(--app-h) - var(--masthead-h) - 40px);
   }
   #view-import.import-reviewing #importFlow { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #view-import.import-reviewing .import-review { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -2168,16 +2185,10 @@ html.app-covered body > * { visibility: hidden; }
   .masthead .period-wrap { margin-left: auto; }
   .content { padding-top: 12px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .content:has(#view-queries.active) { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
-  #view-queries.active { height: calc(100dvh - var(--masthead-h) - 20px - env(safe-area-inset-bottom)); min-height: 0; }
-  /* With the keyboard up (app.js sets --vv-h), fit what's left of the screen. */
-  html.kb-up, html.kb-up body { overflow: hidden; }
-  html.kb-up .app {
-    position: fixed; left: env(safe-area-inset-left); right: env(safe-area-inset-right); top: 0;
-    height: var(--vv-h); min-height: 0;
-    overflow: hidden; transform: translateY(var(--vv-top, 0px));
-  }
-  html.kb-up .content:has(#view-queries.active) { padding-bottom: 8px; }
-  html.kb-up #view-queries.active { height: calc(var(--vv-h) - var(--masthead-h) - 20px); }
+  .app.shell .content:has(#view-queries.active) { overflow: hidden; }
+  #view-queries.active { min-height: 0; }
+  /* With the keyboard up it covers the home indicator's strip. */
+  html.kb-fit .content:has(#view-queries.active) { padding-bottom: 8px; }
   .toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
 
   /* The filters right below say the same; the heading keeps its button. */

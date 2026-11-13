@@ -91,7 +91,7 @@
 
   </svg>
 
-  <div class="app">
+  <div class="app{{if not .Standalone}} shell{{end}}">
 {{if not .Standalone}}
     <div class="main">
       <header class="masthead">
