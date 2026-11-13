@@ -555,14 +555,22 @@ func (r *Transactions) DisplayRows(f ListFilter, accountID string) ([]*DisplayRo
 		return out, nil
 	}
 	grouped := map[string][]*core.Transaction{}
+	// Transfers are taken in the order their first leg came, not the map's:
+	// two on the same day then stay in the same order from one page of
+	// results to the next.
+	var transferOrder []string
 	for _, t := range rows {
 		if t.TransferID != nil && t.Type == core.TypeTransfer {
+			if _, seen := grouped[*t.TransferID]; !seen {
+				transferOrder = append(transferOrder, *t.TransferID)
+			}
 			grouped[*t.TransferID] = append(grouped[*t.TransferID], t)
 			continue
 		}
 		out = append(out, &DisplayRow{Kind: "single", Tx: t, Rep: t, Members: []*core.Transaction{t}})
 	}
-	for _, members := range grouped {
+	for _, id := range transferOrder {
+		members := grouped[id]
 		rep := members[0]
 		for _, m := range members {
 			if m.AmountMinor < 0 {
@@ -583,42 +591,27 @@ func (r *Transactions) DisplayRows(f ListFilter, accountID string) ([]*DisplayRo
 	return out, nil
 }
 
+// resolveNames fills in who each transaction was to or from. Everything it
+// looks up (account names, the transfers the rows belong to and the other leg
+// of each) is read in a handful of queries however many rows there are.
 func (r *Transactions) resolveNames(txs []*core.Transaction) {
-	peers := map[string]*core.Transaction{}
-	for _, t := range txs {
-		if t.TransferID != nil {
-			if tr, err := r.transferByID(*t.TransferID, false); err == nil {
-				for _, legID := range []string{tr.SourceTxID, tr.DestinationTxID} {
-					if _, ok := peers[legID]; !ok {
-						if rows, err := r.query(`SELECT `+txCols+` FROM transactions t WHERE t.id = ?`, legID); err == nil && len(rows) > 0 {
-							peers[legID] = rows[0]
-						}
-					}
-				}
-			}
-		}
+	if len(txs) == 0 {
+		return
 	}
-	accNames := map[string]string{}
-	for _, t := range txs {
-		if _, ok := accNames[t.AccountID]; !ok {
-			accNames[t.AccountID] = r.accountName(t.AccountID)
-		}
-	}
+	accNames := r.accountNames()
+	transfers, legAccount := r.transferLegs(txs)
 	for _, t := range txs {
 		accName := accNames[t.AccountID]
 		switch t.Type {
 		case core.TypeTransfer:
 			if t.TransferID != nil {
-				if tr, err := r.transferByID(*t.TransferID, false); err == nil {
-					peerID := tr.SourceTxID
-					if t.ID == tr.SourceTxID {
-						peerID = tr.DestinationTxID
+				if tr, ok := transfers[*t.TransferID]; ok {
+					peerID := tr.source
+					if t.ID == tr.source {
+						peerID = tr.destination
 					}
-					if p, ok := peers[peerID]; ok && p != nil {
-						if _, ok := accNames[p.AccountID]; !ok {
-							accNames[p.AccountID] = r.accountName(p.AccountID)
-						}
-						peerName := accNames[p.AccountID]
+					if peerAccount, ok := legAccount[peerID]; ok {
+						peerName := accNames[peerAccount]
 						if t.AmountMinor < 0 {
 							t.SourceName, t.DestinationName = accName, peerName
 							t.Counterparty = "To " + peerName
@@ -654,12 +647,91 @@ func (r *Transactions) resolveNames(txs []*core.Transaction) {
 	}
 }
 
-func (r *Transactions) accountName(id string) string {
-	var name string
-	if err := r.DB.QueryRow(`SELECT name FROM accounts WHERE id = ?`, id).Scan(&name); err != nil {
-		return ""
+// accountNames is every account's name by id, deleted accounts included: an
+// old transfer still says where it went.
+func (r *Transactions) accountNames() map[string]string {
+	names := map[string]string{}
+	rows, err := r.DB.Query(`SELECT id, name FROM accounts`)
+	if err != nil {
+		return names
 	}
-	return name
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		if rows.Scan(&id, &name) == nil {
+			names[id] = name
+		}
+	}
+	return names
+}
+
+type transferLegIDs struct{ source, destination string }
+
+// transferLegs looks up the transfers txs belong to (deleted ones included)
+// and the account each of their two legs is in.
+func (r *Transactions) transferLegs(txs []*core.Transaction) (map[string]transferLegIDs, map[string]string) {
+	transfers := map[string]transferLegIDs{}
+	legAccount := map[string]string{}
+	var ids []string
+	seen := map[string]bool{}
+	for _, t := range txs {
+		if t.TransferID != nil && !seen[*t.TransferID] {
+			seen[*t.TransferID] = true
+			ids = append(ids, *t.TransferID)
+		}
+	}
+	if len(ids) == 0 {
+		return transfers, legAccount
+	}
+	var legs []string
+	r.eachChunk(ids, `SELECT id, source_transaction_id, destination_transaction_id FROM transfers WHERE id IN `, func(rows *sql.Rows) {
+		var id string
+		var tr transferLegIDs
+		if rows.Scan(&id, &tr.source, &tr.destination) == nil {
+			transfers[id] = tr
+			legs = append(legs, tr.source, tr.destination)
+		}
+	})
+	// Most legs are rows already in hand; only the rest are fetched.
+	for _, t := range txs {
+		legAccount[t.ID] = t.AccountID
+	}
+	var missing []string
+	for _, id := range legs {
+		if _, ok := legAccount[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	r.eachChunk(missing, `SELECT id, account_id FROM transactions WHERE id IN `, func(rows *sql.Rows) {
+		var id, account string
+		if rows.Scan(&id, &account) == nil {
+			legAccount[id] = account
+		}
+	})
+	return transfers, legAccount
+}
+
+// eachChunk runs q followed by a list of ids, a few hundred at a time so the
+// statement stays within SQLite's limit on bound values, calling scan for
+// every row.
+func (r *Transactions) eachChunk(ids []string, q string, scan func(*sql.Rows)) {
+	const size = 500
+	for len(ids) > 0 {
+		n := min(size, len(ids))
+		args := make([]any, n)
+		for i, id := range ids[:n] {
+			args[i] = id
+		}
+		ids = ids[n:]
+		rows, err := r.DB.Query(q+`(?`+strings.Repeat(`,?`, n-1)+`)`, args...)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			scan(rows)
+		}
+		rows.Close()
+	}
 }
 
 func firstNonEmpty(vals ...string) string {
