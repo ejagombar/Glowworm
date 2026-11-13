@@ -71,6 +71,10 @@ func (a *App) WidgetsList(period, from, to string) ([]*WidgetView, error) {
 	}
 	defer rows.Close()
 	var out []*WidgetView
+	var batch *query.SpecBatch
+	if a.Query != nil {
+		batch = a.Query.Batch(a.specWindow(period, from, to))
+	}
 	for rows.Next() {
 		var id, title, typ, data string
 		var position, col, rowsN int
@@ -81,8 +85,8 @@ func (a *App) WidgetsList(period, from, to string) ([]*WidgetView, error) {
 		view := &WidgetView{ID: id, Type: typ, Title: title, Col: spanOr(col, typ, defaultSpanCol),
 			Rows: spanOr(rowsN, typ, defaultSpanRows)}
 		stale := false
-		if spec := query.ParseSpec(plan.String); spec != nil && a.Query != nil {
-			if w, err := a.Query.RunSpec(spec, typ, a.specWindow(period, from, to)); err == nil {
+		if spec := query.ParseSpec(plan.String); spec != nil && batch != nil {
+			if w, err := batch.Run(spec, typ); err == nil {
 				if m, ok := w.Data.(map[string]any); ok && typ == "table" {
 					tableRows, _ := m["rows"].([][]string)
 					if links := a.tableRowLinks(spec.Links, tableRows); links != nil {

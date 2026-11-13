@@ -3,6 +3,7 @@ package query
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -855,5 +856,50 @@ func TestAgentDraftsDebitBalance(t *testing.T) {
 	d, ok := ans.Widgets[0].Data.(*ValuationDraft)
 	if !ok || d.AccountID != "a1" || d.Account != "Main" || d.ValueMinor != 8599 {
 		t.Errorf("draft = %#v", ans.Widgets[0].Data)
+	}
+}
+
+// Widgets drawn together that share a query get one reading of it, each
+// shaped for its own type, and the same data as when run alone.
+func TestSpecBatchSharesAQuery(t *testing.T) {
+	svc := newAgentService(t, nil)
+	defer func() { _ = svc.DB.Close() }()
+	sp := &Spec{V: 2, SQL: `SELECT 'x' AS label, abs(random() % 1000000) AS v`}
+	b := svc.Batch(nil)
+	bar, err := b.Run(sp, "bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pie, err := b.Run(sp, "pie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	barValue := bar.Data.(map[string]any)["series"].([]map[string]any)[0]["values"].([]float64)[0]
+	pieValue := pie.Data.(map[string]any)["values"].([]float64)[0]
+	if barValue != pieValue {
+		t.Errorf("the query ran twice: bar %v, pie %v", barValue, pieValue)
+	}
+
+	fixed := &Spec{V: 2, SQL: `SELECT * FROM (VALUES ('A', 1), ('B', 10)) ORDER BY 1`}
+	for _, typ := range []string{"bar", "pie", "table"} {
+		alone, err := svc.RunSpec(fixed, typ, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		together, err := b.Run(fixed, typ)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(alone.Data, together.Data) {
+			t.Errorf("%s: alone %v, in a batch %v", typ, alone.Data, together.Data)
+		}
+	}
+
+	// A query that fails is not tried again, and fails for each widget.
+	bad := &Spec{V: 2, SQL: `SELECT * FROM nowhere`}
+	for range 2 {
+		if _, err := b.Run(bad, "table"); err == nil {
+			t.Error("a failing query gave a widget")
+		}
 	}
 }

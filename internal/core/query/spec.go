@@ -198,6 +198,39 @@ func (s *Service) runSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widge
 	return w, res, err
 }
 
+// SpecBatch runs the queries of widgets drawn together, a dashboard's, over
+// one window. A query several of them share is run once and shaped for each.
+// It is for one rendering: nothing in it is refreshed.
+type SpecBatch struct {
+	s       *Service
+	win     *TimeWindow
+	cur     string
+	results map[string]batchResult
+}
+
+type batchResult struct {
+	res *QueryResult
+	err error
+}
+
+// Batch starts a batch of widget queries over win.
+func (s *Service) Batch(win *TimeWindow) *SpecBatch {
+	return &SpecBatch{s: s, win: win, cur: s.currency(), results: map[string]batchResult{}}
+}
+
+// Run is RunSpec for one widget of the batch.
+func (b *SpecBatch) Run(sp *Spec, typ string) (*widgets.Widget, error) {
+	r, ok := b.results[sp.SQL]
+	if !ok {
+		r.res, r.err = RunReadonlyQuery(b.s.DB, sp.SQL, b.s.queryArgs(sp.SQL, b.win)...)
+		b.results[sp.SQL] = r
+	}
+	if r.err != nil {
+		return nil, r.err
+	}
+	return shapeSpec(sp, typ, b.win, r.res, b.cur)
+}
+
 func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur string) (*widgets.Widget, error) {
 	w := &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Plan: sp}
 	switch typ {
