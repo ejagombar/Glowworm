@@ -129,7 +129,7 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
 	return &viewBase{
 		LockAfter: lockAfter, Nonce: nonce,
-		Title:     title, View: view, Period: period, PeriodLabel: label,
+		Title: title, View: view, Period: period, PeriodLabel: label,
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
 		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
@@ -206,9 +206,19 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	incomeTrendLabel, incomeTrendDate := a.lastIncomeTrend()
 	spendPct, spendDir := a.spendTrend()
 
-	seriesData := a.balanceSeriesFor(base, "all")
-	seriesAvailable := a.balanceSeriesFor(base, "available")
-	seriesSavings := a.balanceSeriesFor(base, "savings")
+	// The three charts are cut from one reading of the accounts' history.
+	seriesFrom, seriesTo := seriesStart(a), a.Clock.Today()
+	history, historyErr := loadBalanceHistory(a, max(seriesFrom, seriesTo))
+	heroSeries := func(scope string) string {
+		if historyErr != nil {
+			return balanceSeriesJSON(scope, nil, nil)
+		}
+		labels, values := history.series(seriesFrom, seriesTo, a.Clock.Today(), scope)
+		return balanceSeriesJSON(scope, labels, values)
+	}
+	seriesData := heroSeries("all")
+	seriesAvailable := heroSeries("available")
+	seriesSavings := heroSeries("savings")
 
 	widgetViews, err := a.WidgetsList(base.Period, base.PeriodFrom, base.PeriodTo)
 	if err != nil {
@@ -299,10 +309,9 @@ func (a *App) spendTrend() (string, string) {
 	return fmt.Sprintf("%s%d%% vs last month", sign, pct), dir
 }
 
-func (a *App) balanceSeriesFor(base *viewBase, scope string) string {
-	from := seriesStart(a)
-	to := a.Clock.Today()
-	labels, values, err := balanceScopeSeries(a, from, to, scope)
+// balanceSeriesJSON is a balance chart's data for the dashboard: one line,
+// named and coloured for its scope.
+func balanceSeriesJSON(scope string, labels []string, values []int64) string {
 	name, color := "Balance", "#0e6f51"
 	switch scope {
 	case "available":
@@ -310,7 +319,7 @@ func (a *App) balanceSeriesFor(base *viewBase, scope string) string {
 	case "savings":
 		name, color = "Savings", "#2f7fb0"
 	}
-	if err != nil || len(labels) == 0 {
+	if len(labels) == 0 {
 		return fmt.Sprintf(`{"labels":[],"series":[{"name":%q,"color":%q,"values":[]}]}`, name, color)
 	}
 	return fmt.Sprintf(`{"labels":%s,"series":[{"name":%q,"color":%q,"values":%s}]}`,
@@ -343,107 +352,49 @@ func balancePointSeries(a *App, from, to string) ([]string, []int64, error) {
 	return balanceScopeSeries(a, from, to, "all")
 }
 
-// accountScopeSQL narrows to the dashboard's split: savings accounts, or
-// everything else ("available").
-func accountScopeSQL(scope, col string) string {
+// inScope narrows to the dashboard's split: savings accounts, or everything
+// else ("available"). Any other scope takes every account.
+func inScope(scope, accountType string) bool {
 	switch scope {
 	case "savings":
-		return " AND " + col + " = '" + core.AccountSavings + "'"
+		return accountType == core.AccountSavings
 	case "available":
-		return " AND " + col + " <> '" + core.AccountSavings + "'"
+		return accountType != core.AccountSavings
 	}
-	return ""
+	return true
 }
 
+// balanceScopeSeries is the combined balance of the accounts in scope on each
+// day between from and to that something happened.
 func balanceScopeSeries(a *App, from, to, scope string) ([]string, []int64, error) {
 	if from > to {
 		from, to = to, from
 	}
-	dates := map[string]bool{}
-	addDates := func(q string, args ...any) {
-		rows, err := a.DB.Query(q, args...)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var d any
-			if err := rows.Scan(&d); err == nil {
-				if s, ok := d.(string); ok && s >= from && s <= to {
-					dates[s] = true
-				}
-			}
-		}
-	}
-	addDates(`SELECT DISTINCT t.date FROM transactions t JOIN accounts acc ON acc.id = t.account_id
-		WHERE t.deleted_at IS NULL AND t.date BETWEEN ? AND ?`+accountScopeSQL(scope, "acc.type"), from, to)
-	addDates(`SELECT DISTINCT opening_balance_date FROM accounts WHERE deleted_at IS NULL AND opening_balance_date BETWEEN ? AND ?`+accountScopeSQL(scope, "type"), from, to)
-	addDates(`SELECT DISTINCT v.date FROM valuations v JOIN accounts acc ON acc.id = v.account_id
-		WHERE v.deleted_at IS NULL AND v.date BETWEEN ? AND ?`+accountScopeSQL(scope, "acc.type"), from, to)
-	if a.Clock.Today() >= from && a.Clock.Today() <= to {
-		dates[a.Clock.Today()] = true
-	}
-	if len(dates) == 0 {
-		return nil, nil, nil
-	}
-	sorted := make([]string, 0, len(dates))
-	for d := range dates {
-		sorted = append(sorted, d)
-	}
-	sort.Strings(sorted)
-	if len(sorted) > 370 {
-		step := (len(sorted) + 369) / 370
-		kept := []string{sorted[0]}
-		for i := step; i < len(sorted); i += step {
-			kept = append(kept, sorted[i])
-		}
-		if last := sorted[len(sorted)-1]; kept[len(kept)-1] != last {
-			kept = append(kept, last)
-		}
-		sorted = kept
-	}
-	values := make([]int64, len(sorted))
-	arows, err := a.DB.Query(`SELECT id, opening_balance_minor, COALESCE(opening_balance_date,'') FROM accounts WHERE deleted_at IS NULL` + accountScopeSQL(scope, "type"))
+	h, err := loadBalanceHistory(a, to)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer arows.Close()
-	for arows.Next() {
-		var id string
-		var opening int64
-		var openingDate string
-		if err := arows.Scan(&id, &opening, &openingDate); err != nil {
-			return nil, nil, err
-		}
-		txs, err := accountTxSums(a, id, to)
-		if err != nil {
-			return nil, nil, err
-		}
-		vals, err := accountValuations(a, id, to)
-		if err != nil {
-			return nil, nil, err
-		}
-		base := opening
-		since := openingDate
-		var txAfter int64
-		txi, vi := 0, 0
-		for i, d := range sorted {
-			for vi < len(vals) && vals[vi].date <= d {
-				base = vals[vi].value
-				since = vals[vi].date
-				txi, txAfter = 0, 0
-				vi++
-			}
-			for txi < len(txs) && txs[txi].date <= d {
-				if since == "" || txs[txi].date > since {
-					txAfter += txs[txi].sum
-				}
-				txi++
-			}
-			values[i] += base + txAfter
-		}
-	}
-	return sorted, values, nil
+	labels, values := h.series(from, to, a.Clock.Today(), scope)
+	return labels, values, nil
+}
+
+// balanceHistory is what the balance charts are drawn from: each account's
+// opening balance, its corrections and its transactions totalled by day. It
+// is read in three queries whatever the number of accounts, and one reading
+// serves every scope a page shows.
+type balanceHistory struct {
+	accounts []*historyAccount
+}
+
+type historyAccount struct {
+	accountType string
+	// A removed account adds nothing to a balance, but the days its
+	// transactions and corrections fall on are still points on the chart.
+	deleted     bool
+	opening     int64
+	openingDate string
+	txs         []txDay          // oldest first
+	vals        []valuationPoint // oldest first; on one day, in the order entered
 }
 
 type txDay struct {
@@ -456,46 +407,147 @@ type valuationPoint struct {
 	value int64
 }
 
-func accountTxSums(a *App, accountID, until string) ([]txDay, error) {
-	rows, err := a.DB.Query(`SELECT date, SUM(amount_minor) FROM transactions
-		WHERE account_id=? AND deleted_at IS NULL AND date<=? GROUP BY date ORDER BY date`, accountID, until)
+// loadBalanceHistory reads every account's history up to and including until.
+func loadBalanceHistory(a *App, until string) (*balanceHistory, error) {
+	h := &balanceHistory{}
+	byID := map[string]*historyAccount{}
+	arows, err := a.DB.Query(`SELECT id, type, deleted_at IS NOT NULL, opening_balance_minor, COALESCE(opening_balance_date,'') FROM accounts`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []txDay{}
-	for rows.Next() {
-		var d any
-		var sum int64
-		if err := rows.Scan(&d, &sum); err != nil {
+	defer arows.Close()
+	for arows.Next() {
+		var id string
+		acc := &historyAccount{}
+		if err := arows.Scan(&id, &acc.accountType, &acc.deleted, &acc.opening, &acc.openingDate); err != nil {
 			return nil, err
 		}
-		if s, ok := d.(string); ok {
-			out = append(out, txDay{date: s, sum: sum})
+		byID[id] = acc
+		h.accounts = append(h.accounts, acc)
+	}
+	if err := arows.Err(); err != nil {
+		return nil, err
+	}
+
+	trows, err := a.DB.Query(`SELECT account_id, date, SUM(amount_minor) FROM transactions
+		WHERE deleted_at IS NULL AND date <= ? GROUP BY account_id, date ORDER BY account_id, date`, until)
+	if err != nil {
+		return nil, err
+	}
+	defer trows.Close()
+	for trows.Next() {
+		var id, date string
+		var sum int64
+		if err := trows.Scan(&id, &date, &sum); err != nil {
+			return nil, err
+		}
+		if acc := byID[id]; acc != nil {
+			acc.txs = append(acc.txs, txDay{date: date, sum: sum})
 		}
 	}
-	return out, rows.Err()
+	if err := trows.Err(); err != nil {
+		return nil, err
+	}
+
+	vrows, err := a.DB.Query(`SELECT account_id, date, value_minor FROM valuations
+		WHERE deleted_at IS NULL AND date <= ? ORDER BY account_id, date, created_at`, until)
+	if err != nil {
+		return nil, err
+	}
+	defer vrows.Close()
+	for vrows.Next() {
+		var id, date string
+		var value int64
+		if err := vrows.Scan(&id, &date, &value); err != nil {
+			return nil, err
+		}
+		if acc := byID[id]; acc != nil {
+			acc.vals = append(acc.vals, valuationPoint{date: date, value: value})
+		}
+	}
+	return h, vrows.Err()
 }
 
-func accountValuations(a *App, accountID, until string) ([]valuationPoint, error) {
-	rows, err := a.DB.Query(`SELECT date, value_minor FROM valuations
-		WHERE account_id=? AND deleted_at IS NULL AND date<=? ORDER BY date, created_at`, accountID, until)
-	if err != nil {
-		return nil, err
+// maxSeriesPoints is the most points a chart is given; a longer history is
+// thinned evenly, keeping its first and last day.
+const maxSeriesPoints = 370
+
+// series is the combined balance of the accounts in scope on each day from
+// from to to that has a transaction, a correction or an opening balance, and
+// on today. An account's balance is its latest correction (or its opening
+// balance) plus the transactions since.
+func (h *balanceHistory) series(from, to, today, scope string) ([]string, []int64) {
+	if from > to {
+		from, to = to, from
 	}
-	defer rows.Close()
-	out := []valuationPoint{}
-	for rows.Next() {
-		var d any
-		var value int64
-		if err := rows.Scan(&d, &value); err != nil {
-			return nil, err
+	within := func(d string) bool { return d >= from && d <= to }
+	dates := map[string]bool{}
+	for _, acc := range h.accounts {
+		if !inScope(scope, acc.accountType) {
+			continue
 		}
-		if s, ok := d.(string); ok {
-			out = append(out, valuationPoint{date: s, value: value})
+		for _, t := range acc.txs {
+			if within(t.date) {
+				dates[t.date] = true
+			}
+		}
+		for _, v := range acc.vals {
+			if within(v.date) {
+				dates[v.date] = true
+			}
+		}
+		if !acc.deleted && within(acc.openingDate) {
+			dates[acc.openingDate] = true
 		}
 	}
-	return out, rows.Err()
+	if within(today) {
+		dates[today] = true
+	}
+	if len(dates) == 0 {
+		return nil, nil
+	}
+	sorted := make([]string, 0, len(dates))
+	for d := range dates {
+		sorted = append(sorted, d)
+	}
+	sort.Strings(sorted)
+	if len(sorted) > maxSeriesPoints {
+		step := (len(sorted) + maxSeriesPoints - 1) / maxSeriesPoints
+		kept := []string{sorted[0]}
+		for i := step; i < len(sorted); i += step {
+			kept = append(kept, sorted[i])
+		}
+		if last := sorted[len(sorted)-1]; kept[len(kept)-1] != last {
+			kept = append(kept, last)
+		}
+		sorted = kept
+	}
+	values := make([]int64, len(sorted))
+	for _, acc := range h.accounts {
+		if acc.deleted || !inScope(scope, acc.accountType) {
+			continue
+		}
+		base := acc.opening
+		since := acc.openingDate
+		var txAfter int64
+		txi, vi := 0, 0
+		for i, d := range sorted {
+			for vi < len(acc.vals) && acc.vals[vi].date <= d {
+				base = acc.vals[vi].value
+				since = acc.vals[vi].date
+				txi, txAfter = 0, 0
+				vi++
+			}
+			for txi < len(acc.txs) && acc.txs[txi].date <= d {
+				if since == "" || acc.txs[txi].date > since {
+					txAfter += acc.txs[txi].sum
+				}
+				txi++
+			}
+			values[i] += base + txAfter
+		}
+	}
+	return sorted, values
 }
 
 func jsonSlice(items []string) string {
