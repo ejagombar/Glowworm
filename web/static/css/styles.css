@@ -441,6 +441,11 @@ body.privacy .pie-total { display: none; }
 
 .content { --content-x: 22px; padding: 20px var(--content-x) 40px; width: 100%; }
 .view { display: none; }
+/* A page reaches the phone in pieces of a few KB, and the browser may draw
+   after any of them: the tab bar with one tab across it, a button with half
+   its label. Nothing is drawn until the page's last element (#pageEnd) is
+   in, so the page before stays up and the new one appears whole. */
+body:not(:has(> #pageEnd)) > .app { display: none; }
 .view.active { display: block; }
 
 /* Moving between pages: the browser keeps the old page up until the new one
