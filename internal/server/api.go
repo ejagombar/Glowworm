@@ -884,7 +884,6 @@ func (a *App) apiRecurringSeries(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-
 func (a *App) apiSnapshot(w http.ResponseWriter, r *http.Request) error {
 	date := r.URL.Query().Get("date")
 	if date == "" {

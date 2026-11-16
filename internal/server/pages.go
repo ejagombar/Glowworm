@@ -608,16 +608,11 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	var selectedName, sub string
+	var selectedName string
 	for _, c := range cards {
 		if c.ID == accountID {
 			selectedName = c.Name
 		}
-	}
-	if selectedName != "" {
-		sub = selectedName + " · statement view"
-	} else {
-		sub = "All accounts · transfers linked"
 	}
 	rows := allRows
 	hasMore := false
@@ -632,7 +627,6 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 		Categories   []*core.Category
 		SelectedAcc  string
 		SelectedName string
-		Sub          string
 		FiltersQ     string
 		FiltersCat   string
 		FiltersType  string
@@ -642,7 +636,7 @@ func (a *App) handleTransactions(w http.ResponseWriter, r *http.Request) error {
 		Sort, Dir    string
 	}{
 		viewBase: base, Accounts: cards, Rows: rows, Categories: cats,
-		SelectedAcc: accountID, SelectedName: selectedName, Sub: sub,
+		SelectedAcc: accountID, SelectedName: selectedName,
 		FiltersQ: f.Q, FiltersCat: f.CategoryID, FiltersType: f.Type,
 		Today: a.Clock.Today(), HasMore: hasMore, NextOffset: len(rows),
 		Sort: sortKey, Dir: sortDir,

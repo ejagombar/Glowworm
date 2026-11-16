@@ -8,13 +8,11 @@
             <span class="stat-icon"><svg class="icon"><use href="#i-bank"/></svg></span>
             <div class="stat-label">Available balance</div>
             <div class="stat-value">{{money .AvailableMinor .Currency}}</div>
-            <div class="stat-trend" data-graph-label>Showing graph · click to reset</div>
           </article>
           <article class="stat-card compact clickable" data-balance-view="savings" role="button" tabindex="0" aria-pressed="false">
             <span class="stat-icon"><svg class="icon"><use href="#i-check"/></svg></span>
             <div class="stat-label">Savings</div>
             <div class="stat-value">{{money .SavingsMinor .Currency}}</div>
-            <div class="stat-trend" data-graph-label>Show graph</div>
           </article>
           <article class="stat-card compact">
             <span class="stat-icon"><svg class="icon"><use href="#i-up"/></svg></span>

@@ -1445,8 +1445,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const on = card.dataset.balanceView === view;
         card.classList.toggle("selected", on);
         card.setAttribute("aria-pressed", on ? "true" : "false");
-        const label = card.querySelector("[data-graph-label]");
-        if (label) label.textContent = on ? "Showing graph · click to reset" : "Show graph";
       });
       heroChart.dataset.chartData = heroChart.dataset[`series${view[0].toUpperCase()}${view.slice(1)}`] || heroChart.dataset.seriesAll;
       const title = document.getElementById("heroTitle");
