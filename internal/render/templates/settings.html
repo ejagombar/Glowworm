@@ -2,20 +2,7 @@
 <section class="view active" id="view-settings">
     <div class="settings-grid">
         <div class="panel setting-block settings-accounts-block">
-            <div class="settings-accounts-head">
-                <div>
-                    <h2>Accounts</h2>
-                    <p class="muted">Name, type, opening balance and current valuation. Valuation updates are stored as
-                        corrections, not payments.</p>
-                </div>
-                <div class="settings-accounts-actions">
-                    <button class="btn btn-ghost btn-xs" id="settingsAddAccountBtn">
-                        <svg class="icon">
-                            <use href="#i-plus" />
-                        </svg> Add account
-                    </button>
-                </div>
-            </div>
+            <h2>Accounts</h2>
             <div class="settings-accounts-grid" id="settingsAccounts">
                 {{range .Accounts}}
                 <button class="settings-account-card" data-account-form="{{.ID}}">
@@ -39,6 +26,9 @@
                     <div class="settings-account-sub">Add your first account to start importing statements.</div>
                 </div>
                 {{end}}
+                <button class="settings-account-card settings-account-add" id="settingsAddAccountBtn" type="button">
+                    <svg class="icon"><use href="#i-plus" /></svg> Add account
+                </button>
             </div>
             {{if .Archives}}
             <div class="deleted-accounts" id="deletedAccounts">

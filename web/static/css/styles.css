@@ -1353,12 +1353,7 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .account-row div { flex: 1; }
 .account-row p { margin: 0; font-size: 12px; }
 .settings-accounts-block { grid-column: 1 / -1; }
-.settings-accounts-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; margin-bottom: 14px;
-}
-.settings-accounts-head h2 { margin: 0 0 3px; }
-.settings-accounts-head .muted { margin: 0; }
+.settings-accounts-block > h2 { margin: 0 0 14px; }
 .settings-accounts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1373,6 +1368,12 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
   transition: border-color 0.14s, box-shadow 0.14s;
 }
 .settings-account-card:hover { border-color: var(--muted-2); box-shadow: var(--shadow-2); }
+/* The last card adds an account, as the last category card adds a category. */
+.settings-account-add {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 72px;
+  font: inherit; color: var(--muted); border-style: dashed;
+}
+.settings-account-add:hover { color: var(--primary); background: var(--primary-soft); border-color: var(--primary); box-shadow: none; }
 .settings-account-card-top {
   display: flex; align-items: center; gap: 9px; margin-bottom: 12px;
 }
@@ -2159,7 +2160,6 @@ html.app-covered body > * { visibility: hidden; }
   .review-list { max-height: none; }
 }
 
-.settings-accounts-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .deleted-accounts { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .deleted-accounts h3 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
 .deleted-accounts > .muted { margin: 0 0 10px; font-size: 12px; }
