@@ -28,6 +28,12 @@ docker compose -f deploy/compose.yaml up --build
 to `client_max_body_size 25m`; NDJSON chat streaming needs `proxy_buffering
 off`). Set `GLOWWORM_TRUSTED_PROXIES=127.0.0.1`.
 
+### Releases and the live server
+
+Tagging `vX.Y` or `vX.Y.Z` on `main` builds, publishes and deploys to the
+server at glowworm.eagombar.uk, with nightly backups to Google Drive. See
+[deploy/README.md](deploy/README.md) for the setup.
+
 ## Configuration
 
 Environment variables (see `glowworm.example.toml` for the file equivalent):
