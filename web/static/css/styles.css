@@ -1936,6 +1936,8 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
 .unlock-password { margin-top: 4px; }
 .unlock-links { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
 .unlock-links form { margin: 0; }
+.setting-block.is-unavailable { opacity: 0.45; }
+.setting-block.is-unavailable * { cursor: default; }
 .lock-state { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
 .lock-state .icon { width: 15px; height: 15px; color: var(--primary); }
 .lock-after-row { margin-top: 14px; }

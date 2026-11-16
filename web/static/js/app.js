@@ -4563,8 +4563,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const lockBox = document.getElementById("lockSettings");
   if (!lockBox) return;
+  // Greyed out by the server where passkeys can't work (no https); on a
+  // device that has none at all the section isn't shown.
+  if (!lockBox.classList.contains("is-unavailable") && !passkeys.supported()) {
+    lockBox.hidden = true;
+    return;
+  }
   const setup = document.getElementById("lockSetupBtn");
-  if (setup && !passkeys.supported()) setup.disabled = true;
   setup?.addEventListener("click", async () => {
     setup.disabled = true;
     try {

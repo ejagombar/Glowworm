@@ -171,14 +171,10 @@
             </div>
 
             {{with .Lock}}
-            <div class="panel setting-block" id="lockSettings">
+            {{/* Greyed out, and out of reach, where passkeys can't work (plain http or an
+                 IP address). The script hides it on a device without passkeys. */}}
+            <div class="panel setting-block{{if not .HostOK}} is-unavailable{{end}}" id="lockSettings"{{if not .HostOK}} inert aria-disabled="true" title="Needs HTTPS at a domain name"{{end}}>
                 <h2>Face ID</h2>
-                <p class="muted">Lock Glowworm on this device and unlock it with Face ID (or Touch ID, or your
-                    device's passkey). Your password still unlocks it.</p>
-                {{if not .HostOK}}
-                <p class="muted"><strong>Not available here:</strong> Face ID only works when Glowworm is opened at
-                    a domain name over HTTPS, not an IP address.</p>
-                {{else}}
                 <p class="lock-state" id="lockState" data-locked="{{.DeviceLocked}}">
                     {{if .DeviceLocked}}<svg class="icon"><use href="#i-check" /></svg> On for this device.
                     {{else}}Off for this device.{{end}}
@@ -190,7 +186,6 @@
                     <button class="btn btn-primary" id="lockSetupBtn" type="button">Set up Face ID on this device</button>
                     {{end}}
                 </div>
-                {{end}}
                 <div class="field-row lock-after-row">
                     <label for="lockAfterSelect">Lock when away</label>
                     <select class="field select" id="lockAfterSelect">
