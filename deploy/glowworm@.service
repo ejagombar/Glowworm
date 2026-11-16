@@ -1,0 +1,30 @@
+# Glowworm, run as your own user: enable it as glowworm@<user>, e.g.
+#   sudo systemctl enable --now glowworm@ed
+# The binary lives in /opt/glowworm (owned by that user, so deploys don't
+# need root to swap it) and the data in /var/lib/glowworm.
+[Unit]
+Description=Glowworm finance tracker (as %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%i
+StateDirectory=glowworm
+StateDirectoryMode=0700
+Environment=GLOWWORM_DATA_DIR=/var/lib/glowworm
+Environment=GLOWWORM_ADDR=127.0.0.1:8080
+Environment=GLOWWORM_LOG_FORMAT=json
+Environment=GLOWWORM_TRUSTED_PROXIES=127.0.0.1
+Environment=GLOWWORM_TIMEZONE=Europe/London
+# Overrides for the above, and secrets such as GLOWWORM_SETUP_TOKEN.
+EnvironmentFile=-/etc/glowworm/glowworm.env
+ExecStart=/opt/glowworm/current/glowworm serve
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

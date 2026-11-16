@@ -1,0 +1,18 @@
+# One backup of Glowworm, copied to Google Drive with rclone. Runs as your
+# user so it uses your rclone config (~/.config/rclone). Started nightly by
+# glowworm-backup@<user>.timer; run it by hand with
+#   sudo systemctl start glowworm-backup@ed
+[Unit]
+Description=Back up Glowworm to Google Drive (as %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=%i
+Environment=GLOWWORM_DATA_DIR=/var/lib/glowworm
+EnvironmentFile=-/etc/glowworm/glowworm.env
+EnvironmentFile=-/etc/glowworm/backup.env
+ExecStart=/opt/glowworm/backup.sh
+Nice=10
+IOSchedulingClass=idle
