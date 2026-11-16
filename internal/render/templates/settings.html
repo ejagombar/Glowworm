@@ -113,7 +113,9 @@
             <div class="field-row">
                 <label>API key</label>
                 <div class="key-row">
-                    <input class="field" type="password" id="aiKey" data-has-key="{{if .AIHasKey}}1{{else}}0{{end}}"
+                    {{/* A saved key shows as stars (KEY_MASK in app.js) until the box is clicked. */}}
+                    <input class="field" id="aiKey" data-has-key="{{if .AIHasKey}}1{{else}}0{{end}}"
+                        {{if .AIHasKey}}type="text" value="*********" readonly{{else}}type="password"{{end}}
                         autocomplete="off" />
                     <button class="btn btn-ghost btn-xs" id="aiKeyClear" type="button" title="Remove the saved key" {{if
                         not .AIHasKey}} hidden{{end}}>Clear</button>
