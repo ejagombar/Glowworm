@@ -958,7 +958,11 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .model-picker-list li[aria-selected="true"] { font-weight: 600; }
 .model-picker-list li.active { background: var(--surface-2); }
 .model-picker-list .model-picker-empty { color: var(--muted); cursor: default; }
-.model-picker-hint { margin: 4px 0 0; font-size: 12px; }
+/* A field's label with an (i) beside it; the note it opens sits under them. */
+.label-row { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
+.label-row label { margin: 0; }
+.label-row + .info-popover.setting-info { margin: 0 0 8px; padding: 8px 12px; }
+.label-row + .info-popover.setting-info p { margin: 0; }
 .ai-models-status { margin: 0 0 12px; font-size: 12px; color: var(--danger); }
 
 .account-actions {
