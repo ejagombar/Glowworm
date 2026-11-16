@@ -725,12 +725,6 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
-// handleCategories: categories moved into Settings; old links follow them.
-func (a *App) handleCategories(w http.ResponseWriter, r *http.Request) error {
-	http.Redirect(w, r, "/settings#categories", http.StatusFound)
-	return nil
-}
-
 // handleSavings is a placeholder until the savings page is built.
 func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "savings", "Savings")
