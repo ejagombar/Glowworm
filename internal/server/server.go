@@ -8,13 +8,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"glowworm/internal/ai"
 	"glowworm/internal/clock"
 	"glowworm/internal/config"
 	"glowworm/internal/core"
@@ -204,44 +202,6 @@ func (a *App) startMidnightSummariser(log *slog.Logger) {
 			a.Query.CatchUpSummaries()
 		}
 	}()
-}
-
-// Models are chosen per role.
-const (
-	modelRoleCategorisation = "categorisation"
-	modelRoleQueries        = "queries"
-)
-
-// resolveProviders returns the provider for import/categorisation work and
-// the one for the Queries page; they differ only in model.
-func resolveProviders(db *store.DB, secret *crypto.Secret, log *slog.Logger) (cat, queries ai.Provider) {
-	if os.Getenv("GLOWWORM_AI_MOCK") == "1" {
-		log.Info("using mock AI provider (GLOWWORM_AI_MOCK=1)")
-		return &ai.Mock{}, &ai.Mock{}
-	}
-	var provider, models, baseURL, keyCipher string
-	err := db.QueryRow(`SELECT provider, models, base_url, key_cipher FROM ai_provider_config WHERE id = 1`).
-		Scan(&provider, &models, &baseURL, &keyCipher)
-	if err != nil || provider == "" {
-		return nil, nil
-	}
-	modelMap := map[string]string{}
-	_ = json.Unmarshal([]byte(models), &modelMap)
-	apiKey := ""
-	if keyCipher != "" {
-		if plain, err := secret.Decrypt(keyCipher); err == nil {
-			apiKey = string(plain)
-		} else {
-			log.Error("ai key decryption failed", "err", err)
-		}
-	}
-	cat, err = ai.New(provider, modelMap[modelRoleCategorisation], baseURL, apiKey)
-	if err != nil {
-		log.Error("ai provider", "err", err)
-		return nil, nil
-	}
-	queries, _ = ai.New(provider, modelMap[modelRoleQueries], baseURL, apiKey)
-	return cat, queries
 }
 
 func (a *App) Router() http.Handler {

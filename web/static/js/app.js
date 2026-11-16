@@ -1822,20 +1822,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // A searchable model list: type to filter, sorted alphabetically, with
 // "Auto" (empty value) first. Keeps its value even before models load.
+// A searchable model menu. Each model can carry the provider it's from
+// ({key, id, name, provider, short}); the menu marks it, and the value is the
+// model's key ("provider:model"), or "" for the default.
 function modelPicker(root) {
   if (!root) return null;
   const input = root.querySelector("input");
   const list = root.querySelector(".model-picker-list");
-  const AUTO = { id: "", name: "Auto (provider default)" };
+  const AUTO = { key: "", id: "", name: "Auto (default model)" };
   const label = (m) => m.name || m.id;
+  const keyOf = (m) => (m.key !== undefined ? m.key : m.id);
+  const marker = (m) => (m.short ? `<span class="model-provider" data-provider="${esc(m.provider || "")}">${esc(m.short)}</span>` : "");
   let models = [];
   let shown = [];
   let active = -1;
   const api = { value: root.dataset.value || "" };
 
   const display = () => {
-    const m = models.find((x) => x.id === api.value);
-    input.value = api.value ? (m ? label(m) : api.value) : "";
+    const m = models.find((x) => keyOf(x) === api.value);
+    input.value = !api.value ? "" : m ? label(m) + (m.short ? ` (${m.short})` : "") : api.value;
   };
   const close = () => {
     list.hidden = true;
@@ -1844,13 +1849,14 @@ function modelPicker(root) {
   };
   const render = (q) => {
     const needle = (q || "").trim().toLowerCase();
-    shown = [AUTO, ...models].filter((m) => !needle || m.id === "" ||
-      label(m).toLowerCase().includes(needle) || m.id.toLowerCase().includes(needle));
-    if (needle) shown = shown.filter((m) => m.id !== "" || "auto".includes(needle));
-    active = Math.max(0, shown.findIndex((m) => m.id === api.value));
+    shown = [AUTO, ...models].filter((m) => !needle || keyOf(m) === "" ||
+      label(m).toLowerCase().includes(needle) || m.id.toLowerCase().includes(needle) ||
+      (m.short || "").toLowerCase().includes(needle));
+    if (needle) shown = shown.filter((m) => keyOf(m) !== "" || "auto".includes(needle));
+    active = Math.max(0, shown.findIndex((m) => keyOf(m) === api.value));
     list.innerHTML = shown.length
-      ? shown.map((m, i) => `<li role="option" data-i="${i}" aria-selected="${m.id === api.value}"${i === active ? ' class="active"' : ""}>
-          <span>${esc(label(m))}</span>${m.id && m.name && m.name !== m.id ? `<span class="model-id">${esc(m.id)}</span>` : ""}</li>`).join("")
+      ? shown.map((m, i) => `<li role="option" data-i="${i}" aria-selected="${keyOf(m) === api.value}"${i === active ? ' class="active"' : ""}>
+          ${marker(m)}<span class="model-name">${esc(label(m))}</span>${m.id && m.name && m.name !== m.id ? `<span class="model-id">${esc(m.id)}</span>` : ""}</li>`).join("")
       : `<li class="model-picker-empty">No models match “${esc(q)}”</li>`;
     list.hidden = false;
     input.setAttribute("aria-expanded", "true");
@@ -1864,7 +1870,7 @@ function modelPicker(root) {
   const choose = (i) => {
     const m = shown[i];
     if (!m) return;
-    api.value = m.id;
+    api.value = keyOf(m);
     close();
   };
 
@@ -1884,13 +1890,233 @@ function modelPicker(root) {
     choose(Number(li.dataset.i));
   });
 
-  api.setModels = (next) => {
-    models = (next || []).slice().sort((x, y) => label(x).localeCompare(label(y), undefined, { sensitivity: "base" }));
-    if (api.value && !models.some((m) => m.id === api.value)) models.unshift({ id: api.value, name: api.value });
+  // Grouped by provider, then by name. A saved choice that isn't listed (its
+  // provider couldn't be reached, say) stays, so saving doesn't lose it.
+  api.setModels = (next, fallback) => {
+    models = (next || []).slice().sort((x, y) => (x.short || "").localeCompare(y.short || "") ||
+      label(x).localeCompare(label(y), undefined, { sensitivity: "base" }));
+    if (api.value && !models.some((m) => keyOf(m) === api.value)) models.unshift(fallback ? fallback(api.value) : { id: api.value, name: api.value });
     display();
   };
   api.setModels([]);
   return api;
+}
+
+// Settings → AI providers. Several providers can be connected at once. The
+// menu picks which one the key and endpoint boxes are for; what's typed is
+// kept per provider until Save, and the model menus list every connected
+// provider's models, each marked with its provider.
+function setupAISettings(root) {
+  const KEY_MASK = "*********";
+  let providers = [];
+  try { providers = JSON.parse(root.dataset.providers || "[]"); } catch (e) {}
+  const byId = (id) => providers.find((p) => p.id === id);
+  const short = (id) => byId(id)?.short || id;
+  const drafts = {}; // provider id → { key, baseUrl } typed but not saved
+  const sel = document.getElementById("aiProvider");
+  const keyRow = document.getElementById("aiKeyRow");
+  const keyInput = document.getElementById("aiKey");
+  const keyLabel = document.getElementById("aiKeyLabel");
+  const urlRow = document.getElementById("aiBaseUrlRow");
+  const urlInput = document.getElementById("aiBaseUrl");
+  const chips = document.getElementById("aiConnected");
+  const statusList = document.getElementById("aiModelsStatus");
+  const testList = document.getElementById("aiTestResults");
+  const queryPicker = modelPicker(document.getElementById("aiModelQueries"));
+  const catPicker = modelPicker(document.getElementById("aiModelCat"));
+  let current = "";
+  let keyUnlocked = false;
+
+  const draft = (id) => (drafts[id] ||= { key: "", baseUrl: null });
+  const hasDraft = (id) => !!drafts[id] && (drafts[id].key !== "" || (drafts[id].baseUrl || "") !== "");
+  const unsaved = () => Object.keys(drafts).filter(hasDraft);
+
+  const renderChips = () => {
+    const connected = providers.filter((p) => p.connected);
+    const pending = unsaved().filter((id) => !byId(id)?.connected);
+    sel.querySelectorAll("option[value]").forEach((o) => {
+      const p = byId(o.value);
+      if (p) o.textContent = p.label + (p.connected ? " ✓" : "");
+    });
+    if (!connected.length && !pending.length) {
+      chips.innerHTML = `<span class="muted">No providers connected yet.</span>`;
+      return;
+    }
+    chips.innerHTML = connected.map((p) => `<span class="ai-chip${p.id === current ? " current" : ""}">
+        <button type="button" class="ai-chip-name" data-ai-pick="${esc(p.id)}" title="Edit ${esc(p.short)}">${esc(p.short)}</button>
+        <button type="button" class="ai-chip-x" data-ai-disconnect="${esc(p.id)}" aria-label="Disconnect ${esc(p.short)}" title="Disconnect">×</button>
+      </span>`).join("") +
+      pending.map((id) => `<span class="ai-chip pending${id === current ? " current" : ""}">
+        <button type="button" class="ai-chip-name" data-ai-pick="${esc(id)}" title="Not saved yet">${esc(short(id))} · unsaved</button>
+      </span>`).join("");
+  };
+
+  // Show the boxes for one provider: none at all for "None", an endpoint
+  // where it has one, and a key where it takes one. A saved key shows as
+  // stars until the box is clicked; no key shows "None".
+  const show = (id) => {
+    current = id;
+    sel.value = id;
+    const p = byId(id);
+    keyUnlocked = false;
+    urlRow.hidden = !p || !p.url;
+    keyRow.hidden = !p || !(p.needs_key || p.id === "custom");
+    if (p) {
+      const d = drafts[id];
+      urlInput.value = d && d.baseUrl !== null ? d.baseUrl : p.base_url || "";
+      urlInput.placeholder = p.default_url || "https://your-endpoint.example.com/v1";
+      keyLabel.textContent = `${p.short} API key`;
+      if (d && d.key) {
+        keyInput.readOnly = false; keyInput.type = "password"; keyInput.value = d.key;
+      } else if (p.has_key) {
+        keyInput.readOnly = true; keyInput.type = "text"; keyInput.value = KEY_MASK;
+      } else {
+        keyInput.readOnly = false; keyInput.type = "password"; keyInput.value = "";
+      }
+      keyInput.placeholder = p.id === "custom" ? "None (optional)" : "None";
+    }
+    renderChips();
+  };
+
+  keyInput.addEventListener("focus", () => {
+    if (keyInput.readOnly && keyInput.value === KEY_MASK) {
+      keyUnlocked = true;
+      keyInput.value = "";
+      keyInput.type = "password";
+      keyInput.readOnly = false;
+      keyInput.placeholder = "Type a new key to replace the saved one";
+    }
+  });
+  keyInput.addEventListener("blur", () => {
+    if (keyUnlocked && keyInput.value.trim() === "") show(current);
+  });
+  keyInput.addEventListener("input", () => { if (current) draft(current).key = keyInput.value.trim(); });
+  keyInput.addEventListener("change", () => { renderChips(); loadModels(); });
+  urlInput.addEventListener("input", () => { if (current) draft(current).baseUrl = urlInput.value.trim(); });
+  urlInput.addEventListener("change", () => { renderChips(); loadModels(); });
+  sel.addEventListener("change", () => show(sel.value));
+
+  chips.addEventListener("click", (e) => {
+    const pick = e.target.closest("[data-ai-pick]");
+    if (pick) { show(pick.dataset.aiPick); return; }
+    const x = e.target.closest("[data-ai-disconnect]");
+    if (!x) return;
+    const id = x.dataset.aiDisconnect;
+    showConfirm(`Disconnect ${short(id)}?`,
+      "Its saved key is removed. A job using one of its models goes back to the default model of another connected provider.",
+      "Disconnect", () => save({ keys: { [id]: { clear: true } } }, `${short(id)} disconnected`, [id]), "danger");
+  });
+
+  const pickerFallback = (value) => {
+    const i = value.indexOf(":");
+    const provider = value.slice(0, i), id = value.slice(i + 1);
+    return { key: value, id, name: id, provider, short: short(provider) };
+  };
+
+  // The model menus fill by themselves: when the page opens and whenever a
+  // key or endpoint changes. Nothing is said unless a provider couldn't be
+  // reached.
+  let modelsToken = 0;
+  const loadModels = async () => {
+    const token = ++modelsToken;
+    const keys = {};
+    for (const id of unsaved()) keys[id] = { api_key: drafts[id].key, base_url: drafts[id].baseUrl || "" };
+    const setStatus = (items) => {
+      statusList.innerHTML = items.join("");
+      statusList.hidden = !items.length;
+    };
+    try {
+      const r = await fetch("/api/v1/settings/ai/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ keys }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (token !== modelsToken) return; // a later change is loading
+      if (!r.ok || !b.ok) throw new Error(apiErrorFrom(r, b, "Could not list the models"));
+      const models = (b.models || []).map((m) => ({ ...m, key: `${m.provider}:${m.id}`, short: short(m.provider) }));
+      queryPicker?.setModels(models, pickerFallback);
+      catPicker?.setModels(models, pickerFallback);
+      setStatus((b.sources || []).filter((src) => src.error).map((src) =>
+        aiProblemHTML(src.label, src.error, "Showing a built-in list of its models instead.")));
+    } catch (e) {
+      if (token === modelsToken) setStatus([`<li class="ai-status-bad"><span class="ai-status-text">Couldn't load the models: ${esc(e.message)}</span></li>`]);
+    }
+  };
+
+  const roleModels = () => {
+    const out = {};
+    for (const [role, picker] of [["queries", queryPicker], ["categorisation", catPicker]]) {
+      const v = picker ? picker.value : "";
+      const i = v.indexOf(":");
+      out[role] = i > 0 ? v.slice(i + 1) : "";
+      out[role + "_provider"] = i > 0 ? v.slice(0, i) : "";
+    }
+    out.default = out.categorisation;
+    return out;
+  };
+
+  // done names the providers whose drafts the save settles.
+  const save = (body, message, done) => fetch("/api/v1/settings/ai", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: JSON.stringify(body),
+  }).then(async (r) => {
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(apiErrorFrom(r, b, "Could not save")); return; }
+    providers = b.providers || providers;
+    (done || []).forEach((id) => { delete drafts[id]; });
+    show(current);
+    toast(message);
+    loadModels();
+  }).catch(() => toast("Could not save"));
+
+  document.getElementById("aiSave")?.addEventListener("click", () => {
+    const keys = {};
+    for (const id of unsaved()) {
+      const p = byId(id), d = drafts[id];
+      if (p.needs_key && !d.key && !p.has_key) { show(id); toast(`Enter an API key for ${p.short} to connect it`); return; }
+      if (p.url === "required" && !(d.baseUrl ?? p.base_url)) { show(id); toast(`Enter the endpoint URL for ${p.short}`); return; }
+      keys[id] = { api_key: d.key || undefined, base_url: p.url && d.baseUrl !== null ? d.baseUrl : undefined };
+    }
+    // Ollama needs neither key nor URL, so picking it is enough to connect it.
+    const p = byId(current);
+    if (p && !p.connected && !p.needs_key && p.url !== "required" && !keys[current]) keys[current] = {};
+    save({ keys, models: roleModels() }, "AI settings saved", Object.keys(keys));
+  });
+
+  document.getElementById("aiTest")?.addEventListener("click", (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    testList.hidden = false;
+    testList.innerHTML = `<li class="muted">Testing…</li>`;
+    fetch("/api/v1/settings/ai/test", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
+      .then((r) => jsonOk(r))
+      .then((b) => {
+        const results = b.results || [];
+        const items = results.map((res) => res.ok
+          ? `<li class="ai-status-ok"><span class="ai-status-icon" aria-hidden="true">✓</span>
+              <span class="ai-status-text"><strong>${esc(res.label)}</strong> works${res.model ? ` · <span class="mono">${esc(res.model)}</span>` : ""} · ${res.latency_ms} ms</span></li>`
+          : aiProblemHTML(res.label, res.error, res.model ? `Model: ${res.model}` : ""));
+        if (!results.length) items.push(`<li class="muted">Connect a provider and save, then test it.</li>`);
+        if (unsaved().length) items.push(`<li class="muted">Unsaved changes aren't tested. Save first to test them.</li>`);
+        testList.innerHTML = items.join("");
+      })
+      .catch((err) => { testList.innerHTML = `<li class="ai-status-bad"><span class="ai-status-text">${esc(err.message || "Test failed")}</span></li>`; })
+      .finally(() => { btn.disabled = false; });
+  });
+
+  show(providers.find((p) => p.connected)?.id || "");
+  if (providers.some((p) => p.connected)) loadModels();
+}
+
+// One provider's problem, from the server's explained error.
+function aiProblemHTML(label, error, note) {
+  const err = error || { summary: "Unknown error" };
+  return `<li class="ai-status-bad"><span class="ai-status-icon" aria-hidden="true">!</span>
+    <span class="ai-status-text"><strong>${esc(label)}</strong>: ${esc(err.summary)}
+    ${err.detail ? `<span class="ai-status-detail">${esc(err.detail)}</span>` : ""}
+    ${note ? `<span class="ai-status-detail">${esc(note)}</span>` : ""}</span></li>`;
 }
 
 function openRecurring(key) {
@@ -2671,152 +2897,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }).catch(() => toast("Could not save settings"));
   });
 
-  const KEY_MASK = "*********";
-  const aiProviderSel = document.getElementById("aiProvider");
-  const aiKeyInput = document.getElementById("aiKey");
-  const aiKeyClear = document.getElementById("aiKeyClear");
-  const aiBaseUrlRow = document.getElementById("aiBaseUrlRow");
-  let aiHasSavedKey = aiKeyInput ? aiKeyInput.dataset.hasKey === "1" : false;
-  let aiKeyUnlocked = false;
-  const syncAIKeyRow = () => {
-    if (!aiKeyInput) return;
-    if (aiHasSavedKey && !aiKeyUnlocked) {
-      aiKeyInput.value = KEY_MASK;
-      aiKeyInput.type = "text";
-      aiKeyInput.readOnly = true;
-    } else {
-      aiKeyInput.type = "password";
-      aiKeyInput.readOnly = false;
-      if (aiKeyInput.value === KEY_MASK) aiKeyInput.value = "";
-    }
-    if (aiKeyClear) aiKeyClear.hidden = !aiHasSavedKey;
-  };
-  if (aiKeyInput) {
-    aiKeyInput.addEventListener("focus", () => {
-      if (aiHasSavedKey && !aiKeyUnlocked) {
-        aiKeyUnlocked = true;
-        aiKeyInput.value = "";
-        aiKeyInput.placeholder = "Type a new key to replace the saved one";
-        aiKeyInput.type = "password";
-        aiKeyInput.readOnly = false;
-      }
-    });
-    aiKeyInput.addEventListener("blur", () => {
-      if (aiHasSavedKey && aiKeyUnlocked && aiKeyInput.value.trim() === "") {
-        aiKeyUnlocked = false;
-        syncAIKeyRow();
-      }
-    });
-  }
-  if (aiKeyClear && aiKeyInput) {
-    aiKeyClear.addEventListener("click", () => {
-      fetch("/api/v1/settings/ai", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ provider: aiProviderSel.value, clear_key: true }),
-      }).then(async (r) => {
-        const b = await r.json().catch(() => ({}));
-        if (!r.ok) { toast(apiErrorFrom(r, b, "Could not clear key")); return; }
-        aiHasSavedKey = false;
-        aiKeyUnlocked = false;
-        aiKeyInput.value = "";
-        aiKeyInput.placeholder = "";
-        syncAIKeyRow();
-        toast("API key cleared");
-      }).catch(() => toast("Could not clear key"));
-    });
-  }
-  const syncAIBaseUrlRow = () => {
-    if (!aiBaseUrlRow || !aiProviderSel) return;
-    const p = aiProviderSel.value;
-    aiBaseUrlRow.hidden = !(p === "custom" || p === "ollama" || p === "openrouter");
-    if (p === "openrouter") {
-      const base = document.getElementById("aiBaseUrl");
-      if (base && !base.value) base.placeholder = "https://openrouter.ai/api/v1";
-    }
-  };
-  const queryPicker = modelPicker(document.getElementById("aiModelQueries"));
-  const catPicker = modelPicker(document.getElementById("aiModelCat"));
-  // The model lists load by themselves: when the page opens, and whenever
-  // the provider, its key or its endpoint changes. Nothing is said unless
-  // the provider couldn't be reached.
-  const aiModelsStatus = document.getElementById("aiModelsStatus");
-  let aiModelsToken = 0;
-  const loadAIModels = async () => {
-    const say = (text) => {
-      if (!aiModelsStatus) return;
-      aiModelsStatus.textContent = text;
-      aiModelsStatus.hidden = !text;
-    };
-    const token = ++aiModelsToken;
-    if (!queryPicker || !aiProviderSel || aiProviderSel.value === "") {
-      queryPicker?.setModels([]);
-      catPicker?.setModels([]);
-      say("");
-      return;
-    }
-    try {
-      const r = await fetch("/api/v1/settings/ai/models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({
-          provider: aiProviderSel.value,
-          base_url: document.getElementById("aiBaseUrl")?.value.trim() || "",
-          api_key: (aiKeyInput.value.trim() === KEY_MASK ? "" : aiKeyInput.value.trim()),
-        }),
-      });
-      const b = await r.json().catch(() => ({}));
-      if (token !== aiModelsToken) return; // a later change is loading
-      if (!r.ok || !b.ok) throw new Error(apiErrorFrom(r, b, "Could not list the models"));
-      const models = b.models || [];
-      queryPicker.setModels(models);
-      catPicker?.setModels(models);
-      if (b.source === "live" || b.source === "needs-key") say("");
-      else if (models.length) say("Couldn't reach the provider, so this is a built-in list of models." + (b.error ? " (" + b.error + ")" : ""));
-      else say("Couldn't reach the provider for its models." + (b.error ? " (" + b.error + ")" : ""));
-    } catch (e) {
-      if (token === aiModelsToken) say("Couldn't load the models: " + e.message);
-    }
-  };
-  aiProviderSel?.addEventListener("change", () => { syncAIBaseUrlRow(); loadAIModels(); });
-  aiKeyInput?.addEventListener("change", loadAIModels);
-  document.getElementById("aiBaseUrl")?.addEventListener("change", loadAIModels);
-  syncAIBaseUrlRow();
-  syncAIKeyRow();
-  if (aiProviderSel && aiProviderSel.value) loadAIModels();
-  document.getElementById("aiSave")?.addEventListener("click", () => {
-    const provider = aiProviderSel.value;
-    const baseUrl = document.getElementById("aiBaseUrl")?.value.trim() || "";
-    if ((provider === "custom" || provider === "ollama") && !baseUrl) {
-      toast("Enter the endpoint URL for this provider");
-      return;
-    }
-    // The masked placeholder means "keep the saved key": never send the mask.
-    const typedKey = aiKeyInput.value.trim();
-    const key = typedKey === KEY_MASK ? "" : typedKey;
-    const models = {
-      queries: queryPicker ? queryPicker.value : "",
-      categorisation: catPicker ? catPicker.value : "",
-    };
-    models.default = models.categorisation;
-    fetch("/api/v1/settings/ai", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ provider, api_key: key || undefined, base_url: baseUrl || undefined, models }),
-    }).then(async (r) => {
-      const b = await r.json().catch(() => ({}));
-      if (!r.ok) { toast(apiErrorFrom(r, b, "Could not save")); return; }
-      if (key) { aiHasSavedKey = true; aiKeyUnlocked = false; syncAIKeyRow(); }
-      toast("AI provider updated");
-      if (aiProviderSel.value) loadAIModels();
-    }).catch(() => toast("Could not save"));
-  });
-  document.getElementById("aiTest")?.addEventListener("click", () => {
-    fetch("/api/v1/settings/ai/test", { method: "POST", headers: { "X-CSRF-Token": csrfToken() } })
-      .then((r) => jsonOk(r))
-      .then((b) => toast(b.ok ? `Connection OK (${b.latency_ms}ms)` : `Failed: ${b.error || "unknown error"}`))
-      .catch((e) => toast(e.message || "Test failed"));
-  });
+  const aiRoot = document.getElementById("aiSettings");
+  if (aiRoot) setupAISettings(aiRoot);
 
   // Add and edit share one modal; cat is the category being edited, if any.
   // A category's type is fixed once it exists, so editing hides it.

@@ -3,7 +3,6 @@ package ai
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -30,7 +29,7 @@ func getJSON(ctx context.Context, url string, headers map[string]string, out any
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<22))
 	if resp.StatusCode/100 != 2 {
-		return &ErrUnavailable{Reason: fmt.Sprintf("%s: %s", resp.Status, truncate(string(data), 300))}
+		return httpError(resp, data)
 	}
 	return json.Unmarshal(data, out)
 }

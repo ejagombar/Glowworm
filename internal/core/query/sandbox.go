@@ -40,7 +40,7 @@ var forbiddenTokens = map[string]bool{
 // provider, and a description in an imported statement could try to talk
 // the model into reading them, so queries can't name them at all.
 var privateTables = map[string]bool{
-	"users": true, "ai_provider_config": true, "ai_calls": true,
+	"users": true, "ai_provider_config": true, "ai_provider_keys": true, "ai_calls": true,
 }
 
 func validateReadonly(sql string) error {

@@ -41,7 +41,13 @@ type Provider interface {
 	CompleteStructured(req *StructuredRequest) (string, *Usage, error)
 }
 
-type ErrUnavailable struct{ Reason string }
+// ErrUnavailable is a provider that couldn't be used. When it answered with an
+// HTTP error, Status and Body hold what it sent so Explain can read it.
+type ErrUnavailable struct {
+	Reason string
+	Status int
+	Body   string
+}
 
 func (e *ErrUnavailable) Error() string { return "ai: " + e.Reason }
 
@@ -135,12 +141,20 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body a
 		return &ErrUnavailable{Reason: "reading provider response: " + err.Error()}
 	}
 	if resp.StatusCode/100 != 2 {
-		return &ErrUnavailable{Reason: fmt.Sprintf("%s: %s", resp.Status, truncate(string(data), 300))}
+		return httpError(resp, data)
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return &ErrBadReply{Reason: "unreadable provider response: " + err.Error(), Reply: truncate(string(data), 2000)}
 	}
 	return nil
+}
+
+func httpError(resp *http.Response, body []byte) *ErrUnavailable {
+	return &ErrUnavailable{
+		Reason: fmt.Sprintf("%s: %s", resp.Status, truncate(string(body), 300)),
+		Status: resp.StatusCode,
+		Body:   truncate(string(body), 4000),
+	}
 }
 
 func extractJSON(raw string) (string, error) {

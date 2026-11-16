@@ -8,14 +8,12 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"time"
 	"unicode"
 
 	"glowworm/internal/store"
 
 	"golang.org/x/crypto/bcrypt"
 
-	"glowworm/internal/ai"
 	"glowworm/internal/core"
 	"glowworm/internal/core/accounts"
 	"glowworm/internal/core/audit"
@@ -26,7 +24,6 @@ import (
 	"glowworm/internal/core/setup"
 	"glowworm/internal/core/transactions"
 	"glowworm/internal/core/transfers"
-	"glowworm/internal/crypto"
 	"glowworm/internal/importer"
 	"glowworm/internal/store/repos"
 )
@@ -887,193 +884,6 @@ func (a *App) apiRecurringSeries(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *App) apiAIGet(w http.ResponseWriter, r *http.Request) error {
-	row, err := a.Repos.AIConfig.Get()
-	if err != nil {
-		return err
-	}
-	masked := ""
-	if row.KeyCipher != "" {
-		masked = "sk-••••••••••••••••"
-	}
-	writeJSON(w, map[string]any{
-		"provider": row.Provider, "models": row.Models,
-		"base_url": row.BaseURL, "key_masked": masked, "has_key": row.KeyCipher != "",
-	})
-	return nil
-}
-
-func (a *App) apiAISet(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		Provider string            `json:"provider"`
-		APIKey   string            `json:"api_key"`
-		BaseURL  *string           `json:"base_url"`
-		ClearKey bool              `json:"clear_key"`
-		Models   map[string]string `json:"models"`
-	}
-	if err := decodeBody(r, &in); err != nil {
-		return err
-	}
-	row, err := a.Repos.AIConfig.Get()
-	if err != nil {
-		return err
-	}
-	baseURL := row.BaseURL
-	if in.BaseURL != nil {
-		baseURL = *in.BaseURL
-	}
-	keyCipher := row.KeyCipher
-	if in.APIKey != "" {
-		cipher, err := a.Secret.Encrypt([]byte(in.APIKey))
-		if err != nil {
-			return err
-		}
-		keyCipher = cipher
-	}
-	if in.ClearKey {
-		keyCipher = ""
-	}
-	if in.Provider == "" {
-		keyCipher = ""
-	}
-	models := row.Models
-	if in.Models != nil {
-		models = in.Models
-	}
-	if err := a.Repos.AIConfig.Set(nil, in.Provider, models, baseURL, keyCipher); err != nil {
-		return err
-	}
-	if err := a.DB.WithTx(func(tx *sql.Tx) error {
-		_, err := a.AuditWriter.Write(tx, audit.Input{
-			Actor: "user", Action: "settings.ai.updated",
-			EntityType: "ai_provider_config", EntityID: "1",
-			Title:  "Updated AI provider",
-			Sub:    maskedProvider(in.Provider),
-			After:  map[string]any{"provider": in.Provider, "models": models, "base_url": baseURL, "has_key": in.APIKey != ""},
-			Revert: map[string]any{"provider": row.Provider, "models": row.Models, "base_url": row.BaseURL, "key_cipher": row.KeyCipher},
-		})
-		return err
-	}); err != nil {
-		return err
-	}
-	key := decodeKey(a.Secret, keyCipher)
-	cat, _ := ai.New(in.Provider, models[modelRoleCategorisation], baseURL, key)
-	queries, _ := ai.New(in.Provider, models[modelRoleQueries], baseURL, key)
-	a.setProviders(cat, queries)
-	writeJSON(w, map[string]any{"ok": true})
-	return nil
-}
-
-func (a *App) apiAIModels(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		Provider string `json:"provider"`
-		BaseURL  string `json:"base_url"`
-		APIKey   string `json:"api_key"`
-	}
-	if err := decodeBody(r, &in); err != nil {
-		return err
-	}
-	row, err := a.Repos.AIConfig.Get()
-	if err != nil {
-		return err
-	}
-	provider := in.Provider
-	if provider == "" && row != nil {
-		provider = row.Provider
-	}
-	baseURL := in.BaseURL
-	if baseURL == "" && row != nil {
-		baseURL = row.BaseURL
-	}
-	apiKey := in.APIKey
-	if apiKey == "" && row != nil {
-		apiKey = decodeKey(a.Secret, row.KeyCipher)
-	}
-	needsKey := provider == "openai" || provider == "anthropic" || provider == "google"
-	if needsKey && apiKey == "" {
-		writeJSON(w, map[string]any{"ok": true, "source": "needs-key", "provider": provider, "models": ai.FallbackModels(provider)})
-		return nil
-	}
-	models, err := ai.ListModels(provider, baseURL, apiKey, 10*time.Second)
-	source := "live"
-	if err != nil || len(models) == 0 {
-		if err == nil {
-			err = &ai.ErrUnavailable{Reason: "provider returned no models"}
-		}
-		models = ai.FallbackModels(provider)
-		source = "fallback"
-	}
-	out := map[string]any{"ok": true, "source": source, "provider": provider, "models": models}
-	if source == "fallback" && apiKey != "" {
-		out["error"] = err.Error()
-	}
-	writeJSON(w, out)
-	return nil
-}
-
-func maskedProvider(p string) string {
-	if p == "" {
-		return "AI disabled"
-	}
-	return p
-}
-
-func decodeKey(secret *crypto.Secret, cipher string) string {
-	if cipher == "" {
-		return ""
-	}
-	plain, err := secret.Decrypt(cipher)
-	if err != nil {
-		return ""
-	}
-	return string(plain)
-}
-
-func (a *App) apiAITest(w http.ResponseWriter, r *http.Request) error {
-	row, err := a.Repos.AIConfig.Get()
-	if err != nil {
-		return err
-	}
-	if row.Provider == "" {
-		writeJSON(w, map[string]any{"ok": false, "error": "No provider configured"})
-		return nil
-	}
-	// Test each distinct model once; both are usually the same.
-	tested := map[string]bool{}
-	latency := 0
-	for _, role := range []string{modelRoleQueries, modelRoleCategorisation} {
-		model := row.Models[role]
-		if tested[model] {
-			continue
-		}
-		tested[model] = true
-		p, err := ai.New(row.Provider, model, row.BaseURL, decodeKey(a.Secret, row.KeyCipher))
-		if err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-			return nil
-		}
-		start := time.Now()
-		_, _, err = p.CompleteStructured(&ai.StructuredRequest{
-			Capability: "schema_naming",
-			PromptJSON: map[string]any{"columns": []string{"Date", "Description", "Amount"}, "bank_hint": "Test"},
-		})
-		ms := int(time.Since(start).Milliseconds())
-		if err != nil {
-			modelLabel := model
-			if modelLabel == "" {
-				modelLabel = ai.EffectiveModel(p)
-			}
-			writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("%s (model: %s)", err, modelLabel)})
-			return nil
-		}
-		a.Repos.AIConfig.LogCall("schema_naming", row.Provider, model, 0, 0, ms, true, "")
-		if ms > latency {
-			latency = ms
-		}
-	}
-	writeJSON(w, map[string]any{"ok": true, "latency_ms": latency})
-	return nil
-}
 
 func (a *App) apiSnapshot(w http.ResponseWriter, r *http.Request) error {
 	date := r.URL.Query().Get("date")

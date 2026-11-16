@@ -150,13 +150,53 @@ func (r *AIConfig) Get() (*AIConfigRow, error) {
 	return &row, nil
 }
 
-func (r *AIConfig) Set(tx *sql.Tx, provider string, models map[string]string, baseURL, keyCipher string) error {
+// SetModels saves the model chosen for each role, and each one's provider
+// under "<role>_provider".
+func (r *AIConfig) SetModels(tx *sql.Tx, models map[string]string) error {
 	m, _ := json.Marshal(models)
-	if m == nil {
+	if m == nil || string(m) == "null" {
 		m = []byte("{}")
 	}
-	_, err := exec(r.DB, tx, `UPDATE ai_provider_config SET provider=?, models=?, base_url=?, key_cipher=?, updated_at=? WHERE id=1`,
-		provider, string(m), baseURL, keyCipher, util.NowStr())
+	_, err := exec(r.DB, tx, `UPDATE ai_provider_config SET models=?, updated_at=? WHERE id=1`, string(m), util.NowStr())
+	return err
+}
+
+// AIProviderKey is one connected provider: its encrypted key and endpoint.
+type AIProviderKey struct {
+	Provider  string
+	KeyCipher string
+	BaseURL   string
+}
+
+// Keys returns the connected providers by id.
+func (r *AIConfig) Keys() (map[string]*AIProviderKey, error) {
+	rows, err := r.DB.Query(`SELECT provider, key_cipher, base_url FROM ai_provider_keys`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]*AIProviderKey{}
+	for rows.Next() {
+		k := &AIProviderKey{}
+		if err := rows.Scan(&k.Provider, &k.KeyCipher, &k.BaseURL); err != nil {
+			return nil, err
+		}
+		out[k.Provider] = k
+	}
+	return out, rows.Err()
+}
+
+// SetKey connects a provider, or updates the one already connected.
+func (r *AIConfig) SetKey(tx *sql.Tx, provider, keyCipher, baseURL string) error {
+	_, err := exec(r.DB, tx, `INSERT INTO ai_provider_keys (provider, key_cipher, base_url, updated_at) VALUES (?,?,?,?)
+		ON CONFLICT(provider) DO UPDATE SET key_cipher=excluded.key_cipher, base_url=excluded.base_url, updated_at=excluded.updated_at`,
+		provider, keyCipher, baseURL, util.NowStr())
+	return err
+}
+
+// DeleteKey disconnects a provider.
+func (r *AIConfig) DeleteKey(tx *sql.Tx, provider string) error {
+	_, err := exec(r.DB, tx, `DELETE FROM ai_provider_keys WHERE provider=?`, provider)
 	return err
 }
 

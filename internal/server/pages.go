@@ -1023,10 +1023,9 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s := a.Settings.Get()
-	aiRow, _ := a.Repos.AIConfig.Get()
-	aiMasked := ""
-	if aiRow != nil && aiRow.Provider != "" {
-		aiMasked = maskKey(aiRow.KeyCipher)
+	aiSet, err := loadAISetup(a.Repos.AIConfig)
+	if err != nil {
+		return err
 	}
 	archives, err := a.Accounts.Archives()
 	if err != nil {
@@ -1042,17 +1041,15 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		Username       string // what the owner signs in with; empty without sign-in
 		Accounts       []*accountCard
 		Archives       []*accounts.Archive
-		AIProvider     string
-		AIKeyMask      string
-		AIHasKey       bool
-		AIBaseURL      string
-		AIQueriesModel string
+		AIProviders    []aiProviderView
+		AIQueriesModel string // "provider:model", or "" for the default
 		AICatModel     string
 		SetupDone      bool
 		Lock           *lockSettings
 	}{
 		viewBase: base, Categories: cats, Accounts: cards, Archives: archives,
-		AIProvider: aiProviderLabel(aiRow), AIKeyMask: aiMasked, SetupDone: s.SetupCompleted,
+		AIProviders: aiSet.views(), SetupDone: s.SetupCompleted,
+		AIQueriesModel: aiSet.pickerValue(modelRoleQueries), AICatModel: aiSet.pickerValue(modelRoleCategorisation),
 	}
 	if a.Cfg.AuthMode == "password" {
 		if data.Lock, err = a.lockSettings(r); err != nil {
@@ -1064,27 +1061,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 	}
-	if aiRow != nil {
-		data.AIHasKey = aiRow.KeyCipher != ""
-		data.AIBaseURL = aiRow.BaseURL
-		data.AIQueriesModel = aiRow.Models[modelRoleQueries]
-		data.AICatModel = aiRow.Models[modelRoleCategorisation]
-	}
 	return a.Render.Render(w, "settings", data)
-}
-
-func aiProviderLabel(row *repos.AIConfigRow) string {
-	if row == nil || row.Provider == "" {
-		return ""
-	}
-	return row.Provider
-}
-
-func maskKey(cipher string) string {
-	if cipher == "" {
-		return ""
-	}
-	return "sk-••••••••••••••••"
 }
 
 func (a *App) handleQueries(w http.ResponseWriter, r *http.Request) error {
