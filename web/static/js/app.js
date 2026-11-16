@@ -2567,9 +2567,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const nameOpen = document.getElementById("changeNameBtn");
   if (nameOpen) {
     nameOpen.addEventListener("click", () => {
-      const shown = (document.getElementById("signedInName")?.textContent || "").trim();
+      const shown = document.getElementById("signedInName");
       const input = document.getElementById("nameInput");
-      if (input && shown && shown !== "you") input.value = shown;
+      if (input && shown) input.value = shown.dataset.name || "";
       openModal("nameModal");
     });
     document.getElementById("nameCancel")?.addEventListener("click", closeNameModal);
@@ -2589,8 +2589,13 @@ document.addEventListener("DOMContentLoaded", () => {
           toast(apiErrorFrom(r, b, "Could not update name"));
           return;
         }
+        // Without a name, the username signed in with is shown.
         const shown = document.getElementById("signedInName");
-        if (shown) shown.textContent = name || "you";
+        if (shown) {
+          shown.dataset.name = name;
+          shown.textContent = name || shown.dataset.username || "";
+          document.getElementById("signedInLine").hidden = !shown.textContent;
+        }
         closeNameModal();
         toast("Name updated");
       }).catch(() => toast("Could not update name"));
@@ -2661,7 +2666,7 @@ document.addEventListener("DOMContentLoaded", () => {
         aiHasSavedKey = false;
         aiKeyUnlocked = false;
         aiKeyInput.value = "";
-        aiKeyInput.placeholder = "sk-…";
+        aiKeyInput.placeholder = "";
         syncAIKeyRow();
         toast("API key cleared");
       }).catch(() => toast("Could not clear key"));
@@ -2678,15 +2683,24 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const queryPicker = modelPicker(document.getElementById("aiModelQueries"));
   const catPicker = modelPicker(document.getElementById("aiModelCat"));
+  // The model lists load by themselves: when the page opens, and whenever
+  // the provider, its key or its endpoint changes. Nothing is said unless
+  // the provider couldn't be reached.
   const aiModelsStatus = document.getElementById("aiModelsStatus");
-  const aiLoadBtn = document.getElementById("aiLoadModels");
+  let aiModelsToken = 0;
   const loadAIModels = async () => {
+    const say = (text) => {
+      if (!aiModelsStatus) return;
+      aiModelsStatus.textContent = text;
+      aiModelsStatus.hidden = !text;
+    };
+    const token = ++aiModelsToken;
     if (!queryPicker || !aiProviderSel || aiProviderSel.value === "") {
-      if (aiModelsStatus) aiModelsStatus.textContent = "Pick a provider first.";
+      queryPicker?.setModels([]);
+      catPicker?.setModels([]);
+      say("");
       return;
     }
-    if (aiLoadBtn) aiLoadBtn.disabled = true;
-    if (aiModelsStatus) aiModelsStatus.textContent = "Loading models…";
     try {
       const r = await fetch("/api/v1/settings/ai/models", {
         method: "POST",
@@ -2698,29 +2712,21 @@ document.addEventListener("DOMContentLoaded", () => {
         }),
       });
       const b = await r.json().catch(() => ({}));
+      if (token !== aiModelsToken) return; // a later change is loading
       if (!r.ok || !b.ok) throw new Error(apiErrorFrom(r, b, "Could not list the models"));
       const models = b.models || [];
       queryPicker.setModels(models);
       catPicker?.setModels(models);
-      if (aiModelsStatus) {
-        if (b.source === "live") {
-          aiModelsStatus.textContent = models.length + " models loaded from the provider.";
-        } else if (b.source === "needs-key") {
-          aiModelsStatus.textContent = "Enter your API key to load this provider's model list.";
-        } else if (models.length) {
-          aiModelsStatus.textContent = "Couldn't reach the provider — showing a built-in list." + (b.error ? " (" + b.error + ")" : "");
-        } else {
-          aiModelsStatus.textContent = "Couldn't reach the provider." + (b.error ? " (" + b.error + ")" : "");
-        }
-      }
+      if (b.source === "live" || b.source === "needs-key") say("");
+      else if (models.length) say("Couldn't reach the provider, so this is a built-in list of models." + (b.error ? " (" + b.error + ")" : ""));
+      else say("Couldn't reach the provider for its models." + (b.error ? " (" + b.error + ")" : ""));
     } catch (e) {
-      if (aiModelsStatus) aiModelsStatus.textContent = "Could not load models: " + e.message;
-    } finally {
-      if (aiLoadBtn) aiLoadBtn.disabled = false;
+      if (token === aiModelsToken) say("Couldn't load the models: " + e.message);
     }
   };
-  if (aiLoadBtn) aiLoadBtn.addEventListener("click", loadAIModels);
-  aiProviderSel?.addEventListener("change", () => { syncAIBaseUrlRow(); if (aiProviderSel.value) loadAIModels(); });
+  aiProviderSel?.addEventListener("change", () => { syncAIBaseUrlRow(); loadAIModels(); });
+  aiKeyInput?.addEventListener("change", loadAIModels);
+  document.getElementById("aiBaseUrl")?.addEventListener("change", loadAIModels);
   syncAIBaseUrlRow();
   syncAIKeyRow();
   if (aiProviderSel && aiProviderSel.value) loadAIModels();

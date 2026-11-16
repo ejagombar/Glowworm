@@ -959,6 +959,7 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .model-picker-list li.active { background: var(--surface-2); }
 .model-picker-list .model-picker-empty { color: var(--muted); cursor: default; }
 .model-picker-hint { margin: 4px 0 0; font-size: 12px; }
+.ai-models-status { margin: 0 0 12px; font-size: 12px; color: var(--danger); }
 
 .account-actions {
   display: flex; flex-direction: column; align-items: stretch;

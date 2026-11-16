@@ -1039,6 +1039,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	data := struct {
 		*viewBase
 		Categories     []*core.Category
+		Username       string // what the owner signs in with; empty without sign-in
 		Accounts       []*accountCard
 		Archives       []*accounts.Archive
 		AIProvider     string
@@ -1056,6 +1057,11 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	if a.Cfg.AuthMode == "password" {
 		if data.Lock, err = a.lockSettings(r); err != nil {
 			return err
+		}
+		if sess, ok := a.session(r); ok {
+			if u, err := a.Repos.Users.Get(sess.UserID); err == nil {
+				data.Username = u.Username
+			}
 		}
 	}
 	if aiRow != nil {

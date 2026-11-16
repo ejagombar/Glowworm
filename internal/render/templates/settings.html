@@ -114,7 +114,6 @@
                 <label>API key</label>
                 <div class="key-row">
                     <input class="field" type="password" id="aiKey" data-has-key="{{if .AIHasKey}}1{{else}}0{{end}}"
-                        placeholder="{{if .AIHasKey}}API key saved - click to replace{{else}}Paste your API key{{end}}"
                         autocomplete="off" />
                     <button class="btn btn-ghost btn-xs" id="aiKeyClear" type="button" title="Remove the saved key" {{if
                         not .AIHasKey}} hidden{{end}}>Clear</button>
@@ -141,14 +140,8 @@
                 </div>
                 <p class="muted model-picker-hint">Categorises imports and reads statement layouts.</p>
             </div>
-            <div class="field-row">
-                <div class="key-row">
-                    <p class="muted" id="aiModelsStatus" style="margin:0; flex:1">Load the model list for the selected
-                        provider.</p>
-                    <button class="btn btn-ghost btn-xs" id="aiLoadModels" type="button"
-                        title="Fetch the model list from the provider">Reload models</button>
-                </div>
-            </div>
+            {{/* The model lists load by themselves; this only speaks up when that fails. */}}
+            <p class="muted ai-models-status" id="aiModelsStatus" role="status" hidden></p>
             <div class="field-row">
                 <button class="btn btn-primary" id="aiSave">Save provider</button>
                 <button class="btn btn-ghost" id="aiTest">Test connection</button>
@@ -158,8 +151,8 @@
         <div class="setting-stack">
             <div class="panel setting-block">
                 <h2>Account</h2>
-                <p class="muted">Signed in as <strong id="signedInName">{{if
-                        .UserName}}{{.UserName}}{{else}}you{{end}}</strong>.</p>
+                {{/* The name chosen here, or else the username signed in with. */}}
+                <p class="muted" id="signedInLine"{{if and (not .UserName) (not .Username)}} hidden{{end}}>Signed in as <strong id="signedInName" data-name="{{.UserName}}" data-username="{{.Username}}">{{if .UserName}}{{.UserName}}{{else}}{{.Username}}{{end}}</strong>.</p>
                 <div class="account-actions">
                     <button class="btn btn-ghost" id="changeNameBtn" type="button">Update name…</button>
                     <button class="btn btn-ghost" id="changePasswordBtn" type="button">Change password…</button>
@@ -284,8 +277,7 @@
         <div class="modal-body">
             <div class="field-row">
                 <label>Your name</label>
-                <input class="field" type="text" id="nameInput" value="{{.UserName}}"
-                    placeholder="How should Glowworm greet you?" />
+                <input class="field" type="text" id="nameInput" value="{{.UserName}}" />
             </div>
             <div class="modal-foot">
                 <button class="btn btn-ghost" id="nameCancel" type="button">Cancel</button>
