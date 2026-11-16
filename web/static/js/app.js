@@ -391,6 +391,66 @@ const scrollLock = (() => {
   return { sync };
 })();
 
+// (i) buttons: [data-info-toggle] names a hidden .info-popover, which opens as
+// a speech bubble floating by the button. While open it lives in <body> so no
+// overflow or transform above it can clip it; closing puts it back.
+let openInfo = null; // { btn, pop, home: placeholder comment }
+function placeInfoPopover() {
+  if (!openInfo) return;
+  const { btn, pop } = openInfo;
+  if (!btn.isConnected) { closeInfoPopover(); return; }
+  const gutter = 16, gap = 10;
+  const b = btn.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  const mid = b.left + b.width / 2;
+  const left = Math.max(gutter, Math.min(mid - 18, window.innerWidth - gutter - w));
+  const below = b.bottom + gap + h <= window.innerHeight - gutter || b.top - gap - h < gutter;
+  pop.classList.toggle("above", !below);
+  pop.style.left = `${left}px`;
+  pop.style.top = `${below ? b.bottom + gap : b.top - gap - h}px`;
+  pop.style.setProperty("--arrow-x", `${Math.max(12, Math.min(mid - left, w - 12))}px`);
+}
+function closeInfoPopover() {
+  if (!openInfo) return;
+  const { btn, pop, home } = openInfo;
+  openInfo = null;
+  pop.hidden = true;
+  btn.setAttribute("aria-expanded", "false");
+  // The page may have been re-rendered under it; then the old note just goes.
+  if (home.isConnected) home.replaceWith(pop); else { pop.remove(); home.remove(); }
+}
+function openInfoPopover(btn, pop) {
+  closeInfoPopover();
+  const home = document.createComment("info-popover");
+  pop.replaceWith(home);
+  document.body.appendChild(pop);
+  openInfo = { btn, pop, home };
+  pop.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  placeInfoPopover();
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-info-toggle]");
+  if (btn) {
+    const pop = document.getElementById(btn.dataset.infoToggle);
+    if (!pop) return;
+    e.preventDefault(); // the date one sits inside a <label>
+    if (openInfo && openInfo.pop === pop) closeInfoPopover(); else openInfoPopover(btn, pop);
+    return;
+  }
+  if (openInfo && !openInfo.pop.contains(e.target)) closeInfoPopover();
+});
+// Capture, so Escape shuts just the bubble and not a dialog it sits in.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !openInfo) return;
+  e.stopImmediatePropagation();
+  const b = openInfo.btn;
+  closeInfoPopover();
+  b.focus();
+}, true);
+window.addEventListener("resize", placeInfoPopover);
+document.addEventListener("scroll", placeInfoPopover, true);
+
 // App pages scroll inside .content rather than the window (see .app.shell).
 function pageScroller() {
   return document.querySelector(".app.shell .content") || document.scrollingElement || document.documentElement;
@@ -2395,12 +2455,6 @@ function saveAccount() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("[data-info-toggle]").forEach((btn) => btn.addEventListener("click", () => {
-    const panel = document.getElementById(btn.dataset.infoToggle);
-    if (!panel) return;
-    panel.hidden = !panel.hidden;
-    btn.setAttribute("aria-expanded", String(!panel.hidden));
-  }));
   document.getElementById("settingsAddAccountBtn")?.addEventListener("click", () => openAccountForm(null));
   document.querySelectorAll("[data-account-form]").forEach((card) =>
     card.addEventListener("click", () => openAccountForm(card.dataset.accountForm)));
@@ -3477,10 +3531,10 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="date-preview" id="datePreview"></div>
           <div class="map-sub">
             <label class="map-sub-label" for="mapDateFormat">Format
-              <button type="button" class="info-btn" id="dateInfoBtn" aria-label="Date format help">i</button></label>
+              <button type="button" class="info-btn" id="dateInfoBtn" data-info-toggle="dateInfoPopover" aria-expanded="false" aria-controls="dateInfoPopover" aria-label="Date format help">i</button></label>
             <input class="field" id="mapDateFormat" placeholder="Auto-detect" />
           </div>
-          <div id="dateInfoPopover" class="info-popover" hidden>
+          <div id="dateInfoPopover" class="info-popover wide" role="dialog" aria-label="Date formats" hidden>
             <strong>How date formats work</strong>
             <p class="muted">Leave the field blank to let Glowworm auto-detect from ~15 common layouts.</p>
             <p class="muted">To pin a format, write it with these codes — anything else (<code>/</code>, <code>-</code>, spaces) must appear exactly as written:</p>
@@ -3717,15 +3771,13 @@ document.addEventListener("DOMContentLoaded", () => {
       toast("AI proposal discarded");
     });
 
-    const infoBtn = document.getElementById("dateInfoBtn");
     const infoPop = document.getElementById("dateInfoPopover");
-    infoBtn?.addEventListener("click", () => { infoPop.hidden = !infoPop.hidden; });
     infoPop?.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-fmt]");
       if (!btn) return;
       document.getElementById("mapDateFormat").value = btn.dataset.fmt;
       refreshDatePreview();
-      infoPop.hidden = true;
+      closeInfoPopover();
     });
 
     const previewEl = document.getElementById("datePreview");
