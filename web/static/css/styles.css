@@ -1067,6 +1067,18 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
   border-top: 1px solid var(--line);
   border-left: 1px solid var(--line);
 }
+/* In Settings the categories are a band of their own between the accounts
+   and the preferences, ruled off from both. */
+.settings-categories {
+  margin: 28px 0; padding: 8px 0 28px;
+  border-top: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2);
+}
+.settings-categories + .section-head { margin-top: 0; }
+/* A page that isn't built yet. */
+.page-placeholder { text-align: center; padding: 56px 20px; }
+.page-placeholder .icon { width: 34px; height: 34px; color: var(--primary); margin-bottom: 10px; }
+.page-placeholder h2 { margin: 0 0 6px; }
+.page-placeholder p { margin: 0 auto; max-width: 340px; }
 .category-form { margin-bottom: 16px; }
 .category-form-title { font-size: 14px; margin: 0 0 12px; }
 .category-form-note { color: var(--muted); font-size: 12px; margin: -8px 0 12px; }
@@ -1495,7 +1507,11 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
   .stats-grid, .stats-grid.three { grid-template-columns: 1fr 1fr; }
   /* An odd card out fills its row rather than leaving a grey gap beside it. */
   .stats-grid > .stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .category-grid { grid-template-columns: 1fr; }
+  .category-grid { grid-template-columns: 1fr 1fr; }
+  .category-card { min-width: 0; padding: 10px 12px; }
+  .category-card .cat-top { margin-bottom: 6px; }
+  .category-card .cat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .settings-categories .section-head .muted { display: none; }
   .setting-block, .setting-stack { grid-column: 1 / -1; }
   /* The whole pop-up scrolls, rather than a box inside it. */
   .modal-body { max-height: none; overflow: visible; }

@@ -59,7 +59,7 @@ func TestPagesCarryAContentSecurityPolicy(t *testing.T) {
 	}
 	check("/login")
 	c.login("longpassword1")
-	for _, p := range []string{"/", "/transactions", "/categories", "/queries", "/import", "/history", "/settings"} {
+	for _, p := range []string{"/", "/transactions", "/savings", "/queries", "/import", "/history", "/settings"} {
 		check(p)
 	}
 }

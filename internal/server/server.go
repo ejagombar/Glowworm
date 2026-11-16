@@ -287,6 +287,7 @@ func (a *App) Router() http.Handler {
 	mux.HandleFunc("GET /transactions/rows", a.page(a.handleTransactionsRows))
 	mux.HandleFunc("GET /queries", a.page(a.handleQueries))
 	mux.HandleFunc("GET /categories", a.page(a.handleCategories))
+	mux.HandleFunc("GET /savings", a.page(a.handleSavings))
 	mux.HandleFunc("GET /import", a.page(a.handleImport))
 	mux.HandleFunc("GET /history", a.page(a.handleHistory))
 	mux.HandleFunc("GET /history/pane", a.page(a.handleHistoryPane))

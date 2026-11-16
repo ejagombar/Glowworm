@@ -1704,7 +1704,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[0-6]$/.test(e.key)) {
       const editable = e.target && e.target.closest ? e.target.closest("input, textarea, select, [contenteditable]") : null;
       if (!editable) {
-        const views = { "1": "/", "2": "/queries", "3": "/transactions", "4": "/categories", "5": "/import", "6": "/history", "0": "/settings" };
+        const views = { "1": "/", "2": "/queries", "3": "/transactions", "4": "/savings", "5": "/import", "6": "/history", "0": "/settings" };
         location.replace(views[e.key]);
       }
     }

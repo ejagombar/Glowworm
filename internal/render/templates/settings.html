@@ -61,7 +61,43 @@
             </div>
             {{end}}
         </div>
+    </div>
 
+    <!-- Categories used to be a page of their own. They sit apart from the
+         settings around them: their own heading, and a rule either side. -->
+    <section class="settings-categories" id="categories" aria-labelledby="settingsCategoriesTitle">
+        <div class="section-head">
+            <h2 id="settingsCategoriesTitle">Categories</h2>
+            <span class="muted">What transactions are sorted into. Totals cover the date range chosen above.</span>
+        </div>
+      <div class="category-grid" id="categoriesGrid">
+        {{range .Categories}}
+        <div class="category-card">
+          <div class="cat-top">
+            <span class="cat-name">{{.Name}}</span>
+            {{if .IsSystem}}<span class="cat-badge">System</span>{{end}}
+            {{if not .IsSystem}}
+            <button class="icon-btn cat-edit" type="button" data-cat-edit="{{.ID}}" data-name="{{.Name}}" data-description="{{.Description}}"
+              aria-label="Edit {{.Name}}" title="Edit category">
+              <svg class="icon"><use href="#i-edit"/></svg>
+            </button>
+            {{end}}
+          </div>
+          {{if .SpentMinor}}<div class="cat-amount{{if gt (deref .SpentMinor) 0}} pos{{end}}">{{categoryTotal .SpentMinor $.Currency}}</div>{{end}}
+          {{if eq .Type "income"}}<div class="cat-sub">Incoming</div>{{end}}
+          {{if eq .Type "internal"}}<div class="cat-sub">Between your own accounts</div>{{end}}
+        </div>
+        {{end}}
+        <button class="category-card category-add" id="addCategoryBtn" type="button">
+          <svg class="icon"><use href="#i-plus"/></svg> Add category
+        </button>
+      </div>
+    </section>
+
+    <div class="section-head">
+        <h2>Preferences</h2>
+    </div>
+    <div class="settings-grid">
         <div class="panel setting-block">
             <h2>AI provider</h2>
             <p class="muted">Glowworm is AI agnostic. Choose your provider of choice.</p>
@@ -242,6 +278,7 @@
 </section>
 
 {{template "account-modal" dict "CSRF" .CSRFToken "Currency" .Currency "Symbol" (symbol .Currency)}}
+{{template "category-modal"}}
 {{template "password-modal" .}}
 {{template "name-modal" .}}
 {{end}}

@@ -725,20 +725,19 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
+// handleCategories: categories moved into Settings; old links follow them.
 func (a *App) handleCategories(w http.ResponseWriter, r *http.Request) error {
-	base, err := a.base(w, r, "categories", "Categories")
+	http.Redirect(w, r, "/settings#categories", http.StatusFound)
+	return nil
+}
+
+// handleSavings is a placeholder until the savings page is built.
+func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
+	base, err := a.base(w, r, "savings", "Savings")
 	if err != nil {
 		return err
 	}
-	cats, err := a.Categories.List(base.PeriodFrom, base.PeriodTo)
-	if err != nil {
-		return err
-	}
-	data := struct {
-		*viewBase
-		Categories []*core.Category
-	}{viewBase: base, Categories: cats}
-	return a.Render.Render(w, "categories", data)
+	return a.Render.Render(w, "savings", struct{ *viewBase }{base})
 }
 
 func (a *App) handleImport(w http.ResponseWriter, r *http.Request) error {
@@ -1039,8 +1038,13 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	cats, err := a.Categories.List(base.PeriodFrom, base.PeriodTo)
+	if err != nil {
+		return err
+	}
 	data := struct {
 		*viewBase
+		Categories     []*core.Category
 		Accounts       []*accountCard
 		Archives       []*accounts.Archive
 		AIProvider     string
@@ -1052,7 +1056,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		SetupDone      bool
 		Lock           *lockSettings
 	}{
-		viewBase: base, Accounts: cards, Archives: archives,
+		viewBase: base, Categories: cats, Accounts: cards, Archives: archives,
 		AIProvider: aiProviderLabel(aiRow), AIKeyMask: aiMasked, SetupDone: s.SetupCompleted,
 	}
 	if a.Cfg.AuthMode == "password" {
