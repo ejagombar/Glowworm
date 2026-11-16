@@ -4732,14 +4732,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     setup.disabled = false;
   });
-  document.getElementById("lockOffBtn")?.addEventListener("click", async () => {
-    try {
-      await fetch("/api/v1/lock/device", {
-        method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ on: false }),
-      }).then((r) => jsonOk(r));
-      reloadWithToast("Face ID is off for this device");
-    } catch (err) { toast(err.message); }
+  document.getElementById("lockOffBtn")?.addEventListener("click", () => {
+    showConfirm("Remove Face ID from this device?", "Glowworm won't ask for Face ID here any more. You can set it up again at any time.", "Remove", async () => {
+      try {
+        await fetch("/api/v1/lock/device", {
+          method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+          body: JSON.stringify({ on: false }),
+        }).then((r) => jsonOk(r));
+        reloadWithToast("Face ID removed from this device");
+      } catch (err) { toast(err.message); }
+    });
   });
   document.getElementById("lockAfterSelect")?.addEventListener("change", async (e) => {
     try {

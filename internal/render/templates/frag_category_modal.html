@@ -23,10 +23,16 @@
         </select>
       </div>
       <div class="field-row">
-        <label for="catDescription">Description <span class="muted">(optional)</span></label>
+        <div class="label-row">
+          <label for="catDescription">Description <span class="muted">(optional)</span></label>
+          <button class="info-btn" type="button" data-info-toggle="catDescriptionInfo" aria-expanded="false"
+            aria-controls="catDescriptionInfo" aria-label="About the description">i</button>
+        </div>
+        <div class="info-popover" id="catDescriptionInfo" hidden>
+          <p class="muted">Helps the AI decide what goes in this category. It isn't shown anywhere else.</p>
+        </div>
         <textarea class="field" id="catDescription" rows="3" maxlength="500"
           placeholder="e.g. Supermarkets and corner shops. Not restaurants or takeaways."></textarea>
-        <p class="field-hint">Helps the AI decide what goes in this category. It isn't shown anywhere else.</p>
       </div>
       <div class="modal-foot">
         <button class="btn btn-danger" id="catDeleteBtn" type="button" hidden>Delete category</button>
