@@ -1074,6 +1074,8 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
   border-top: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2);
 }
 .settings-categories + .section-head { margin-top: 0; }
+/* History: the same rule sets the audit log off from the timeline above it. */
+.history-audit { margin-top: 28px; padding-top: 8px; border-top: 1px solid var(--line-2); }
 /* A page that isn't built yet. */
 .page-placeholder { text-align: center; padding: 56px 20px; }
 .page-placeholder .icon { width: 34px; height: 34px; color: var(--primary); margin-bottom: 10px; }
