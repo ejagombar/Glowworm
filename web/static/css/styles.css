@@ -1358,7 +1358,7 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .account-row div { flex: 1; }
 .account-row p { margin: 0; font-size: 12px; }
 .settings-accounts-block { grid-column: 1 / -1; }
-.settings-accounts-block > h2 { margin: 0 0 14px; }
+.settings-accounts-block > .section-head { margin-top: 0; }
 .settings-accounts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1519,7 +1519,6 @@ html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
   .category-card { min-width: 0; padding: 10px 12px; }
   .category-card .cat-top { margin-bottom: 6px; }
   .category-card .cat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .settings-categories .section-head .muted { display: none; }
   .setting-block, .setting-stack { grid-column: 1 / -1; }
   /* The whole pop-up scrolls, rather than a box inside it. */
   .modal-body { max-height: none; overflow: visible; }

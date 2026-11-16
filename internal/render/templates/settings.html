@@ -1,8 +1,10 @@
 {{define "content"}}
 <section class="view active" id="view-settings">
     <div class="settings-grid">
-        <div class="panel setting-block settings-accounts-block">
-            <h2>Accounts</h2>
+        <section class="settings-accounts-block" aria-labelledby="settingsAccountsTitle">
+            <div class="section-head">
+                <h2 id="settingsAccountsTitle">Accounts</h2>
+            </div>
             <div class="settings-accounts-grid" id="settingsAccounts">
                 {{range .Accounts}}
                 <button class="settings-account-card" data-account-form="{{.ID}}">
@@ -50,7 +52,7 @@
                 </ul>
             </div>
             {{end}}
-        </div>
+        </section>
     </div>
 
     <!-- Categories sit apart from the settings around them: their own
@@ -58,7 +60,6 @@
     <section class="settings-categories" id="categories" aria-labelledby="settingsCategoriesTitle">
         <div class="section-head">
             <h2 id="settingsCategoriesTitle">Categories</h2>
-            <span class="muted">What transactions are sorted into. Totals cover the date range chosen above.</span>
         </div>
       <div class="category-grid" id="categoriesGrid">
         {{range .Categories}}
