@@ -16,11 +16,11 @@ type ProviderSpec struct {
 // Providers lists every provider, in the order they're offered. When a role
 // has no provider chosen, the first connected one in this order is used.
 var Providers = []ProviderSpec{
-	{ID: "openai", Label: "OpenAI (GPT)", Short: "OpenAI", NeedsKey: true},
-	{ID: "anthropic", Label: "Anthropic (Claude)", Short: "Anthropic", NeedsKey: true},
-	{ID: "google", Label: "Google (Gemini)", Short: "Gemini", NeedsKey: true},
+	{ID: "openai", Label: "OpenAI", Short: "OpenAI", NeedsKey: true},
+	{ID: "anthropic", Label: "Anthropic", Short: "Anthropic", NeedsKey: true},
+	{ID: "google", Label: "Gemini", Short: "Gemini", NeedsKey: true},
 	{ID: "openrouter", Label: "OpenRouter", Short: "OpenRouter", NeedsKey: true, URL: "optional", DefaultURL: "https://openrouter.ai/api/v1"},
-	{ID: "ollama", Label: "Ollama (local)", Short: "Ollama", URL: "optional", DefaultURL: "http://localhost:11434"},
+	{ID: "ollama", Label: "Ollama", Short: "Ollama", URL: "optional", DefaultURL: "http://localhost:11434"},
 	{ID: "custom", Label: "Custom endpoint", Short: "Custom", URL: "required"},
 }
 
