@@ -11,7 +11,7 @@
         <form method="post" action="/setup{{if .Token}}?token={{.Token}}{{end}}">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
             <input class="field" type="text" name="username" placeholder="Username" value="{{.Username}}"
-                autocomplete="username" minlength="3" maxlength="40" required autofocus />
+                autocomplete="username" minlength="2" maxlength="40" required autofocus />
             <input class="field" type="password" name="password" placeholder="Password (at least 10 characters)"
                 autocomplete="new-password" minlength="10" required />
             <input class="field" type="password" name="password_confirm" placeholder="Confirm password"
