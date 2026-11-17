@@ -33,8 +33,8 @@ type AccountInput struct {
 
 func (in *AccountInput) Validate() error {
 	in.Username = strings.TrimSpace(in.Username)
-	if utf8.RuneCountInString(in.Username) < 3 || utf8.RuneCountInString(in.Username) > 40 {
-		return &ValidationError{Message: "Username must be 3–40 characters"}
+	if utf8.RuneCountInString(in.Username) < 2 || utf8.RuneCountInString(in.Username) > 40 {
+		return &ValidationError{Message: "Username must be 2–40 characters"}
 	}
 	if utf8.RuneCountInString(in.Password) < 10 {
 		return &ValidationError{Message: "Password must be at least 10 characters"}
@@ -59,8 +59,8 @@ func (s *Service) CreateOwner(username, password, displayName, actor, via string
 		return nil, &ValidationError{Message: "An owner account already exists for this instance"}
 	}
 	username = strings.TrimSpace(username)
-	if n := utf8.RuneCountInString(username); n < 3 || n > 40 {
-		return nil, &ValidationError{Message: "Username must be 3–40 characters"}
+	if n := utf8.RuneCountInString(username); n < 2 || n > 40 {
+		return nil, &ValidationError{Message: "Username must be 2–40 characters"}
 	}
 	if utf8.RuneCountInString(password) < 10 {
 		return nil, &ValidationError{Message: "Password must be at least 10 characters"}
