@@ -33,10 +33,11 @@ Below, `ed` stands for your username on the server. Use yours.
    sudo chown -R ed: /opt/glowworm /var/backups/glowworm
    ```
 
-2. **Port.** The service listens on `127.0.0.1:8080`. Check it's free with
-   `ss -ltn | grep 8080`. If it's taken, choose another port and set it in
-   `/etc/glowworm/glowworm.env` (`GLOWWORM_ADDR=127.0.0.1:8090`). Change
-   `proxy_pass` in the nginx config to match.
+2. **Port.** The service listens on `127.0.0.1:8094` (8080 is taken by the
+   recipes site). Check it's free with `ss -ltn | grep 8094`. If it isn't,
+   choose another port and set it in `/etc/glowworm/glowworm.env`
+   (`GLOWWORM_ADDR=127.0.0.1:8095`). Change `proxy_pass` in the nginx config
+   to match.
 
 3. **Settings file.** Create `/etc/glowworm/glowworm.env`, readable only by
    root and `ed` (the deploy script reads the port from it). It needs at least
