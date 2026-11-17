@@ -168,35 +168,17 @@
                 </div>
             </div>
 
-            {{with .Lock}}
+            {{with .Passkeys}}
             {{/* Greyed out, and out of reach, where passkeys can't work (plain http or an
-                 IP address). The script hides it on a device without passkeys. */}}
-            <div class="panel setting-block{{if not .HostOK}} is-unavailable{{end}}" id="lockSettings"{{if not .HostOK}} inert aria-disabled="true" title="Needs HTTPS at a domain name"{{end}}>
-                <h2>Face ID</h2>
-                {{if .DeviceLocked}}
-                <p class="lock-state" id="lockState" data-locked="true">
-                    <svg class="icon"><use href="#i-check" /></svg> On for this device.
-                </p>
-                {{end}}
-                <div class="account-actions">
-                    {{if .DeviceLocked}}
-                    <button class="btn btn-ghost danger-text" id="lockOffBtn" type="button">Remove Face ID from this device</button>
-                    {{else}}
-                    <button class="btn btn-primary" id="lockSetupBtn" type="button">Set up Face ID on this device</button>
-                    {{end}}
-                </div>
-                <div class="field-row lock-after-row">
-                    <label for="lockAfterSelect">Lock when away</label>
-                    <select class="field select" id="lockAfterSelect">
-                        {{range .Choices}}<option value="{{.}}" {{if eq . $.Lock.After}} selected{{end}}>
-                            {{if eq . 0}}Immediately{{else if eq . 60}}After 1 hour{{else if eq . 1}}After 1 minute{{else}}After {{.}} minutes{{end}}</option>{{end}}
-                    </select>
-                </div>
+                 IP address). The script hides it in a browser without passkeys. */}}
+            <div class="panel setting-block{{if not .HostOK}} is-unavailable{{end}}" id="passkeySettings"{{if not .HostOK}} inert aria-disabled="true" title="Needs HTTPS at a domain name"{{end}}>
+                <h2>Passkeys</h2>
+                <p class="muted passkey-intro">Sign in without your password. A passkey is kept by your phone,
+                    computer or password manager and opened with Face ID, a fingerprint or your PIN.</p>
                 {{if .Passkeys}}
-                <h3 class="lock-keys-head">Passkeys</h3>
-                <ul class="lock-keys">
+                <ul class="passkey-list">
                     {{range .Passkeys}}
-                    <li class="lock-key">
+                    <li class="passkey-item">
                         <div>
                             <strong>{{.Name}}</strong>
                             <span class="muted">Added {{.Created}}{{if .LastUsed}} · last used {{.LastUsed}}{{end}}</span>
@@ -207,6 +189,9 @@
                     {{end}}
                 </ul>
                 {{end}}
+                <div class="account-actions">
+                    <button class="btn {{if .Passkeys}}btn-ghost{{else}}btn-primary{{end}}" id="passkeyAddBtn" type="button">Add a passkey</button>
+                </div>
             </div>
             {{end}}
 

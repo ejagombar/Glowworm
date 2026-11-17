@@ -20,13 +20,17 @@ const (
 	csrfCookie    = "glowworm_csrf"
 	privacyCookie = "glowworm_privacy"
 	periodCookie  = "glowworm_period"
-	sessionTTL    = 30 * 24 * time.Hour
+	// A sign-in lasts as long as browsers keep a cookie (Chrome and Safari
+	// cap it at 400 days), and each day it's used starts that over, so a
+	// device in use never has to sign in again.
+	sessionTTL   = 400 * 24 * time.Hour
+	sessionRenew = 24 * time.Hour
 )
 
 type Session struct {
 	UserID  string
 	Expires time.Time
-	// Nonce tells this sign-in from others; the app lock's unlock is tied to it.
+	// Nonce tells this sign-in from others.
 	Nonce string
 	// Fingerprint ties the session to the password it was signed in with,
 	// so changing the password signs out every other session.
@@ -59,28 +63,42 @@ func decodeToken(secret *crypto.Secret, token string) (string, bool) {
 }
 
 func issueSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret, u *core.User) {
-	secure := isTLS(r)
-	nonce := randomHex(8)
-	payload := fmt.Sprintf("%s|%d|%s|%s", u.ID, time.Now().Add(sessionTTL).Unix(), nonce,
-		passwordFingerprint(u.PasswordHash))
+	writeSession(w, r, secret, &Session{UserID: u.ID, Nonce: randomHex(8), Fingerprint: passwordFingerprint(u.PasswordHash)})
+	writeCSRF(w, r, randomHex(16))
+}
+
+func writeSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret, sess *Session) {
+	payload := fmt.Sprintf("%s|%d|%s|%s", sess.UserID, time.Now().Add(sessionTTL).Unix(), sess.Nonce, sess.Fingerprint)
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: encodeToken(secret, payload), Path: "/",
-		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
+		HttpOnly: true, Secure: isTLS(r), SameSite: http.SameSiteLaxMode,
 		MaxAge: int(sessionTTL.Seconds()),
 	})
+}
+
+func writeCSRF(w http.ResponseWriter, r *http.Request, token string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: csrfCookie, Value: randomHex(16), Path: "/",
-		HttpOnly: false, Secure: secure, SameSite: http.SameSiteLaxMode,
+		Name: csrfCookie, Value: token, Path: "/",
+		HttpOnly: false, Secure: isTLS(r), SameSite: http.SameSiteLaxMode,
 		MaxAge: int(sessionTTL.Seconds()),
 	})
-	// Having just given the password, the device is unlocked; the next
-	// request renews this for the full lock time.
-	writeUnlock(w, r, secret, nonce, time.Now().Add(time.Minute))
+}
+
+// renewSession starts a session's time over, at most once a day, along with
+// its CSRF cookie (keeping its value, so open pages carry on).
+func renewSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret, sess *Session) {
+	if time.Until(sess.Expires) > sessionTTL-sessionRenew {
+		return
+	}
+	writeSession(w, r, secret, sess)
+	if c, err := r.Cookie(csrfCookie); err == nil && c.Value != "" {
+		writeCSRF(w, r, c.Value)
+	}
 }
 
 func clearSession(w http.ResponseWriter, r *http.Request) {
 	secure := isTLS(r)
-	for _, name := range []string{sessionCookie, csrfCookie, unlockCookie} {
+	for _, name := range []string{sessionCookie, csrfCookie, unlockCookie, deviceLockCookie} {
 		http.SetCookie(w, &http.Cookie{
 			Name: name, Value: "", Path: "/", HttpOnly: name == sessionCookie,
 			Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: -1,
@@ -116,12 +134,7 @@ func CSRFToken(w http.ResponseWriter, r *http.Request, secret *crypto.Secret) st
 		return c.Value
 	}
 	tok := randomHex(16)
-	secure := isTLS(r)
-	http.SetCookie(w, &http.Cookie{
-		Name: csrfCookie, Value: tok, Path: "/",
-		HttpOnly: false, Secure: secure, SameSite: http.SameSiteLaxMode,
-		MaxAge: int(sessionTTL.Seconds()),
-	})
+	writeCSRF(w, r, tok)
 	return tok
 }
 

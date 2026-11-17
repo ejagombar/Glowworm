@@ -37,10 +37,11 @@ func (r *Passkeys) ForUser(userID string) ([]*Passkey, error) {
 	return out, rows.Err()
 }
 
-func (r *Passkeys) Count(userID string) (int, error) {
-	var n int
-	err := r.DB.QueryRow(`SELECT COUNT(*) FROM passkeys WHERE user_id = ?`, userID).Scan(&n)
-	return n, err
+// Any reports whether anyone has a passkey, so the sign-in page offers one.
+func (r *Passkeys) Any() (bool, error) {
+	var ok bool
+	err := r.DB.QueryRow(`SELECT EXISTS (SELECT 1 FROM passkeys)`).Scan(&ok)
+	return ok, err
 }
 
 func (r *Passkeys) Add(p *Passkey) error {

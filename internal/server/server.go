@@ -253,11 +253,10 @@ func (a *App) Router() http.Handler {
 	mux.HandleFunc("GET /settings", a.page(a.handleSettings))
 	mux.HandleFunc("GET /login", a.handleLoginPage)
 	mux.HandleFunc("POST /login", a.handleLoginSubmit)
+	mux.HandleFunc("POST /login/passkey/begin", a.handlePasskeyLoginBegin)
+	mux.HandleFunc("POST /login/passkey/finish", a.handlePasskeyLoginFinish)
 	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /unlock", a.handleUnlockPage)
-	mux.HandleFunc("POST /unlock/begin", a.handleUnlockBegin)
-	mux.HandleFunc("POST /unlock/finish", a.handleUnlockFinish)
-	mux.HandleFunc("POST /unlock/password", a.handleUnlockPassword)
 	mux.HandleFunc("GET /setup", a.handleSetupPage)
 	mux.HandleFunc("POST /setup", a.handleSetupSubmit)
 
@@ -360,7 +359,7 @@ func (a *App) session(r *http.Request) (*Session, bool) {
 func (a *App) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/login" || strings.HasPrefix(path, "/static/") || publicPaths[path] {
+		if path == "/login" || strings.HasPrefix(path, "/login/passkey/") || strings.HasPrefix(path, "/static/") || publicPaths[path] {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -396,9 +395,8 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if !a.checkLock(w, r, sess) {
-			return
-		}
+		clearLockCookies(w, r)
+		renewSession(w, r, a.Secret, sess)
 		next.ServeHTTP(w, r)
 	})
 }
