@@ -68,13 +68,12 @@ Below, `ed` stands for your username on the server. Use yours.
    Check the path with `command -v systemctl`. If `ed` already has passwordless
    sudo, you can skip this step.
 
-6. **nginx and HTTPS.** Add the `glowworm.eagombar.uk` DNS record and point it
-   at the server. Copy `nginx.conf` to `/etc/nginx/sites-available/glowworm`.
-   Then link it into `sites-enabled` (or `conf.d`, whichever the other sites
-   use). Get a certificate in the same way as the other sites, for example:
+6. **nginx and HTTPS.** Point a `glowworm.eagombar.uk` DNS record at the
+   server. Copy `nginx.conf` to `/etc/nginx/conf.d/glowworm.eagombar.uk.conf`
+   (it's plain HTTP), then let certbot add HTTPS to it, as for the other sites:
    ```sh
-   sudo certbot certonly --nginx -d glowworm.eagombar.uk
-   sudo nginx -t && sudo nginx -s reload
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d glowworm.eagombar.uk
    ```
    `client_max_body_size`, `proxy_buffering off` and the 120s read timeout are
    all needed: the first two for statement uploads and streamed replies, the
