@@ -33,10 +33,11 @@ Below, `ed` stands for your username on the server. Use yours.
    sudo chown -R ed: /opt/glowworm /var/backups/glowworm
    ```
 
-2. **Port.** The service listens on `127.0.0.1:8080`. Check it's free with
-   `ss -ltn | grep 8080`. If it's taken, choose another port and set it in
-   `/etc/glowworm/glowworm.env` (`GLOWWORM_ADDR=127.0.0.1:8090`). Change
-   `proxy_pass` in the nginx config to match.
+2. **Port.** The service listens on `127.0.0.1:8094` (8080 is taken by the
+   recipes site). Check it's free with `ss -ltn | grep 8094`. If it isn't,
+   choose another port and set it in `/etc/glowworm/glowworm.env`
+   (`GLOWWORM_ADDR=127.0.0.1:8095`). Change `proxy_pass` in the nginx config
+   to match.
 
 3. **Settings file.** Create `/etc/glowworm/glowworm.env`, readable only by
    root and `ed` (the deploy script reads the port from it). It needs at least
@@ -67,13 +68,12 @@ Below, `ed` stands for your username on the server. Use yours.
    Check the path with `command -v systemctl`. If `ed` already has passwordless
    sudo, you can skip this step.
 
-6. **nginx and HTTPS.** Add the `glowworm.eagombar.uk` DNS record and point it
-   at the server. Copy `nginx.conf` to `/etc/nginx/sites-available/glowworm`.
-   Then link it into `sites-enabled` (or `conf.d`, whichever the other sites
-   use). Get a certificate in the same way as the other sites, for example:
+6. **nginx and HTTPS.** Point a `glowworm.eagombar.uk` DNS record at the
+   server. Copy `nginx.conf` to `/etc/nginx/conf.d/glowworm.eagombar.uk.conf`
+   (it's plain HTTP), then let certbot add HTTPS to it, as for the other sites:
    ```sh
-   sudo certbot certonly --nginx -d glowworm.eagombar.uk
-   sudo nginx -t && sudo nginx -s reload
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d glowworm.eagombar.uk
    ```
    `client_max_body_size`, `proxy_buffering off` and the 120s read timeout are
    all needed: the first two for statement uploads and streamed replies, the

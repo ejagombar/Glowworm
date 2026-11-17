@@ -19,7 +19,7 @@ UNIT="glowworm@$(id -un)"
 KEEP_RELEASES=5
 
 # The address the service listens on, for the health check.
-ADDR=127.0.0.1:8080
+ADDR=127.0.0.1:8094
 if [ -r /etc/glowworm/glowworm.env ]; then
 	line=$(grep -E '^GLOWWORM_ADDR=' /etc/glowworm/glowworm.env | tail -1 || true)
 	[ -n "$line" ] && ADDR=${line#GLOWWORM_ADDR=}

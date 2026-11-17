@@ -12,7 +12,7 @@ User=%i
 StateDirectory=glowworm
 StateDirectoryMode=0700
 Environment=GLOWWORM_DATA_DIR=/var/lib/glowworm
-Environment=GLOWWORM_ADDR=127.0.0.1:8080
+Environment=GLOWWORM_ADDR=127.0.0.1:8094
 Environment=GLOWWORM_LOG_FORMAT=json
 Environment=GLOWWORM_TRUSTED_PROXIES=127.0.0.1
 Environment=GLOWWORM_TIMEZONE=Europe/London
