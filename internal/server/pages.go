@@ -52,10 +52,6 @@ type viewBase struct {
 	Nonce string
 	// DataVersion is the data this page was built from; see dataVersion.
 	DataVersion string
-	// LockAfter is the app lock's time in minutes on a device that has it
-	// on, for app.js to lock when the app comes back from being put away;
-	// -1 when this device isn't locked.
-	LockAfter int
 }
 
 // shortDate is "22 Oct 2025", matching the date range button in app.js.
@@ -121,14 +117,10 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	if c, err := r.Cookie(privacyCookie); err == nil {
 		privacy = c.Value == "1"
 	}
-	lockAfter := -1
-	if sess, ok := a.session(r); ok && a.Cfg.AuthMode == "password" && a.lockRequired(r, sess) {
-		lockAfter = a.lockAfter()
-	}
 	nonce := randomHex(16)
 	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
 	return &viewBase{
-		LockAfter: lockAfter, Nonce: nonce,
+		Nonce: nonce,
 		Title: title, View: view, Period: period, PeriodLabel: label,
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
@@ -1039,14 +1031,14 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		AIQueriesModel string // "provider:model", or "" for the default
 		AICatModel     string
 		SetupDone      bool
-		Lock           *lockSettings
+		Passkeys       *passkeySettings
 	}{
 		viewBase: base, Categories: cats, Accounts: cards, Archives: archives,
 		AIProviders: aiSet.views(), SetupDone: s.SetupCompleted,
 		AIQueriesModel: aiSet.pickerValue(modelRoleQueries), AICatModel: aiSet.pickerValue(modelRoleCategorisation),
 	}
 	if a.Cfg.AuthMode == "password" {
-		if data.Lock, err = a.lockSettings(r); err != nil {
+		if data.Passkeys, err = a.passkeySettings(r); err != nil {
 			return err
 		}
 		if sess, ok := a.session(r); ok {

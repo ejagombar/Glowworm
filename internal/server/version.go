@@ -68,7 +68,8 @@ var readOnlyPosts = map[string]bool{
 	"/api/v1/imports/preview-date":    true,
 	"/api/v1/instance/backup":         true,
 	"/api/v1/passkeys/register/begin": true,
-	"/unlock/begin":                   true,
+	"/login/passkey/begin":            true,
+	"/login/passkey/finish":           true,
 }
 
 type versionWriter struct {

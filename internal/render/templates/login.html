@@ -29,11 +29,18 @@
         <form method="post" action="/login" data-replace>
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}" />
             <input class="field" type="text" id="loginUsername" name="username" placeholder="Username"
-                autocomplete="username" required />
+                autocomplete="username{{if .PasskeysOK}} webauthn{{end}}" required />
             <input class="field" type="password" id="loginPassword" name="password" placeholder="Password"
                 autocomplete="current-password" required />
             <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
         </form>
+        {{if .PasskeysOK}}
+        <div class="login-passkey" id="loginPasskey" hidden>
+            <span class="login-or muted">or</span>
+            <button class="btn btn-ghost" id="loginPasskeyBtn" type="button" style="width:100%">
+                <svg class="icon" aria-hidden="true"><use href="#i-key" /></svg> Sign in with a passkey</button>
+        </div>
+        {{end}}
     </div>
 </div>
 {{end}}

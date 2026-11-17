@@ -176,8 +176,6 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/passkeys/register/begin", j(a.apiPasskeyRegisterBegin))
 	mux.HandleFunc("POST /api/v1/passkeys/register/finish", j(a.apiPasskeyRegisterFinish))
 	mux.HandleFunc("DELETE /api/v1/passkeys/{id}", j(a.apiPasskeyDelete))
-	mux.HandleFunc("POST /api/v1/lock/device", j(a.apiLockDevice))
-	mux.HandleFunc("PUT /api/v1/lock/after", j(a.apiLockAfter))
 
 	mux.HandleFunc("GET /api/v1/snapshot", j(a.apiSnapshot))
 

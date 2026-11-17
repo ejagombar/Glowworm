@@ -42,10 +42,16 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base.Standalone = true
+	_, hostOK := passkeyHost(r)
+	anyKey, err := a.Repos.Passkeys.Any()
+	if err != nil {
+		a.Log.Warn("login page: passkeys", "err", err)
+	}
 	data := struct {
 		*viewBase
-		Error string
-	}{viewBase: base, Error: errMsg}
+		Error      string
+		PasskeysOK bool
+	}{viewBase: base, Error: errMsg, PasskeysOK: hostOK && anyKey}
 	if err := a.Render.Render(w, "login", data); err != nil {
 		a.Log.Error("login page", "err", err)
 	}
