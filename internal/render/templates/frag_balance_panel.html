@@ -9,7 +9,7 @@ Wired up by initBalancePanel in app.js. Takes dict "A" (accountCard),
     <span class="balance-panel-label">Balance now</span>
     <span class="balance-panel-now" data-bp-now>{{money $a.BalanceMinor .Currency}}</span>
   </div>
-  <p class="field-hint" data-bp-asof></p>
+  <p class="field-hint" data-bp-asof hidden></p>
   <div class="balance-update">
     <div class="field-unit">
       <span class="field-unit-symbol">{{.Symbol}}</span>
@@ -20,7 +20,6 @@ Wired up by initBalancePanel in app.js. Takes dict "A" (accountCard),
     <input class="field" data-bp-date type="date" aria-label="Balance date for {{$a.Name}}" />
     <button class="btn btn-primary" type="button" data-bp-record>{{if eq $a.Type "savings"}}Update{{else}}Record{{end}}</button>
   </div>
-  <p class="field-hint">{{if eq $a.Type "savings"}}What the account is worth on that day, e.g. after interest.{{else if eq $a.Type "credit"}}What you owe at the end of that day, from your statement or app. It's checked against your transactions.{{else}}The balance your bank shows at the end of that day. It's checked against your transactions.{{end}} Undo it from History.</p>
   <details class="valuation-history" data-bp-history hidden>
     <summary>Earlier balances <span class="muted" data-bp-count></span></summary>
     <ul class="valuation-list" data-bp-list></ul>

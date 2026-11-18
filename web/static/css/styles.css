@@ -1348,7 +1348,8 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .balance-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .balance-panel-label { font-size: 12px; color: var(--muted); }
 .balance-panel-now { font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
-.balance-panel > .field-hint:first-of-type { margin: 2px 0 10px; }
+.balance-panel > .field-hint:first-of-type { margin: 2px 0 0; }
+.balance-panel .balance-update { margin-top: 10px; }
 .balance-update { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
 .balance-update .field-unit { min-width: 0; }
 .balance-update .field-unit .field { min-width: 0; width: 100%; }
@@ -2355,3 +2356,20 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
 .stat-card-cta { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; color: var(--primary); font-size: 11.5px; }
 .stat-card-cta .icon { width: 12px; height: 12px; }
 .reconcile-panel { margin-top: 12px; }
+
+/* An empty date box: Safari draws it with no height, and every browser
+   shows nothing useful, so it keeps a text box's height and says
+   "Select date" until a date is picked. */
+input[type="date"].field { min-height: 34px; }
+.date-field { position: relative; }
+.date-field > input[type="date"].field { width: 100%; box-sizing: border-box; }
+.date-field-prompt {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; color: var(--muted-2); pointer-events: none;
+}
+.date-field:not(.is-empty) .date-field-prompt { display: none; }
+.date-field.is-empty input::-webkit-datetime-edit { color: transparent; }
+@media (pointer: fine) {
+  .date-field.is-empty:focus-within .date-field-prompt { display: none; }
+  .date-field.is-empty input:focus::-webkit-datetime-edit { color: inherit; }
+}

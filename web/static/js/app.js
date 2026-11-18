@@ -2433,6 +2433,15 @@ function accountPayload() {
   return body;
 }
 
+// A date box wrapped in .date-field shows "Select date" while it's empty.
+// Setting .value from code fires no event, so callers sync it themselves.
+function syncDateField(input) {
+  const wrap = input && input.closest("[data-date-field]");
+  if (wrap) wrap.classList.toggle("is-empty", !input.value);
+}
+document.addEventListener("input", (e) => { if (e.target.type === "date") syncDateField(e.target); });
+document.addEventListener("change", (e) => { if (e.target.type === "date") syncDateField(e.target); });
+
 function openAccountForm(id) {
   const modal = document.getElementById("accountModal");
   const form = document.getElementById("accountForm");
@@ -2443,7 +2452,8 @@ function openAccountForm(id) {
   document.getElementById("accountModalSub").textContent = id ? "Edit this account's details." : "Add a new account to Glowworm.";
   document.getElementById("accDangerZone").hidden = !id;
   accountLoaded = null;
-  ["accName", "accOpening", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
+  ["accName", "accOpening", "accOpeningDate", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
+  syncDateField(document.getElementById("accOpeningDate"));
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
       if (form.dataset.accountId !== id) return;
@@ -2451,6 +2461,7 @@ function openAccountForm(id) {
       document.getElementById("accType").value = a.type || "debit";
       document.getElementById("accOpening").value = a.opening_balance_minor != null ? (a.opening_balance_minor / 100).toFixed(2) : "";
       document.getElementById("accOpeningDate").value = a.opening_balance_date || "";
+      syncDateField(document.getElementById("accOpeningDate"));
       accountLoaded = {};
       Object.entries(ACCOUNT_BANK_FIELDS).forEach(([key, el]) => {
         accountLoaded[key] = a[key] || "";
@@ -2514,9 +2525,8 @@ function initBalancePanel(root, onChange) {
     fetch(`/api/v1/accounts/${id}/valuations`).then((r) => jsonOk(r)).then((b) => {
       const items = (b.items || []).slice().sort((x, y) => (y.date + y.created_at).localeCompare(x.date + x.created_at));
       const shown = (v) => signedMoney(v, cc);
-      q("asof").textContent = items.length
-        ? `Last set to ${shown(items[0].value_minor)} on ${dayMonthYearJS(items[0].date)}, plus any transactions since.`
-        : "From the opening balance and transactions. Record today's balance below.";
+      q("asof").textContent = items.length ? `Last set ${dayMonthYearJS(items[0].date)}` : "";
+      q("asof").hidden = !items.length;
       q("history").hidden = !items.length;
       q("count").textContent = items.length ? `(${items.length})` : "";
       list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
