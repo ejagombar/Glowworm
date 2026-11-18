@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"glowworm/internal/ai"
@@ -88,6 +89,17 @@ func (a *App) apiInstanceDelete(w http.ResponseWriter, r *http.Request) error {
 	a.setProviders(resolveProviders(a.DB, a.Secret, a.Log))
 	a.Log.Warn("glowworm account deleted: all data erased", "remote", clientIP(r, a.Cfg.TrustedProxies))
 	clearSession(w, r)
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "next": a.setupURL()})
 	return nil
+}
+
+// setupURL is where a new account is made, with the setup token when one
+// is set. Only the owner, who has just confirmed with their password, is
+// sent it: they could read it on the server anyway, and this saves them
+// looking it up to start again.
+func (a *App) setupURL() string {
+	if a.Cfg.SetupToken == "" {
+		return "/setup"
+	}
+	return "/setup?token=" + url.QueryEscape(a.Cfg.SetupToken)
 }

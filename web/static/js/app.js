@@ -2924,7 +2924,9 @@ document.addEventListener("DOMContentLoaded", () => {
         delGo.textContent = "Delete everything";
         return;
       }
-      location.href = "/setup";
+      // Straight to making a new account, the setup token filled in.
+      const out = await r.json().catch(() => ({}));
+      location.replace(typeof out.next === "string" && out.next.startsWith("/setup") ? out.next : "/setup");
     }).catch(() => {
       toast("Delete failed: network error");
       delGo.disabled = false;
