@@ -213,6 +213,48 @@
           <option value="text">Text</option>
         </select>
       </div>
+      {{/* Shown by openDrawer for line, bar and number widgets with a saved query. */}}
+      <fieldset class="drawer-section" id="wProjection" hidden>
+        <legend>Projection</legend>
+        <div class="field-row">
+          <label for="wProjMethod">Carry the series on</label>
+          <select class="field select" id="wProjMethod">
+            <option value="">No projection</option>
+            <option value="trend">Trend: a line fitted to the points</option>
+            <option value="average">Average change per period</option>
+            <option value="compound">Growth rate and monthly contribution</option>
+          </select>
+        </div>
+        <div class="field-row" data-proj-show="trend average compound">
+          <label for="wProjHorizon">How far ahead</label>
+          <div class="field-pair">
+            <input class="field" id="wProjHorizon" type="number" min="1" max="600" step="1" inputmode="numeric" />
+            <select class="field select" id="wProjUnit">
+              <option value="m">months</option>
+              <option value="y">years</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row" data-proj-show="trend average">
+          <label for="wProjBasis">Fit to the last</label>
+          <div class="field-pair">
+            <input class="field" id="wProjBasis" type="number" min="2" step="1" inputmode="numeric" placeholder="All" />
+            <span class="field-suffix">points</span>
+          </div>
+        </div>
+        <div class="field-row" data-proj-show="compound">
+          <label for="wProjRate">Yearly growth</label>
+          <div class="field-pair">
+            <input class="field" id="wProjRate" type="number" step="0.1" inputmode="decimal" placeholder="0" />
+            <span class="field-suffix">%</span>
+          </div>
+        </div>
+        <div class="field-row" data-proj-show="compound">
+          <label for="wProjContrib">Added each month</label>
+          <input class="field" id="wProjContrib" type="number" step="1" inputmode="decimal" placeholder="0" />
+        </div>
+        <p class="field-hint" id="wProjError" hidden></p>
+      </fieldset>
     </div>
     <div class="drawer-foot">
       <button class="btn btn-ghost" data-action="close-drawer">Cancel</button>

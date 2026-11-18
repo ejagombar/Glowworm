@@ -228,6 +228,7 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/widgets/pinned", j(a.apiWidgetPin))
 	mux.HandleFunc("PATCH /api/v1/widgets/pinned/{id}", j(a.apiWidgetPatch))
 	mux.HandleFunc("DELETE /api/v1/widgets/pinned/{id}", j(a.apiWidgetUnpin))
+	mux.HandleFunc("POST /api/v1/widgets/preview", j(a.apiWidgetPreview))
 }
 
 func (a *App) apiAccountsList(w http.ResponseWriter, r *http.Request) error {

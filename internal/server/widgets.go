@@ -42,6 +42,7 @@ type WidgetView struct {
 	Col           int           `json:"col"`
 	Rows          int           `json:"rows"`
 	DataJSON      string        `json:"data"`
+	PlanJSON      string        `json:"plan,omitempty"`
 	NumberValue   string        `json:"number_value,omitempty"`
 	NumberCaption string        `json:"number_caption,omitempty"`
 	TextBody      string        `json:"text_body,omitempty"`
@@ -85,7 +86,11 @@ func (a *App) WidgetsList(period, from, to string) ([]*WidgetView, error) {
 		view := &WidgetView{ID: id, Type: typ, Title: title, Col: spanOr(col, typ, defaultSpanCol),
 			Rows: spanOr(rowsN, typ, defaultSpanRows)}
 		stale := false
-		if spec := query.ParseSpec(plan.String); spec != nil && batch != nil {
+		spec := query.ParseSpec(plan.String)
+		if spec != nil {
+			view.PlanJSON = plan.String
+		}
+		if spec != nil && batch != nil {
 			if w, err := batch.Run(spec, typ); err == nil {
 				if m, ok := w.Data.(map[string]any); ok && typ == "table" {
 					tableRows, _ := m["rows"].([][]string)
@@ -314,7 +319,8 @@ func (a *App) PinWidget(title, typ, dataJSON, planJSON string, col, rowsN int) (
 	return id, err
 }
 
-func (a *App) WidgetPatch(id, title, typ, dataJSON string) error {
+// WidgetPatch changes a pinned widget; an empty plan keeps the saved one.
+func (a *App) WidgetPatch(id, title, typ, dataJSON, planJSON string) error {
 	var curTitle, curType, curData string
 	err := a.DB.QueryRow(`SELECT title, type, data FROM pinned_widgets WHERE id = ?`, id).
 		Scan(&curTitle, &curType, &curData)
@@ -329,6 +335,11 @@ func (a *App) WidgetPatch(id, title, typ, dataJSON string) error {
 	}
 	if dataJSON == "" || dataJSON == "null" {
 		dataJSON = curData
+	}
+	if planJSON != "" {
+		_, err = a.DB.Exec(`UPDATE pinned_widgets SET title=?, type=?, data=?, plan=?, updated_at=? WHERE id=?`,
+			title, typ, dataJSON, planJSON, util.NowStr(), id)
+		return err
 	}
 	_, err = a.DB.Exec(`UPDATE pinned_widgets SET title=?, type=?, data=?, updated_at=? WHERE id=?`,
 		title, typ, dataJSON, util.NowStr(), id)

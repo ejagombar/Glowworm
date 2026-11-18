@@ -224,16 +224,17 @@ function barChartSVG(data, width = 640, height = 260) {
     s.forEach((series, si) => {
       const color = series.color || WIDGET_COLORS[si % WIDGET_COLORS.length];
       const v = Math.max(Number((series.values || [])[i]) || 0, 0);
+      const fade = series.projected ? ` fill-opacity="0.4"` : "";
       if (g.stacked) {
         const h = base - py(v);
         if (h <= 0) return;
-        parts.push(`<rect x="${x - barW / 2}" y="${top - h}" width="${Math.max(barW, 1)}" height="${h}" fill="${color}"/>`);
+        parts.push(`<rect x="${x - barW / 2}" y="${top - h}" width="${Math.max(barW, 1)}" height="${h}" fill="${color}"${fade}/>`);
         top -= h;
         return;
       }
       const by = py(v);
       const bx = x - (g.across * barW) / 2 + si * barW + gap / 2;
-      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - gap, 1)}" height="${Math.max(base - by, 0)}" rx="1" fill="${color}"/>`);
+      parts.push(`<rect x="${bx}" y="${by}" width="${Math.max(barW - gap, 1)}" height="${Math.max(base - by, 0)}" rx="1" fill="${color}"${fade}/>`);
     });
   });
 
@@ -315,7 +316,9 @@ function lineChartSVG(data, width = 640, height = 260, view = null) {
   const W = width, H = height;
   const g = lineGeom(data, W, H, view);
   const { series, labels, n, padL, padR, padT, innerW, innerH, i0, i1, min, ticks, px, py } = g;
-  const one = series.length === 1;
+  // A projection is a series of its own, carrying a real one on: it
+  // doesn't make the chart a several-series one.
+  const one = series.filter((x) => !x.projected).length === 1;
 
   let parts = [];
   ticks.forEach((t) => {
@@ -335,6 +338,10 @@ function lineChartSVG(data, width = 640, height = 260, view = null) {
     const vals = s.values || [];
     lineRuns(vals, i0, i1).forEach((run) => {
       const points = run.map((i) => `${px(i)},${py(vals[i])}`).join(" ");
+      if (s.projected) {
+        body.push(`<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="5 4" stroke-opacity="0.85" stroke-linejoin="round" stroke-linecap="round"/>`);
+        return;
+      }
       // A lone series gets the area under it: a fading gradient with a grid
       // like the page background over it, in its colour. Several would muddy.
       if (one) {
@@ -349,7 +356,7 @@ function lineChartSVG(data, width = 640, height = 260, view = null) {
         });
       }
     });
-    if (one) {
+    if (one && !s.projected) {
       defs.push(`<linearGradient id="grad-${fillId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity="0.14"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient>` +
         `<pattern id="grid-${fillId}" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M8 0V8M0 8H8" fill="none" stroke="${color}" stroke-opacity="0.22" stroke-width="1"/></pattern>`);
     }
@@ -674,7 +681,7 @@ function chartLegendHTML(type, data) {
   const series = data.series || [];
   if (series.length < 2) return "";
   return `<div class="chart-legend">${series.map((s, i) => `<span class="chart-legend-item">`
-    + `<span class="chart-legend-swatch ${type === "line" ? "line" : ""}" style="background:${esc(s.color || WIDGET_COLORS[i % WIDGET_COLORS.length])}"></span>`
+    + `<span class="chart-legend-swatch ${type === "line" ? "line" : ""}${s.projected ? " projected" : ""}" style="--swatch:${esc(s.color || WIDGET_COLORS[i % WIDGET_COLORS.length])}"></span>`
     + `${esc(s.name || "Series " + (i + 1))}</span>`).join("")}</div>`;
 }
 
@@ -927,8 +934,10 @@ function ensureWidgetStyles() {
     .pie-legend-row span:nth-child(2) { flex: 1; color: var(--text-2); }
     .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 4px 8px; font-size: 12px; color: var(--text-2); }
     .chart-legend-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chart-legend-swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+    .chart-legend-swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; background: var(--swatch); }
     .chart-legend-swatch.line { width: 14px; height: 3px; border-radius: 2px; }
+    .chart-legend-swatch.projected { opacity: 0.45; }
+    .chart-legend-swatch.line.projected { opacity: 1; background: repeating-linear-gradient(90deg, var(--swatch) 0 4px, transparent 4px 7px); }
     .chart-hover-tip .chart-tip-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
     .chart-hover-tip .chart-tip-row.near .chart-tip-name { color: var(--text); font-weight: 600; }
     .chart-hover-tip .chart-tip-dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }

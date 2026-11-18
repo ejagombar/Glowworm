@@ -610,6 +610,9 @@ function openDrawer(id) {
     sel.appendChild(opt);
   }
   sel.value = typ;
+  state.editingPlan = card.dataset.widgetPlan ? JSON.parse(card.dataset.widgetPlan) : null;
+  fillProjectionFields(state.editingPlan && state.editingPlan.project);
+  syncProjectionFields();
   drawer.hidden = false;
   document.getElementById("drawerBackdrop").hidden = false;
   requestAnimationFrame(() => {
@@ -617,6 +620,72 @@ function openDrawer(id) {
     document.getElementById("drawerBackdrop").classList.add("show");
   });
 }
+// ---- Projection settings in the widget drawer. They edit the "project"
+// part of a widget's saved query (see SpecProjection in the server).
+const PROJECTABLE = ["line", "bar", "number"];
+
+function fillProjectionFields(p) {
+  const $ = (id) => document.getElementById(id);
+  if (!$("wProjMethod")) return;
+  state.projHorizonTouched = false;
+  $("wProjMethod").value = p ? (p.method || "trend") : "";
+  const span = p && /^\+(\d+)\s*([dwmy])$/i.exec(p.until || "");
+  if (span && "my".includes(span[2].toLowerCase())) {
+    $("wProjHorizon").value = span[1];
+    $("wProjUnit").value = span[2].toLowerCase();
+  } else {
+    // A date or a number of periods: shown as a year, kept unless changed.
+    $("wProjHorizon").value = p ? "" : "1";
+    $("wProjHorizon").placeholder = p && p.until ? `To ${p.until}` : p && p.periods ? `${p.periods} periods` : "";
+    $("wProjUnit").value = "y";
+  }
+  $("wProjBasis").value = p && p.basis ? p.basis : "";
+  $("wProjRate").value = p && p.rate ? +(p.rate * 100).toFixed(4) : "";
+  $("wProjContrib").value = p && p.contribution ? +(p.contribution / 100).toFixed(2) : "";
+  $("wProjError").hidden = true;
+}
+
+function syncProjectionFields() {
+  const box = document.getElementById("wProjection");
+  if (!box) return;
+  const typ = document.getElementById("wType").value;
+  box.hidden = !(state.editingPlan && PROJECTABLE.includes(typ));
+  const method = document.getElementById("wProjMethod").value;
+  box.querySelectorAll("[data-proj-show]").forEach((row) => {
+    row.hidden = !method || !row.dataset.projShow.split(" ").includes(method);
+  });
+}
+
+// withProjection is plan with the drawer's projection settings applied.
+function withProjection(plan, type) {
+  const $ = (id) => document.getElementById(id);
+  const out = { ...plan };
+  const method = $("wProjMethod") ? $("wProjMethod").value : "";
+  if (!method || !PROJECTABLE.includes(type)) {
+    delete out.project;
+    return out;
+  }
+  const old = plan.project || {};
+  const p = { method };
+  const n = parseInt($("wProjHorizon").value, 10);
+  if (n > 0) p.until = `+${n}${$("wProjUnit").value}`;
+  else if (!state.projHorizonTouched && (old.until || old.periods)) {
+    if (old.until) p.until = old.until;
+    if (old.periods) p.periods = old.periods;
+  }
+  const basis = parseInt($("wProjBasis").value, 10);
+  if (method !== "compound" && basis > 1) p.basis = basis;
+  if (method === "compound") {
+    const rate = parseFloat($("wProjRate").value);
+    const contrib = parseFloat($("wProjContrib").value);
+    if (rate) p.rate = rate / 100;
+    if (contrib) p.contribution = Math.round(contrib * 100);
+  }
+  if (old.series) p.series = old.series;
+  out.project = p;
+  return out;
+}
+
 function closeDrawer() {
   const d = document.getElementById("widgetDrawer"), b = document.getElementById("drawerBackdrop");
   if (!d || !b) return;
@@ -628,6 +697,8 @@ function closeDrawer() {
 const state = {
   editMode: false,
   editingId: null,
+  editingPlan: null,
+  projHorizonTouched: false,
   balanceView: "all",
   privacy: false,
   customFrom: null,
@@ -1327,6 +1398,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-action='close-drawer']").forEach((b) => b.addEventListener("click", closeDrawer));
   const wApply = document.getElementById("wApply");
   if (wApply) {
+    document.getElementById("wProjMethod")?.addEventListener("change", syncProjectionFields);
+    document.getElementById("wType")?.addEventListener("change", syncProjectionFields);
+    ["wProjHorizon", "wProjUnit"].forEach((fid) => document.getElementById(fid)?.addEventListener("input", () => { state.projHorizonTouched = true; }));
     wApply.addEventListener("click", () => {
       const id = state.editingId;
       const card = document.querySelector(`[data-widget-id="${id}"]`);
@@ -1335,37 +1409,60 @@ document.addEventListener("DOMContentLoaded", () => {
       const newTitle = document.getElementById("wTitle").value.trim() || card.dataset.widgetTitle;
       const wasPinned = !!card.dataset.pinnedId;
       let data = card.dataset.widgetData ? JSON.parse(card.dataset.widgetData) : null;
-      if (data && window.convertWidgetData) {
-        data = convertWidgetData(card.dataset.widgetType, newType, data);
-      }
+      let plan = card.dataset.widgetPlan ? JSON.parse(card.dataset.widgetPlan) : null;
+      const errEl = document.getElementById("wProjError");
+      if (errEl) errEl.hidden = true;
 
       const updateCardDOM = () => {
         card.dataset.widgetType = newType;
         card.dataset.widgetTitle = newTitle;
         card.dataset.widgetData = JSON.stringify(data || {});
+        if (plan) card.dataset.widgetPlan = JSON.stringify(plan);
         card.querySelector(".widget-title").textContent = newTitle;
         const body = card.querySelector(".widget-body");
         if (body) body.innerHTML = widgetBodyHTML({ type: newType, data: data || {} });
         if (window.drawChartHosts) drawChartHosts(card);
       };
-
-      if (wasPinned) {
+      const save = () => {
+        if (!wasPinned) {
+          updateCardDOM();
+          closeDrawer();
+          toast("Widget updated");
+          return;
+        }
         fetch(`/api/v1/widgets/pinned/${card.dataset.pinnedId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-          body: JSON.stringify({ title: newTitle, type: newType, data }),
+          body: JSON.stringify({ title: newTitle, type: newType, data, plan }),
         }).then((r) => {
           if (!r.ok) { toast("Could not update widget"); return; }
           updateCardDOM();
           toast("Widget updated");
           closeDrawer();
         }).catch(() => toast("Could not update widget"));
+      };
+
+      // A widget with a saved query is run again with its new settings, so
+      // the card shows exactly what the dashboard will.
+      if (plan) {
+        plan = withProjection(plan, newType);
+        fetch("/api/v1/widgets/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+          body: JSON.stringify({ type: newType, plan, ...currentViewPeriod() }),
+        }).then((r) => jsonOk(r)).then((out) => {
+          data = out.data;
+          save();
+        }).catch((e) => {
+          if (errEl) { errEl.textContent = e.message || "That didn't work."; errEl.hidden = false; }
+          else toast(e.message || "Could not update widget");
+        });
         return;
       }
-
-      updateCardDOM();
-      closeDrawer();
-      toast("Widget updated");
+      if (data && window.convertWidgetData) {
+        data = convertWidgetData(card.dataset.widgetType, newType, data);
+      }
+      save();
     });
   }
 

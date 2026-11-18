@@ -257,11 +257,21 @@ func (a *App) apiWidgetPatch(w http.ResponseWriter, r *http.Request) error {
 		Type   string          `json:"type"`
 		Pinned *bool           `json:"pinned"` // only an explicit false unpins
 		Data   json.RawMessage `json:"data"`
+		// Plan replaces the widget's saved query and settings, as the
+		// widget settings change its projection.
+		Plan json.RawMessage `json:"plan"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
 	}
-	if err := a.WidgetPatch(id, in.Title, in.Type, string(in.Data)); err != nil {
+	plan := ""
+	if len(in.Plan) > 0 && string(in.Plan) != "null" {
+		if query.ParseSpec(string(in.Plan)) == nil {
+			return &badRequest{"That widget's settings couldn't be read."}
+		}
+		plan = string(in.Plan)
+	}
+	if err := a.WidgetPatch(id, in.Title, in.Type, string(in.Data), plan); err != nil {
 		return err
 	}
 	if in.Pinned != nil && !*in.Pinned {
@@ -275,6 +285,32 @@ func (a *App) apiWidgetPatch(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, map[string]any{"ok": true})
+	return nil
+}
+
+// apiWidgetPreview runs a widget's saved query with changed settings (a
+// new type or projection) over the page's period, for the widget settings
+// to show before anything is saved.
+func (a *App) apiWidgetPreview(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		Type   string          `json:"type"`
+		Plan   json.RawMessage `json:"plan"`
+		Period string          `json:"period"`
+		From   string          `json:"from"`
+		To     string          `json:"to"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		return err
+	}
+	spec := query.ParseSpec(string(in.Plan))
+	if spec == nil || a.Query == nil {
+		return &badRequest{"This widget has no saved query to run."}
+	}
+	out, err := a.Query.RunSpec(spec, in.Type, a.viewWindow(in.Period, in.From, in.To))
+	if err != nil {
+		return &badRequest{err.Error()}
+	}
+	writeJSON(w, map[string]any{"data": out.Data, "plan": spec})
 	return nil
 }
 
