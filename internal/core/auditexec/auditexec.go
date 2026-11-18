@@ -464,18 +464,8 @@ func getTxIn(r *repos.Transactions, tx *sql.Tx, id string) (*core.Transaction, e
 }
 
 func scanAccountIn(r *repos.Accounts, tx *sql.Tx, id string) (*core.Account, error) {
-	var a core.Account
-	var openingDate, deletedAt sql.NullString
-	err := repos.Row(r.DB, tx, `SELECT id, name, type, color, currency, opening_balance_minor, COALESCE(opening_balance_date,''),
-		account_number, sort_code, iban, bic, notes, created_at, updated_at, deleted_at
-		FROM accounts WHERE id = ? AND deleted_at IS NULL`, id).
-		Scan(&a.ID, &a.Name, &a.Type, &a.Color, &a.Currency, &a.OpeningBalanceMinor, &openingDate,
-			&a.AccountNumber, &a.SortCode, &a.IBAN, &a.BIC, &a.Notes, &a.CreatedAt, &a.UpdatedAt, &deletedAt)
-	if err != nil {
-		return nil, err
-	}
-	a.OpeningBalanceDate = openingDate.String
-	return &a, nil
+	return repos.ScanAccount(repos.Row(r.DB, tx, `SELECT `+repos.AccountCols+`
+		FROM accounts WHERE id = ? AND deleted_at IS NULL`, id))
 }
 
 func scanCategoryIn(r *repos.Categories, tx *sql.Tx, id string) (*core.Category, error) {

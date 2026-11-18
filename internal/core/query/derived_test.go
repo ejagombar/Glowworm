@@ -1,6 +1,7 @@
 package query
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -147,4 +148,118 @@ func cellsText(r []any) []string {
 
 func (s *Service) runQuery(sql string) (*QueryResult, error) {
 	return runReadonlyQuery(s.DB, s.today(), sql)
+}
+
+// Filters SQLite pushes into account_periods narrow what it computes, never
+// what the query gets: a filtered query matches the same rows picked out of
+// the whole table.
+func TestAccountPeriodsPushdownMatches(t *testing.T) {
+	svc := seedPeriodsData(t)
+	where := []string{
+		"grain = 'month'",
+		"grain = 'week' AND account_id = 'sav'",
+		"grain = 'day' AND end_date >= '2024-02-01' AND start_date <= '2024-02-10'",
+		"grain = 'month' AND start_date > '2024-01-15' AND end_date < '2024-03-31'",
+		"account_type = 'savings' AND grain = 'year'",
+		"account = 'Current' AND grain = 'day' AND start_date BETWEEN '2024-01-20' AND '2024-01-30'",
+	}
+	for _, w := range where {
+		direct, err := svc.runQuery(`SELECT * FROM account_periods WHERE ` + w + ` ORDER BY 1,2,5`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Wrapping in a subquery with OFFSET 0 stops SQLite pushing the
+		// filter down.
+		whole, err := svc.runQuery(`SELECT * FROM (SELECT * FROM account_periods LIMIT -1 OFFSET 0) WHERE ` + w + ` ORDER BY 1,2,5`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(direct.Rows) == 0 || !reflect.DeepEqual(direct.Rows, whole.Rows) {
+			t.Errorf("%s: %d rows filtered, %d picked from the whole table", w, len(direct.Rows), len(whole.Rows))
+		}
+	}
+}
+
+func TestAccountStatusAndGoals(t *testing.T) {
+	svc := seedPeriodsData(t)
+	must := func(q string, args ...any) {
+		t.Helper()
+		if _, err := svc.DB.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := "2024-01-01T00:00:00Z"
+	must(`UPDATE accounts SET interest_rate = 0.05, tax_wrapper = 'isa' WHERE id = 'sav'`)
+	must(`INSERT INTO goals (id, name, target_minor, target_date, created_at, updated_at) VALUES
+		('g1', 'House', 200000, '2025-12-31', ?, ?), ('g2', 'Rainy day', 100000, NULL, ?, ?)`, ts, ts, ts, ts)
+	must(`INSERT INTO goal_accounts (goal_id, account_id) VALUES ('g1', 'sav'), ('g1', 'cur')`)
+
+	res, err := svc.runQuery(`SELECT account, balance_minor, last_valued, days_since, reminder_days, due, interest_rate, tax_wrapper
+		FROM account_status ORDER BY account`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, r := range res.Rows {
+		got = append(got, strings.Join(cellsText(r), " "))
+	}
+	// Today is 2024-03-15: the ISA was valued 14 days ago, under the
+	// 30-day default; the current account has no reminder by default.
+	want := "Current 227000   0 0  \nISA 121000 2024-03-01 14 30 0 0.05 isa"
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("status got\n%s\nwant\n%s", strings.Join(got, "\n"), want)
+	}
+	must(`INSERT INTO settings (key, value, updated_at) VALUES ('reminder_default_days', '7', ?)`, ts)
+	res, _ = svc.runQuery(`SELECT due FROM account_status WHERE account = 'ISA'`)
+	if cellText(res.Rows[0][0]) != "1" {
+		t.Error("a 7-day default doesn't make a 14-day-old balance due")
+	}
+
+	res, err = svc.runQuery(`SELECT goal, current_minor, remaining_minor, round(progress, 4), months_left, monthly_needed_minor,
+		projected_month, on_track, accounts FROM goal_progress ORDER BY goal`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = got[:0]
+	for _, r := range res.Rows {
+		got = append(got, strings.Join(cellsText(r), " "))
+	}
+	if len(got) != 2 || !strings.HasPrefix(got[0], "House 348000 0 1.74 22 0 2024-03 1 Current, ISA") ||
+		!strings.HasPrefix(got[1], "Rainy day 121000 0 1.21") {
+		t.Fatalf("goals:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// The book behind the derived tables is kept between queries, and any
+// change to what it's worked out from shows in the next one.
+func TestDerivedTablesSeeChanges(t *testing.T) {
+	svc := seedPeriodsData(t)
+	balance := func() string {
+		t.Helper()
+		res, err := svc.runQuery(`SELECT balance_minor FROM account_status WHERE account_id = 'sav'`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cellText(res.Rows[0][0])
+	}
+	if got := balance(); got != "121000" {
+		t.Fatalf("got %s", got)
+	}
+	steps := []struct{ sql, want string }{
+		{`INSERT INTO valuations (id, account_id, value_minor, date, source, created_at, updated_at)
+			VALUES ('v9', 'sav', 130000, '2024-03-10', 'manual', '2024-03-10T00:00:00Z', '2024-03-10T00:00:00Z')`, "130000"},
+		{`UPDATE valuations SET deleted_at = '2024-03-11' WHERE id = 'v9'`, "121000"},
+		{`INSERT INTO transactions (id, account_id, date, description, amount_minor, currency, type, dedupe_hash, created_at, updated_at)
+			VALUES ('in2', 'sav', '2024-03-12', 'in2', 500, 'GBP', 'transfer', 'in2', 'x', 'x')`, "121500"},
+		{`DELETE FROM transactions WHERE id = 'in2'`, "121000"},
+		{`UPDATE accounts SET opening_balance_minor = 7 WHERE id = 'sav'`, "121000"},
+	}
+	for _, s := range steps {
+		if _, err := svc.DB.Exec(s.sql); err != nil {
+			t.Fatal(err)
+		}
+		if got := balance(); got != s.want {
+			t.Errorf("after %.40s…: %s, want %s", s.sql, got, s.want)
+		}
+	}
 }

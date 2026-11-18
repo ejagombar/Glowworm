@@ -41,6 +41,8 @@ var forbiddenTokens = map[string]bool{
 // the model into reading them, so queries can't name them at all.
 var privateTables = map[string]bool{
 	"users": true, "ai_provider_config": true, "ai_provider_keys": true, "ai_calls": true,
+	// A push endpoint lets whoever holds it send notifications to that device.
+	"push_subscriptions": true,
 }
 
 func validateReadonly(sql string) error {
@@ -181,17 +183,16 @@ func withReadonlyRows(db *store.DB, today, sql string, limit int, args []any, fn
 		return err
 	}
 	defer conn.Close()
-	// Derived tables are written before the connection turns read-only,
+	// Derived tables are created before the connection turns read-only,
 	// and dropped once it can write again.
-	derived := derivedNames(sql)
-	if len(derived) > 0 {
-		if err := buildDerived(ctx, conn, derived, today); err != nil {
-			_ = dropDerived(context.Background(), conn, derived)
+	drop := func(context.Context) error { return nil }
+	if derived := derivedNames(sql); len(derived) > 0 {
+		if drop, err = buildDerived(ctx, db, conn, derived, today); err != nil {
 			return err
 		}
 	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA query_only = ON`); err != nil {
-		_ = dropDerived(context.Background(), conn, derived)
+		_ = drop(context.Background())
 		return err
 	}
 	defer func() {
@@ -199,7 +200,7 @@ func withReadonlyRows(db *store.DB, today, sql string, limit int, args []any, fn
 		// if it can't be put back that way, throw the connection away.
 		_, err := conn.ExecContext(context.Background(), `PRAGMA query_only = OFF`)
 		if err == nil {
-			err = dropDerived(context.Background(), conn, derived)
+			err = drop(context.Background())
 		}
 		if err != nil {
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })

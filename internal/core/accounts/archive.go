@@ -33,8 +33,12 @@ type snapAccount struct {
 	IBAN                string `json:"iban,omitempty"`
 	BIC                 string `json:"bic,omitempty"`
 	Notes               string `json:"notes,omitempty"`
-	CreatedAt           string `json:"created_at"`
-	UpdatedAt           string `json:"updated_at"`
+	// Added later: an archive made before has none, which reads as unset.
+	InterestRate        *float64 `json:"interest_rate,omitempty"`
+	TaxWrapper          string   `json:"tax_wrapper,omitempty"`
+	BalanceReminderDays *int64   `json:"balance_reminder_days,omitempty"`
+	CreatedAt           string   `json:"created_at"`
+	UpdatedAt           string   `json:"updated_at"`
 }
 
 type snapValuation struct {
@@ -113,13 +117,21 @@ func buildSnapshot(q querier, id string) (*snapshot, error) {
 	ab := &snapshot{Categories: []snapCategory{}, Valuations: []snapValuation{}, Transactions: []snapTransaction{}, Transfers: []snapTransfer{}}
 	a := &ab.Account
 	var openDate sql.NullString
+	var rate sql.NullFloat64
+	var remind sql.NullInt64
 	err := q.QueryRow(`SELECT id, name, type, color, currency, opening_balance_minor, opening_balance_date,
-		account_number, sort_code, iban, bic, notes, created_at, updated_at
+		account_number, sort_code, iban, bic, notes, interest_rate, tax_wrapper, balance_reminder_days, created_at, updated_at
 		FROM accounts WHERE id = ? AND deleted_at IS NULL`, id).
 		Scan(&a.ID, &a.Name, &a.Type, &a.Color, &a.Currency, &a.OpeningBalanceMinor, &openDate,
-			&a.AccountNumber, &a.SortCode, &a.IBAN, &a.BIC, &a.Notes, &a.CreatedAt, &a.UpdatedAt)
+			&a.AccountNumber, &a.SortCode, &a.IBAN, &a.BIC, &a.Notes, &rate, &a.TaxWrapper, &remind, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if rate.Valid {
+		a.InterestRate = &rate.Float64
+	}
+	if remind.Valid {
+		a.BalanceReminderDays = &remind.Int64
 	}
 	a.OpeningBalanceDate = openDate.String
 
@@ -371,10 +383,12 @@ func (s *Service) RestoreArchive(archiveID string) (*RestoredAccount, error) {
 		res.CategoriesCreated = created
 		now := util.NowStr()
 		if _, err := tx.Exec(`INSERT INTO accounts (id, name, type, color, currency, opening_balance_minor,
-			opening_balance_date, account_number, sort_code, iban, bic, notes, created_at, updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			opening_balance_date, account_number, sort_code, iban, bic, notes, interest_rate, tax_wrapper,
+			balance_reminder_days, created_at, updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			a.ID, a.Name, a.Type, a.Color, a.Currency, a.OpeningBalanceMinor, nullIfEmpty(a.OpeningBalanceDate),
-			a.AccountNumber, a.SortCode, a.IBAN, a.BIC, a.Notes, a.CreatedAt, now); err != nil {
+			a.AccountNumber, a.SortCode, a.IBAN, a.BIC, a.Notes, a.InterestRate, a.TaxWrapper, a.BalanceReminderDays,
+			a.CreatedAt, now); err != nil {
 			return err
 		}
 		for _, v := range snap.Valuations {

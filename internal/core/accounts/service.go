@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -87,7 +88,57 @@ type Input struct {
 	BIC                 *string `json:"bic"`
 	Notes               *string `json:"notes"`
 	Color               string  `json:"color"`
+	// The savings details follow the same rule: left out keeps, sent sets.
+	// InterestRate and BalanceReminderDays clear with null inside a
+	// present field, so they are read through Opt.
+	InterestRate        OptFloat `json:"interest_rate"`
+	TaxWrapper          *string  `json:"tax_wrapper"`
+	BalanceReminderDays OptInt   `json:"balance_reminder_days"`
 }
+
+// OptFloat is a JSON field that may be missing (Set false), null (Set,
+// Value nil) or a number.
+type OptFloat struct {
+	Set   bool
+	Value *float64
+}
+
+func (o *OptFloat) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	if string(b) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var f float64
+	if err := json.Unmarshal(b, &f); err != nil {
+		return err
+	}
+	o.Value = &f
+	return nil
+}
+
+// OptInt is OptFloat for whole numbers.
+type OptInt struct {
+	Set   bool
+	Value *int64
+}
+
+func (o *OptInt) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	if string(b) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var n int64
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	o.Value = &n
+	return nil
+}
+
+// TaxWrappers are the tax wrappers an account can be in.
+var TaxWrappers = map[string]string{"": "None", "isa": "ISA", "lisa": "Lifetime ISA", "pension": "Pension", "other": "Other"}
 
 // sent sets dst to a value the input carries, and leaves it alone otherwise.
 func sent(dst *string, v *string) {
@@ -103,6 +154,13 @@ func (in *Input) details(a *core.Account) {
 	sent(&a.IBAN, in.IBAN)
 	sent(&a.BIC, in.BIC)
 	sent(&a.Notes, in.Notes)
+	sent(&a.TaxWrapper, in.TaxWrapper)
+	if in.InterestRate.Set {
+		a.InterestRate = in.InterestRate.Value
+	}
+	if in.BalanceReminderDays.Set {
+		a.BalanceReminderDays = in.BalanceReminderDays.Value
+	}
 }
 
 func (in *Input) Validate() error {
@@ -118,6 +176,17 @@ func (in *Input) Validate() error {
 	if in.Color != "" && !core.ValidColor(in.Color) {
 		return &ValidationError{Message: "Colour must be a hex code like #2e9d8f"}
 	}
+	if in.TaxWrapper != nil {
+		if _, ok := TaxWrappers[strings.TrimSpace(*in.TaxWrapper)]; !ok {
+			return &ValidationError{Message: "Tax wrapper must be none, isa, lisa, pension or other"}
+		}
+	}
+	if r := in.InterestRate.Value; r != nil && (*r < -1 || *r > 1) {
+		return &ValidationError{Message: "Interest rate is a yearly ratio: 0.045 for 4.5%"}
+	}
+	if d := in.BalanceReminderDays.Value; d != nil && (*d < 0 || *d > 3660) {
+		return &ValidationError{Message: "Reminder interval must be between 0 (never) and 3660 days"}
+	}
 	return nil
 }
 
@@ -129,7 +198,23 @@ func accountSnapshot(a *core.Account) map[string]any {
 		// The bank details too, or undoing an edit couldn't put them back.
 		// Snapshots stay in the database and are never shown.
 		"account_number": a.AccountNumber, "sort_code": a.SortCode, "iban": a.IBAN, "bic": a.BIC,
+		"interest_rate": floatOrNil(a.InterestRate), "tax_wrapper": a.TaxWrapper,
+		"balance_reminder_days": intOrNil(a.BalanceReminderDays),
 	}
+}
+
+func floatOrNil(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func intOrNil(p *int64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 func (s *Service) Create(in Input) (*core.Account, error) {
@@ -200,7 +285,8 @@ func (s *Service) Update(id string, in Input) (*core.Account, error) {
 		}
 		after := accountSnapshot(a)
 		diff := []audit.DiffLine{}
-		for _, k := range []string{"name", "type", "currency", "opening_balance_minor", "opening_balance_date"} {
+		for _, k := range []string{"name", "type", "currency", "opening_balance_minor", "opening_balance_date",
+			"interest_rate", "tax_wrapper", "balance_reminder_days"} {
 			bv, av := fmt.Sprint(before[k]), fmt.Sprint(after[k])
 			if bv != av {
 				diff = append(diff, audit.DiffLine{Line: "− " + k + ": " + bv, Cls: "diff-del"},

@@ -6,56 +6,74 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
+	"sync"
+	"sync/atomic"
+
+	"modernc.org/sqlite/vtab"
+
+	"glowworm/internal/core/ledger"
+	"glowworm/internal/store"
 )
 
-// Derived tables are tables a query can read that the app works out from the
-// stored data rather than keeps: an account's balance over time takes
+// Derived tables are tables a query can read that the app works out from
+// the stored data rather than keeps: an account's balance over time takes
 // valuations, opening balances and transactions together, which is hard to
-// get right in one SELECT. When a query names one, it is built for that query
-// alone as a TEMP table on the query's own connection, before the connection
-// is made read-only, and dropped afterwards. Nothing is stored, so changing
-// one needs no migration.
+// get right in one SELECT. Each is an SQLite virtual table: when a query
+// names one, the query's connection reads a ledger.Book (a compact summary
+// of the accounts' history) and the table computes the rows SQLite asks
+// for, taking the query's filters on grain, account and dates into account,
+// so nothing is written and nothing the query doesn't need is computed.
+//
+// The tables live in the connection's temp schema for one query only.
 
-// derivedTable builds one derived table on conn. today is the last day it
-// covers (later dated rows still count).
+// derivedTable describes one derived table: its columns, and the rows for
+// a book given the filters the query pushed down.
 type derivedTable struct {
-	create string
-	build  func(ctx context.Context, conn *gosql.Conn, today string) error
+	columns []string // "name TYPE"
+	// filterable are the columns rows() can narrow by, by index.
+	filterable map[int]bool
+	rows       func(b *ledger.Book, f filters) [][]vtab.Value
 }
 
-var derivedTables = map[string]derivedTable{
-	"account_periods": {create: accountPeriodsDDL, build: buildAccountPeriods},
+var derivedTables = map[string]*derivedTable{
+	"account_periods": accountPeriods,
+	"account_status":  accountStatus,
+	"goal_progress":   goalProgress,
 }
 
-// accountPeriodsDDL: one row per account per period (day, week, month and
-// year), from the account's start to today, so a series never has gaps and
-// balances add up across accounts. The identity
-//
-//	closing = opening + deposits - withdrawals + income - spend + growth
-//
-// holds for every row. growth is the change no transaction explains: what
-// a recorded balance (a valuation) adds over what the transactions say, so
-// interest and investment returns on a savings account.
-const accountPeriodsDDL = `CREATE TEMP TABLE account_periods (
-  grain TEXT NOT NULL,
-  period TEXT NOT NULL,
-  start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL,
-  account_id TEXT NOT NULL,
-  account TEXT NOT NULL,
-  account_type TEXT NOT NULL,
-  currency TEXT NOT NULL,
-  opening_minor INTEGER NOT NULL,
-  closing_minor INTEGER NOT NULL,
-  deposits_minor INTEGER NOT NULL,
-  withdrawals_minor INTEGER NOT NULL,
-  income_minor INTEGER NOT NULL,
-  spend_minor INTEGER NOT NULL,
-  growth_minor INTEGER NOT NULL
-)`
+// filters are the constraints SQLite passed down: col -> op -> value. SQLite
+// still checks every row against the query itself, so a table may return
+// more rows than match, never fewer.
+type filters map[int]map[vtab.ConstraintOp]string
 
-// derivedNames are the derived tables sql names, in a fixed order.
+func (f filters) eq(col int) (string, bool) {
+	v, ok := f[col][vtab.OpEQ]
+	return v, ok
+}
+
+// lowest is the smallest value col may take (from >, >= and =), or "".
+func (f filters) lowest(col int) string {
+	lo := ""
+	for op, v := range f[col] {
+		if (op == vtab.OpGE || op == vtab.OpGT || op == vtab.OpEQ) && v > lo {
+			lo = v
+		}
+	}
+	return lo
+}
+
+// highest is the largest value col may take (from <, <= and =), or "".
+func (f filters) highest(col int) string {
+	hi := ""
+	for op, v := range f[col] {
+		if (op == vtab.OpLE || op == vtab.OpLT || op == vtab.OpEQ) && (hi == "" || v < hi) {
+			hi = v
+		}
+	}
+	return hi
+}
+
+// derivedNames are the derived tables sql names, sorted.
 func derivedNames(sql string) []string {
 	toks, _ := tokenizeSQL(sql)
 	seen := map[string]bool{}
@@ -73,303 +91,250 @@ func derivedNames(sql string) []string {
 	return out
 }
 
-// buildDerived creates the named derived tables on conn.
-func buildDerived(ctx context.Context, conn *gosql.Conn, names []string, today string) error {
-	for _, name := range names {
-		d := derivedTables[name]
-		if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS temp.`+name); err != nil {
-			return err
-		}
-		if _, err := conn.ExecContext(ctx, d.create); err != nil {
-			return err
-		}
-		if err := d.build(ctx, conn, today); err != nil {
-			return fmt.Errorf("building %s: %w", name, err)
+// books holds the book each query's tables read, by the token the tables
+// are created with.
+var (
+	books     sync.Map
+	bookToken atomic.Int64
+)
+
+func init() {
+	for name, t := range derivedTables {
+		if err := vtab.RegisterModule(nil, moduleName(name), &derivedModule{table: t}); err != nil {
+			panic(err)
 		}
 	}
+}
+
+func moduleName(table string) string { return "glowworm_" + table }
+
+// buildDerived reads the book and creates the named tables on conn,
+// returning what drops them again.
+func buildDerived(ctx context.Context, db *store.DB, conn *gosql.Conn, names []string, today string) (func(context.Context) error, error) {
+	book, err := ledger.Cached(ctx, db.DB, conn, today)
+	if err != nil {
+		return nil, err
+	}
+	token := fmt.Sprint(bookToken.Add(1))
+	books.Store(token, book)
+	drop := func(ctx context.Context) error {
+		defer books.Delete(token)
+		for _, name := range names {
+			if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS temp.`+name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, name := range names {
+		if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS temp.`+name); err != nil {
+			_ = drop(context.Background())
+			return nil, err
+		}
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf(`CREATE VIRTUAL TABLE temp.%s USING %s(%s)`, name, moduleName(name), token)); err != nil {
+			_ = drop(context.Background())
+			return nil, err
+		}
+	}
+	return drop, nil
+}
+
+// ---- The vtab plumbing, shared by every derived table.
+
+type derivedModule struct{ table *derivedTable }
+
+func (m *derivedModule) Create(ctx vtab.Context, args []string) (vtab.Table, error) {
+	return m.Connect(ctx, args)
+}
+
+func (m *derivedModule) Connect(ctx vtab.Context, args []string) (vtab.Table, error) {
+	if len(args) < 4 {
+		return nil, fmt.Errorf("derived table: no book")
+	}
+	b, ok := books.Load(strings.TrimSpace(args[3]))
+	if !ok {
+		return nil, fmt.Errorf("derived table: book %s is gone", args[3])
+	}
+	if err := ctx.Declare("CREATE TABLE x(" + strings.Join(m.table.columns, ", ") + ")"); err != nil {
+		return nil, err
+	}
+	return &derivedVTable{t: m.table, book: b.(*ledger.Book)}, nil
+}
+
+type derivedVTable struct {
+	t    *derivedTable
+	book *ledger.Book
+}
+
+// BestIndex takes every usable comparison on a filterable column, and
+// encodes which they are in IdxStr ("col:op,col:op"), in argument order.
+func (v *derivedVTable) BestIndex(info *vtab.IndexInfo) error {
+	var parts []string
+	n := 0
+	cost := 1e6
+	for i := range info.Constraints {
+		c := &info.Constraints[i]
+		if !c.Usable || !v.t.filterable[c.Column] {
+			continue
+		}
+		switch c.Op {
+		case vtab.OpEQ, vtab.OpGE, vtab.OpGT, vtab.OpLE, vtab.OpLT:
+		default:
+			continue
+		}
+		c.ArgIndex = n
+		n++
+		parts = append(parts, fmt.Sprintf("%d:%d", c.Column, c.Op))
+		if c.Op == vtab.OpEQ {
+			cost /= 20
+		} else {
+			cost /= 3
+		}
+	}
+	info.IdxStr = strings.Join(parts, ",")
+	info.EstimatedCost = cost
+	info.EstimatedRows = int64(cost)
 	return nil
 }
 
-func dropDerived(ctx context.Context, conn *gosql.Conn, names []string) error {
-	for _, name := range names {
-		if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS temp.`+name); err != nil {
-			return err
+func (v *derivedVTable) Open() (vtab.Cursor, error) { return &derivedCursor{v: v}, nil }
+func (v *derivedVTable) Disconnect() error          { return nil }
+func (v *derivedVTable) Destroy() error             { return nil }
+
+type derivedCursor struct {
+	v    *derivedVTable
+	rows [][]vtab.Value
+	i    int
+}
+
+func (c *derivedCursor) Filter(_ int, idxStr string, vals []vtab.Value) error {
+	f := filters{}
+	if idxStr != "" {
+		for i, part := range strings.Split(idxStr, ",") {
+			var col, op int
+			if _, err := fmt.Sscanf(part, "%d:%d", &col, &op); err != nil || i >= len(vals) {
+				continue
+			}
+			if f[col] == nil {
+				f[col] = map[vtab.ConstraintOp]string{}
+			}
+			f[col][vtab.ConstraintOp(op)] = fmt.Sprint(vals[i])
 		}
 	}
+	c.rows = c.v.t.rows(c.v.book, f)
+	c.i = 0
 	return nil
 }
 
-// dayFlows is what an account's transactions on one day did, each figure
-// as the account sees it: deposits and withdrawals are transfers in and out
-// (both positive), income and spend net of refunds.
-type dayFlows struct {
-	deposits, withdrawals, income, spend int64
+func (c *derivedCursor) Next() error { c.i++; return nil }
+func (c *derivedCursor) Eof() bool   { return c.i >= len(c.rows) }
+func (c *derivedCursor) Column(col int) (vtab.Value, error) {
+	return c.rows[c.i][col], nil
 }
+func (c *derivedCursor) Rowid() (int64, error) { return int64(c.i + 1), nil }
+func (c *derivedCursor) Close() error          { return nil }
 
-func (f dayFlows) net() int64 { return f.deposits - f.withdrawals + f.income - f.spend }
+// ---- The tables.
 
-type periodAccount struct {
-	id, name, typ, currency string
-	opening                 int64
-	openingDate, created    string
-	flows                   map[string]dayFlows
-	values                  map[string]int64 // valuation per day, the latest recorded that day
-	firstFlow, lastFlow     string
-	firstValue, lastValue   string
-}
-
-// accountDay is one account's day: its balance before and after, and why.
-type accountDay struct {
-	date             string
-	opening, closing int64
-	flows            dayFlows
-	growth           int64
-}
-
-func buildAccountPeriods(ctx context.Context, conn *gosql.Conn, today string) error {
-	accts, err := loadPeriodAccounts(ctx, conn)
-	if err != nil {
-		return err
-	}
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO temp.account_periods VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = stmt.Close() }()
-	for _, a := range accts {
-		days := a.days(today)
-		for _, grain := range []string{"day", "week", "month", "year"} {
-			for _, p := range rollUp(days, grain) {
-				if _, err := stmt.ExecContext(ctx, grain, p.period, p.start, p.end, a.id, a.name, a.typ, a.currency,
-					p.opening, p.closing, p.flows.deposits, p.flows.withdrawals, p.flows.income, p.flows.spend, p.growth); err != nil {
-					return err
+// account_periods: one row per account per period at each grain, from the
+// account's start to today, every period present so balances add up.
+// closing = opening + deposits - withdrawals + income - spend + growth.
+var accountPeriods = &derivedTable{
+	columns: []string{"grain TEXT", "period TEXT", "start_date TEXT", "end_date TEXT", "account_id TEXT",
+		"account TEXT", "account_type TEXT", "currency TEXT", "opening_minor INTEGER", "closing_minor INTEGER",
+		"deposits_minor INTEGER", "withdrawals_minor INTEGER", "income_minor INTEGER", "spend_minor INTEGER",
+		"growth_minor INTEGER"},
+	// grain, start_date, end_date, account_id, account, account_type
+	filterable: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true},
+	rows: func(b *ledger.Book, f filters) [][]vtab.Value {
+		grains := ledger.Grains
+		if g, ok := f.eq(0); ok {
+			grains = []string{g}
+		}
+		// A period overlaps from..to when it ends on or after from and
+		// starts on or before to.
+		from, to := max(f.lowest(3), f.lowest(2)), f.highest(2)
+		if hi := f.highest(3); hi != "" && (to == "" || hi < to) {
+			to = hi
+		}
+		var out [][]vtab.Value
+		for _, a := range b.Accounts {
+			if id, ok := f.eq(4); ok && id != a.ID {
+				continue
+			}
+			if n, ok := f.eq(5); ok && n != a.Name {
+				continue
+			}
+			if t, ok := f.eq(6); ok && t != a.Type {
+				continue
+			}
+			for _, g := range grains {
+				for _, p := range a.Periods(g, from, to, b.Today) {
+					out = append(out, []vtab.Value{p.Grain, p.Label, p.Start, p.End, a.ID, a.Name, a.Type, a.Currency,
+						p.Opening, p.Closing, p.Flows.Deposits, p.Flows.Withdrawals, p.Flows.Income, p.Flows.Spend, p.Growth})
 				}
 			}
 		}
-	}
-	return tx.Commit()
+		return out
+	},
 }
 
-func loadPeriodAccounts(ctx context.Context, conn *gosql.Conn) ([]*periodAccount, error) {
-	byID := map[string]*periodAccount{}
-	var order []*periodAccount
-	rows, err := conn.QueryContext(ctx, `SELECT id, name, type, currency, opening_balance_minor,
-		COALESCE(opening_balance_date, ''), created_at FROM accounts WHERE deleted_at IS NULL ORDER BY name, id`)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		a := &periodAccount{flows: map[string]dayFlows{}, values: map[string]int64{}}
-		if err := rows.Scan(&a.id, &a.name, &a.typ, &a.currency, &a.opening, &a.openingDate, &a.created); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		byID[a.id] = a
-		order = append(order, a)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	rows, err = conn.QueryContext(ctx, `SELECT account_id, date,
-		COALESCE(SUM(CASE WHEN type = 'transfer' AND amount_minor > 0 THEN amount_minor END), 0),
-		COALESCE(SUM(CASE WHEN type = 'transfer' AND amount_minor < 0 THEN -amount_minor END), 0),
-		COALESCE(SUM(CASE WHEN type = 'income' THEN amount_minor END), 0),
-		COALESCE(SUM(CASE WHEN type NOT IN ('transfer', 'income') THEN -amount_minor END), 0)
-		FROM transactions WHERE deleted_at IS NULL GROUP BY account_id, date ORDER BY account_id, date`)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var id, date string
-		var f dayFlows
-		if err := rows.Scan(&id, &date, &f.deposits, &f.withdrawals, &f.income, &f.spend); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		a := byID[id]
-		if a == nil || !validDay(date) {
-			continue
-		}
-		a.flows[date] = f
-		if a.firstFlow == "" || date < a.firstFlow {
-			a.firstFlow = date
-		}
-		if date > a.lastFlow {
-			a.lastFlow = date
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Ordered so the latest recorded value of a day wins, as in balances.
-	rows, err = conn.QueryContext(ctx, `SELECT account_id, date, value_minor FROM valuations
-		WHERE deleted_at IS NULL ORDER BY account_id, date, created_at`)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var id, date string
-		var v int64
-		if err := rows.Scan(&id, &date, &v); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		a := byID[id]
-		if a == nil || !validDay(date) {
-			continue
-		}
-		a.values[date] = v
-		if a.firstValue == "" || date < a.firstValue {
-			a.firstValue = date
-		}
-		if date > a.lastValue {
-			a.lastValue = date
-		}
-	}
-	rows.Close()
-	return order, rows.Err()
-}
-
-func validDay(s string) bool {
-	_, err := time.Parse("2006-01-02", s)
-	return err == nil
-}
-
-// days walks the account from its start to today (or its last dated entry,
-// if later), a day at a time, by the same rules as balances.Expected: a
-// valuation sets the balance at the end of its day; transactions count
-// after the latest valuation before them, or with none, after the opening
-// balance date.
-//
-// The first valuation, with no opening balance date on or before it, says
-// what the account held to begin with rather than how it grew (as the
-// reconcile check reads it), so the difference is moved into the opening
-// balance instead of counting as growth.
-func (a *periodAccount) days(today string) []accountDay {
-	// Transactions before the opening balance date don't count, so they
-	// don't start the account either.
-	start, firsts := a.openingDate, []string{a.firstFlow, a.firstValue}
-	if start != "" {
-		firsts = firsts[1:]
-	}
-	for _, d := range firsts {
-		if d != "" && (start == "" || d < start) {
-			start = d
-		}
-	}
-	if start == "" || !validDay(start) {
-		if a.opening == 0 {
-			return nil
-		}
-		start = today
-		if len(a.created) >= 10 && validDay(a.created[:10]) && a.created[:10] < start {
-			start = a.created[:10]
-		}
-	}
-	end := today
-	for _, d := range []string{a.lastFlow, a.lastValue} {
-		if d > end {
-			end = d
-		}
-	}
-	if start > end {
-		end = start
-	}
-	walk := func(opening int64) ([]accountDay, int64) {
-		var out []accountDay
-		bal := opening
-		seenValue := false
-		var rebase int64
-		for d := start; d <= end; d = nextDay(d) {
-			day := accountDay{date: d, opening: bal}
-			if seenValue || a.openingDate == "" || d > a.openingDate {
-				day.flows = a.flows[d]
+// account_status: each account's balance now and how up to date it is.
+var accountStatus = &derivedTable{
+	columns: []string{"account_id TEXT", "account TEXT", "account_type TEXT", "currency TEXT", "balance_minor INTEGER",
+		"last_valued TEXT", "days_since INTEGER", "reminder_days INTEGER", "due INTEGER",
+		"interest_rate REAL", "tax_wrapper TEXT"},
+	rows: func(b *ledger.Book, _ filters) [][]vtab.Value {
+		var out [][]vtab.Value
+		for _, s := range b.Statuses() {
+			a := s.Account
+			var last, since, rate vtab.Value
+			if s.LastValued != "" {
+				last, since = s.LastValued, int64(s.DaysSince)
 			}
-			closing := bal + day.flows.net()
-			if v, ok := a.values[d]; ok {
-				drift := v - closing
-				if !seenValue && (a.openingDate == "" || a.openingDate > d) {
-					rebase = drift
-				} else {
-					day.growth = drift
-				}
-				closing = v
-				seenValue = true
+			if a.InterestRate != nil {
+				rate = *a.InterestRate
 			}
-			day.closing = closing
-			bal = closing
-			out = append(out, day)
+			out = append(out, []vtab.Value{a.ID, a.Name, a.Type, a.Currency, s.Balance, last, since,
+				int64(s.ReminderDays), boolInt(s.Due), rate, a.TaxWrapper})
 		}
-		return out, rebase
-	}
-	out, rebase := walk(a.opening)
-	if rebase != 0 {
-		out, _ = walk(a.opening + rebase)
-	}
-	return out
+		return out
+	},
 }
 
-func nextDay(d string) string {
-	t, err := time.Parse("2006-01-02", d)
-	if err != nil {
-		return "9999-12-31\x00" // stops the walk
-	}
-	return t.AddDate(0, 0, 1).Format("2006-01-02")
-}
-
-type periodRow struct {
-	period, start, end string
-	opening, closing   int64
-	flows              dayFlows
-	growth             int64
-}
-
-// periodOf is the period a day falls in at a grain, labelled as widget
-// queries label buckets: the day, the Monday a week starts on, YYYY-MM or
-// YYYY. start and end are the period's first and last calendar days.
-func periodOf(d, grain string) (label, start, end string) {
-	t, err := time.Parse("2006-01-02", d)
-	if err != nil {
-		return d, d, d
-	}
-	switch grain {
-	case "week":
-		s := t.AddDate(0, 0, -((int(t.Weekday()) + 6) % 7))
-		return s.Format("2006-01-02"), s.Format("2006-01-02"), s.AddDate(0, 0, 6).Format("2006-01-02")
-	case "month":
-		s := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
-		return s.Format("2006-01"), s.Format("2006-01-02"), s.AddDate(0, 1, -1).Format("2006-01-02")
-	case "year":
-		return t.Format("2006"), t.Format("2006") + "-01-01", t.Format("2006") + "-12-31"
-	}
-	return d, d, d
-}
-
-// rollUp groups consecutive days into periods: the first day's opening,
-// the last day's closing, and everything in between added up.
-func rollUp(days []accountDay, grain string) []periodRow {
-	var out []periodRow
-	for _, d := range days {
-		label, start, end := periodOf(d.date, grain)
-		if n := len(out); n == 0 || out[n-1].period != label {
-			out = append(out, periodRow{period: label, start: start, end: end, opening: d.opening})
+// goal_progress: each goal's progress and pace.
+var goalProgress = &derivedTable{
+	columns: []string{"goal_id TEXT", "goal TEXT", "color TEXT", "target_minor INTEGER", "target_date TEXT",
+		"current_minor INTEGER", "remaining_minor INTEGER", "progress REAL", "pace_minor INTEGER",
+		"months_left INTEGER", "monthly_needed_minor INTEGER", "projected_month TEXT", "on_track INTEGER", "accounts TEXT"},
+	rows: func(b *ledger.Book, _ filters) [][]vtab.Value {
+		var out [][]vtab.Value
+		for _, p := range b.Progress() {
+			g := p.Goal
+			var date, months, needed, projected, onTrack vtab.Value
+			if g.TargetDate != "" {
+				date, months, needed = g.TargetDate, int64(p.MonthsLeft), p.MonthlyNeeded
+			}
+			if p.Projected != "" {
+				projected = p.Projected
+			}
+			if p.OnTrack != nil {
+				onTrack = boolInt(*p.OnTrack)
+			}
+			names := make([]string, len(p.Accounts))
+			for i, a := range p.Accounts {
+				names[i] = a.Name
+			}
+			out = append(out, []vtab.Value{g.ID, g.Name, g.Color, g.TargetMinor, date, p.Current, p.Remaining,
+				p.Progress, int64(p.Pace), months, needed, projected, onTrack, strings.Join(names, ", ")})
 		}
-		p := &out[len(out)-1]
-		p.closing = d.closing
-		p.flows.deposits += d.flows.deposits
-		p.flows.withdrawals += d.flows.withdrawals
-		p.flows.income += d.flows.income
-		p.flows.spend += d.flows.spend
-		p.growth += d.growth
+		return out
+	},
+}
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
 	}
-	return out
+	return 0
 }
