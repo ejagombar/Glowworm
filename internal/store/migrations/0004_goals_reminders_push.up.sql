@@ -1,13 +1,5 @@
--- Savings: an account's tax wrapper, and how often its
--- balance should be brought up to date; goals; and the push subscriptions
--- that out-of-date balance reminders go to. All additive.
-
--- tax_wrapper is '' (none), 'isa', 'lisa', 'pension' or 'other'.
--- balance_reminder_days: NULL follows the reminder settings' default (which
--- covers savings accounts only), 0 never reminds, N reminds once the latest
--- recorded balance is N days old.
-ALTER TABLE accounts ADD COLUMN tax_wrapper TEXT NOT NULL DEFAULT '';
-ALTER TABLE accounts ADD COLUMN balance_reminder_days INTEGER;
+-- Savings: goals, and the push subscriptions that out-of-date balance
+-- reminders go to.
 
 -- A goal is a target amount, by a date or open-ended, over the accounts in
 -- goal_accounts; a goal with none counts every savings account.

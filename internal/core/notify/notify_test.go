@@ -211,7 +211,7 @@ func remindersAt(s *Service, now *time.Time) *Reminders {
 	}
 }
 
-func TestRemindersOncePerDayAndRepeat(t *testing.T) {
+func TestRemindersOncePerOutOfDateBalance(t *testing.T) {
 	s, p := newService(t)
 	must := func(q string, args ...any) {
 		t.Helper()
@@ -223,8 +223,7 @@ func TestRemindersOncePerDayAndRepeat(t *testing.T) {
 	must(`INSERT INTO accounts (id, name, type, color, currency, opening_balance_minor, created_at, updated_at) VALUES
 		('isa','ISA','savings','#000','GBP',0,?,?),
 		('cur','Current','debit','#000','GBP',0,?,?),
-		('bond','Bond','savings','#000','GBP',0,?,?)`, ts, ts, ts, ts, ts, ts)
-	must(`UPDATE accounts SET balance_reminder_days = 0 WHERE id = 'bond'`)
+		('pen','Pension','savings','#000','GBP',0,?,?)`, ts, ts, ts, ts, ts, ts)
 	must(`INSERT INTO valuations (id, account_id, value_minor, date, source, created_at, updated_at)
 		VALUES ('v1','isa',100000,'2026-03-01','manual',?,?)`, ts, ts)
 	subscribe(t, s, p, "/phone", "Phone")
@@ -241,48 +240,61 @@ func TestRemindersOncePerDayAndRepeat(t *testing.T) {
 			t.Fatalf("%s: sent %v, want %v", now.Format(time.DateTime), sent, want)
 		}
 	}
-	// 19 days old: not due yet (default 30), and before 9am anyway.
-	tick(false)
+	due := func() string {
+		t.Helper()
+		list, err := r.Due(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, st := range list {
+			names = append(names, st.Account.Name)
+		}
+		return strings.Join(names, ",")
+	}
+	// The pension has never had a balance, so it's due; the ISA is 19 days
+	// old (the default is 30) and the current account is never due.
+	if got := due(); got != "Pension" {
+		t.Fatalf("due %q", got)
+	}
+	tick(false) // before 9am
+	now = now.Add(2 * time.Hour)
+	tick(true)
 	now = time.Date(2026, 3, 31, 8, 59, 0, 0, time.UTC)
+	if got := due(); got != "ISA" {
+		t.Fatalf("due %q: the pension was reminded about already", got)
+	}
 	tick(false) // 30 days old, but not 9 yet
 	now = now.Add(2 * time.Minute)
 	tick(true)
-	if p.count("/phone") != 1 {
+	if p.count("/phone") != 2 {
 		t.Fatalf("%d sent", p.count("/phone"))
 	}
 	tick(false) // once a day
-	now = now.AddDate(0, 0, 1)
-	tick(false) // reminded yesterday; repeats weekly
 	now = time.Date(2026, 4, 7, 10, 0, 0, 0, time.UTC)
-	tick(true) // a week on
-	// Updated: nothing due until it's old again.
+	tick(false) // one reminder each time it goes out of date
+	// Updated: nothing due until it's old again, then one more reminder.
 	must(`INSERT INTO valuations (id, account_id, value_minor, date, source, created_at, updated_at)
 		VALUES ('v2','isa',101000,'2026-04-07','manual',?,?)`, ts, ts)
 	now = now.AddDate(0, 0, 1)
 	tick(false)
 	now = time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
-	tick(true) // old again: reminded at once, though the last was under a week before the update
+	tick(true)
 	// A balance entered later but dated earlier still starts afresh.
 	must(`INSERT INTO valuations (id, account_id, value_minor, date, source, created_at, updated_at)
 		VALUES ('v3','isa',102000,'2026-05-06','manual',?,?)`, ts, ts)
-	must(`INSERT INTO settings (key, value, updated_at) VALUES ('reminder_repeat_days', '0', ?)`, ts)
 	now = time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
 	tick(false) // 29 days
 	now = now.AddDate(0, 0, 1)
-	tick(true) // 30 days; the last reminder (7 May) was before the balance went out of date
+	tick(true) // 30 days; the last reminder (7 May) was before it went out of date
 	now = now.AddDate(0, 0, 1)
-	tick(false) // no repeat
-	// The current account and the bond are never included.
-	r.Now = func() time.Time { return now }
-	due, err := r.Due(context.Background(), ReminderSettings{RepeatDays: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(due) != 0 {
-		t.Fatalf("due after reminding with no repeat: %d", len(due))
+	tick(false)
+	if got := due(); got != "" {
+		t.Fatalf("due after reminding: %q", got)
 	}
 	// Turned off: nothing.
 	must(`INSERT INTO settings (key, value, updated_at) VALUES ('reminders_enabled', 'false', ?)`, ts)
+	must(`DELETE FROM reminder_state`)
 	now = now.AddDate(0, 1, 0)
 	tick(false)
 }

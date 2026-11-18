@@ -189,12 +189,11 @@ func TestAccountStatusAndGoals(t *testing.T) {
 		}
 	}
 	ts := "2024-01-01T00:00:00Z"
-	must(`UPDATE accounts SET tax_wrapper = 'isa' WHERE id = 'sav'`)
 	must(`INSERT INTO goals (id, name, target_minor, target_date, created_at, updated_at) VALUES
 		('g1', 'House', 200000, '2025-12-31', ?, ?), ('g2', 'Rainy day', 100000, NULL, ?, ?)`, ts, ts, ts, ts)
 	must(`INSERT INTO goal_accounts (goal_id, account_id) VALUES ('g1', 'sav'), ('g1', 'cur')`)
 
-	res, err := svc.runQuery(`SELECT account, balance_minor, last_valued, days_since, reminder_days, due, tax_wrapper
+	res, err := svc.runQuery(`SELECT account, balance_minor, last_valued, days_since, reminder_days, due
 		FROM account_status ORDER BY account`)
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +204,7 @@ func TestAccountStatusAndGoals(t *testing.T) {
 	}
 	// Today is 2024-03-15: the ISA was valued 14 days ago, under the
 	// 30-day default; the current account has no reminder by default.
-	want := "Current 227000   0 0 \nISA 121000 2024-03-01 14 30 0 isa"
+	want := "Current 227000   0 0\nISA 121000 2024-03-01 14 30 0"
 	if strings.Join(got, "\n") != want {
 		t.Fatalf("status got\n%s\nwant\n%s", strings.Join(got, "\n"), want)
 	}

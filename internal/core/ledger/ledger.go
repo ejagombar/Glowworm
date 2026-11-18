@@ -26,7 +26,8 @@ type Querier interface {
 }
 
 // DefaultReminderDays is how old a savings account's latest balance may get
-// before it's due an update, when the settings don't say.
+// before it's due an update, when the settings don't say. It's one setting
+// for every savings account; other accounts are never due.
 const DefaultReminderDays = 30
 
 // SettingReminderDays is the settings key for that default (0 turns the
@@ -44,10 +45,9 @@ type Book struct {
 
 // Account is one account and its history.
 type Account struct {
-	ID, Name, Type, Currency, TaxWrapper string
-	ReminderDays                         *int64
-	Opening                              int64
-	OpeningDate, Created                 string
+	ID, Name, Type, Currency string
+	Opening                  int64
+	OpeningDate, Created     string
 
 	flows                 map[string]Flows
 	values                map[string]int64
@@ -146,7 +146,7 @@ func (b *Book) loadSettings(ctx context.Context, q Querier) error {
 
 func (b *Book) loadAccounts(ctx context.Context, q Querier) error {
 	rows, err := q.QueryContext(ctx, `SELECT id, name, type, currency, opening_balance_minor,
-		COALESCE(opening_balance_date, ''), created_at, tax_wrapper, balance_reminder_days
+		COALESCE(opening_balance_date, ''), created_at
 		FROM accounts WHERE deleted_at IS NULL ORDER BY name, id`)
 	if err != nil {
 		return err
@@ -154,13 +154,8 @@ func (b *Book) loadAccounts(ctx context.Context, q Querier) error {
 	defer rows.Close()
 	for rows.Next() {
 		a := &Account{flows: map[string]Flows{}, values: map[string]int64{}}
-		var remind sql.NullInt64
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Currency, &a.Opening, &a.OpeningDate, &a.Created,
-			&a.TaxWrapper, &remind); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Currency, &a.Opening, &a.OpeningDate, &a.Created); err != nil {
 			return err
-		}
-		if remind.Valid {
-			a.ReminderDays = &remind.Int64
 		}
 		b.Accounts = append(b.Accounts, a)
 		b.byID[a.ID] = a

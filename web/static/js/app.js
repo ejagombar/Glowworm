@@ -2625,19 +2625,11 @@ function accountPayload() {
     opening_balance_minor: isNaN(opening) ? 0 : Math.round(opening * 100),
     opening_balance_date: document.getElementById("accOpeningDate").value || "",
   };
-  // The savings details: sent when new, or when changed since loading.
-  const remindRaw = document.getElementById("accReminder")?.value;
-  const remind = remindRaw === "" || remindRaw == null ? null : parseInt(remindRaw, 10);
-  const wrapper = document.getElementById("accWrapper")?.value || "";
   const editing = !!document.getElementById("accountForm").dataset.accountId;
   Object.entries(ACCOUNT_BANK_FIELDS).forEach(([key, el]) => {
     const value = document.getElementById(el).value.trim();
     if (!editing || (accountLoaded && value !== accountLoaded[key])) body[key] = value;
   });
-  if (document.getElementById("accWrapper")) {
-    if (!editing || remind !== accountLoaded.balance_reminder_days) body.balance_reminder_days = remind;
-    if (!editing || wrapper !== accountLoaded.tax_wrapper) body.tax_wrapper = wrapper;
-  }
   return body;
 }
 
@@ -2661,7 +2653,6 @@ function openAccountForm(id) {
   document.getElementById("accDangerZone").hidden = !id;
   accountLoaded = null;
   ["accName", "accOpening", "accOpeningDate", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
-  ["accWrapper", "accReminder"].forEach((x) => { const el = document.getElementById(x); if (el) el.value = ""; });
   syncDateField(document.getElementById("accOpeningDate"));
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
@@ -2676,17 +2667,6 @@ function openAccountForm(id) {
         accountLoaded[key] = a[key] || "";
         document.getElementById(el).value = accountLoaded[key];
       });
-      accountLoaded.balance_reminder_days = a.balance_reminder_days ?? null;
-      accountLoaded.tax_wrapper = a.tax_wrapper || "";
-      if (document.getElementById("accWrapper")) {
-        document.getElementById("accWrapper").value = accountLoaded.tax_wrapper;
-        const rem = document.getElementById("accReminder");
-        const want = a.balance_reminder_days == null ? "" : String(a.balance_reminder_days);
-        if (want && ![...rem.options].some((o) => o.value === want)) {
-          rem.insertAdjacentHTML("beforeend", `<option value="${esc(want)}">After ${esc(want)} days</option>`);
-        }
-        rem.value = want;
-      }
     }).catch((e) => toast(e.message || "Could not load account"));
   } else {
     document.getElementById("accType").value = "debit";
@@ -5108,9 +5088,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (info) {
       const s = info.settings;
       $("notifyEnabled").checked = !!s.enabled;
-      setSelect($("notifyDays"), s.default_days, (v) => `After ${v} days`);
+      setSelect($("notifyDays"), s.default_days, (v) => (v === "0" ? "Never" : `${v} days`));
       setSelect(hourSel, s.hour, (v) => `${v}:00`);
-      setSelect($("notifyRepeat"), s.repeat_days, (v) => `Every ${v} days`);
       hourSel.title = info.timezone ? `Time in ${info.timezone}` : "";
       $("notifyForm").hidden = false;
     }
@@ -5196,7 +5175,6 @@ document.addEventListener("DOMContentLoaded", () => {
         enabled: $("notifyEnabled").checked,
         default_days: Number($("notifyDays").value),
         hour: Number(hourSel.value),
-        repeat_days: Number($("notifyRepeat").value),
       });
       info.settings = s;
       render();

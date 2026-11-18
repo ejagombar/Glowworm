@@ -53,6 +53,9 @@ type viewBase struct {
 	Nonce string
 	// DataVersion is the data this page was built from; see dataVersion.
 	DataVersion string
+	// BalancesDue is how many savings balances are out of date, shown on
+	// the Savings tab.
+	BalancesDue int
 }
 
 // shortDate is "22 Oct 2025", matching the date range button in app.js.
@@ -120,9 +123,20 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	}
 	nonce := randomHex(16)
 	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
+	due := 0
+	if b, err := a.book(r.Context()); err == nil {
+		for _, st := range b.Statuses() {
+			if st.Due {
+				due++
+			}
+		}
+	} else {
+		a.Log.Warn("balances due", "err", err)
+	}
 	return &viewBase{
-		Nonce: nonce,
-		Title: title, View: view, Period: period, PeriodLabel: label,
+		BalancesDue: due,
+		Nonce:       nonce,
+		Title:       title, View: view, Period: period, PeriodLabel: label,
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
 		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
@@ -717,7 +731,6 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 type savingsCard struct {
 	*accountCard
 	Card        *accountCard // the same, for the balance panel template
-	Wrapper     string       // "ISA", or ""
 	StatusText  string
 	Due         bool
 	NeverValued bool
@@ -747,9 +760,6 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 		sc := &savingsCard{accountCard: c, Card: c}
 		if acc := book.Account(c.ID); acc != nil {
 			st := book.Status(acc)
-			if acc.TaxWrapper != "" {
-				sc.Wrapper = accounts.TaxWrappers[acc.TaxWrapper]
-			}
 			sc.Due, sc.NeverValued = st.Due, st.DaysSince < 0
 			sc.StatusText = balanceAge(st)
 		}

@@ -282,8 +282,7 @@ var accountPeriods = &derivedTable{
 // account_status: each account's balance now and how up to date it is.
 var accountStatus = &derivedTable{
 	columns: []string{"account_id TEXT", "account TEXT", "account_type TEXT", "currency TEXT", "balance_minor INTEGER",
-		"last_valued TEXT", "days_since INTEGER", "reminder_days INTEGER", "due INTEGER",
-		"tax_wrapper TEXT"},
+		"last_valued TEXT", "days_since INTEGER", "reminder_days INTEGER", "due INTEGER"},
 	rows: func(b *ledger.Book, _ filters) [][]vtab.Value {
 		var out [][]vtab.Value
 		for _, s := range b.Statuses() {
@@ -293,7 +292,7 @@ var accountStatus = &derivedTable{
 				last, since = s.LastValued, int64(s.DaysSince)
 			}
 			out = append(out, []vtab.Value{a.ID, a.Name, a.Type, a.Currency, s.Balance, last, since,
-				int64(s.ReminderDays), boolInt(s.Due), a.TaxWrapper})
+				int64(s.ReminderDays), boolInt(s.Due)})
 		}
 		return out
 	},

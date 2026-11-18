@@ -50,7 +50,7 @@ func TestBalancesRecordedOnSavingsAndHistory(t *testing.T) {
 func TestGoalsAndBalanceAge(t *testing.T) {
 	a, c := newLockTestApp(t)
 	insertAccount(t, a.DB, "ISA", 0, "")
-	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings', tax_wrapper = 'isa' WHERE id = 'ISA'`); err != nil {
+	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings' WHERE id = 'ISA'`); err != nil {
 		t.Fatal(err)
 	}
 	old := "2020-01-01"
@@ -71,7 +71,7 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 		t.Errorf("list: %s", list)
 	}
 	page := c.do("GET", "/savings", "", "").Body.String()
-	for _, want := range []string{"House", "50%", ">ISA<", "years ago", "is-due"} {
+	for _, want := range []string{"House", "50%", "years ago", "is-due", `class="tab-badge"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Savings page lacks %q", want)
 		}
@@ -91,19 +91,5 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 	}
 	if list = c.do("GET", "/api/v1/goals", "", "").Body.String(); strings.Contains(list, "Flat") {
 		t.Errorf("deleted goal still listed: %s", list)
-	}
-	// Account details round-trip through the API, and a null clears.
-	if rec = c.do("PATCH", "/api/v1/accounts/ISA", "application/json", `{"name":"ISA","type":"savings","balance_reminder_days":14}`); rec.Code != 200 {
-		t.Fatalf("account patch: %d %s", rec.Code, rec.Body)
-	}
-	got := c.do("GET", "/api/v1/accounts/ISA", "", "").Body.String()
-	if !strings.Contains(got, `"balance_reminder_days":14`) || !strings.Contains(got, `"tax_wrapper":"isa"`) {
-		t.Errorf("account: %s", got)
-	}
-	if rec = c.do("PATCH", "/api/v1/accounts/ISA", "application/json", `{"name":"ISA","type":"savings","balance_reminder_days":null}`); rec.Code != 200 {
-		t.Fatalf("account patch: %d %s", rec.Code, rec.Body)
-	}
-	if got = c.do("GET", "/api/v1/accounts/ISA", "", "").Body.String(); !strings.Contains(got, `"balance_reminder_days":null`) {
-		t.Errorf("null didn't clear the reminder: %s", got)
 	}
 }

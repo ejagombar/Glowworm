@@ -187,7 +187,6 @@ func (a *App) apiNotifySettings(w http.ResponseWriter, r *http.Request) error {
 		Enabled     *bool `json:"enabled"`
 		DefaultDays *int  `json:"default_days"`
 		Hour        *int  `json:"hour"`
-		RepeatDays  *int  `json:"repeat_days"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
@@ -207,12 +206,6 @@ func (a *App) apiNotifySettings(w http.ResponseWriter, r *http.Request) error {
 			return &notify.ValidationError{Message: "The time must be an hour from 0 to 23"}
 		}
 		set[notify.KeyReminderHour] = *in.Hour
-	}
-	if in.RepeatDays != nil {
-		if *in.RepeatDays < 0 || *in.RepeatDays > 365 {
-			return &notify.ValidationError{Message: "Repeat must be between 0 and 365 days"}
-		}
-		set[notify.KeyReminderRepeat] = *in.RepeatDays
 	}
 	err := a.DB.WithTx(func(tx *sql.Tx) error {
 		for k, v := range set {

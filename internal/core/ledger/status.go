@@ -10,9 +10,9 @@ type Status struct {
 	// DaysSince how long ago that was (-1 for none).
 	LastValued string
 	DaysSince  int
-	// ReminderDays is the interval that applies (the account's own, else
-	// the default for savings accounts), 0 for none. Due says the balance
-	// is older than that, or was never recorded.
+	// ReminderDays is the interval that applies (the setting, for savings
+	// accounts), 0 for none. Due says the balance is older than that, or
+	// was never recorded.
 	ReminderDays int
 	Due          bool
 }
@@ -23,10 +23,7 @@ func (b *Book) Status(a *Account) Status {
 	if a.lastValue != "" {
 		s.DaysSince = daysBetween(a.lastValue, b.Today)
 	}
-	switch {
-	case a.ReminderDays != nil:
-		s.ReminderDays = int(*a.ReminderDays)
-	case a.Type == "savings":
+	if a.Type == "savings" {
 		s.ReminderDays = b.ReminderDays
 	}
 	if s.ReminderDays > 0 {

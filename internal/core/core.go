@@ -51,23 +51,18 @@ var Palette = []string{
 }
 
 type Account struct {
-	ID                  string `json:"id"`
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	Color               string `json:"color"`
-	Currency            string `json:"currency"`
-	OpeningBalanceMinor int64  `json:"opening_balance_minor"`
-	OpeningBalanceDate  string `json:"opening_balance_date"`
-	AccountNumber       string `json:"-"`
-	SortCode            string `json:"-"`
-	IBAN                string `json:"-"`
-	BIC                 string `json:"-"`
-	Notes               string `json:"notes"`
-	// TaxWrapper is "" (none), "isa", "lisa", "pension" or "other".
-	TaxWrapper string `json:"tax_wrapper"`
-	// BalanceReminderDays: nil follows the reminder settings, 0 never
-	// reminds, N reminds once the latest recorded balance is N days old.
-	BalanceReminderDays *int64  `json:"balance_reminder_days"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Type                string  `json:"type"`
+	Color               string  `json:"color"`
+	Currency            string  `json:"currency"`
+	OpeningBalanceMinor int64   `json:"opening_balance_minor"`
+	OpeningBalanceDate  string  `json:"opening_balance_date"`
+	AccountNumber       string  `json:"-"`
+	SortCode            string  `json:"-"`
+	IBAN                string  `json:"-"`
+	BIC                 string  `json:"-"`
+	Notes               string  `json:"notes"`
 	CreatedAt           string  `json:"created_at"`
 	UpdatedAt           string  `json:"updated_at"`
 	DeletedAt           *string `json:"-"`

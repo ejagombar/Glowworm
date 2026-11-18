@@ -267,7 +267,7 @@
                     </label>
                 </div>
                 <div class="field-row">
-                    <label for="notifyDays">Remind me when a savings balance is older than</label>
+                    <label for="notifyDays">A savings balance needs updating after</label>
                     <select class="field select" id="notifyDays">
                         <option value="7">A week</option>
                         <option value="14">Two weeks</option>
@@ -276,26 +276,12 @@
                         <option value="91">Three months</option>
                         <option value="182">Six months</option>
                         <option value="365">A year</option>
-                        <option value="0">Never (only accounts set to remind)</option>
                     </select>
-                    <span class="field-hint">Any account can set its own in its details.</span>
+                    <span class="field-hint">The Savings page highlights balances older than this, and each one gets a single reminder.</span>
                 </div>
-                <div class="field-cols">
-                    <div class="field-row">
-                        <label for="notifyHour">At about</label>
-                        <select class="field select" id="notifyHour"></select>
-                    </div>
-                    <div class="field-row">
-                        <label for="notifyRepeat">Until it's updated, remind again</label>
-                        <select class="field select" id="notifyRepeat">
-                            <option value="1">Every day</option>
-                            <option value="3">Every 3 days</option>
-                            <option value="7">Every week</option>
-                            <option value="14">Every two weeks</option>
-                            <option value="30">Every month</option>
-                            <option value="0">Don't</option>
-                        </select>
-                    </div>
+                <div class="field-row">
+                    <label for="notifyHour">Send reminders at about</label>
+                    <select class="field select" id="notifyHour"></select>
                 </div>
                 <div class="field-row account-actions">
                     <button class="btn btn-primary" id="notifySave" type="submit">Save reminders</button>

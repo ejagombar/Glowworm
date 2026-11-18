@@ -20,7 +20,6 @@ import (
 const (
 	KeyRemindersEnabled = "reminders_enabled"
 	KeyReminderHour     = "reminder_hour"
-	KeyReminderRepeat   = "reminder_repeat_days"
 	keyReminderLastRun  = "reminder_last_run"
 )
 
@@ -29,22 +28,16 @@ type ReminderSettings struct {
 	// Enabled sends reminders to the devices with notifications on.
 	Enabled bool `json:"enabled"`
 	// DefaultDays is how old a savings account's balance may get before
-	// it's due, unless the account sets its own (0: never).
+	// it's due (0: never). It's the same for every savings account.
 	DefaultDays int `json:"default_days"`
 	// Hour is the local hour of the day reminders go out, 0–23.
 	Hour int `json:"hour"`
-	// RepeatDays is how often a reminder for a balance still out of date is
-	// sent again (0: only once until it's updated).
-	RepeatDays int `json:"repeat_days"`
 	// LastRun is the last day reminders were looked at.
 	LastRun string `json:"last_run"`
 }
 
-// Defaults when nothing is set.
-const (
-	DefaultReminderHour   = 9
-	DefaultReminderRepeat = 7
-)
+// DefaultReminderHour is the hour reminders go out when none is set.
+const DefaultReminderHour = 9
 
 // Reminders sends a notification, at most once a day, listing the balances
 // that are out of date.
@@ -94,7 +87,6 @@ func (r *Reminders) Settings() ReminderSettings {
 		Enabled:     true,
 		DefaultDays: r.intSetting(ledger.SettingReminderDays, ledger.DefaultReminderDays, 0, 3650),
 		Hour:        r.intSetting(KeyReminderHour, DefaultReminderHour, 0, 23),
-		RepeatDays:  r.intSetting(KeyReminderRepeat, DefaultReminderRepeat, 0, 365),
 	}
 	if raw, ok := r.setting(KeyRemindersEnabled); ok {
 		_ = json.Unmarshal(raw, &s.Enabled)
@@ -106,9 +98,9 @@ func (r *Reminders) Settings() ReminderSettings {
 }
 
 // Due is the out-of-date balances a reminder should go out for today: due
-// ones not reminded about since they went out of date, or not within
-// RepeatDays.
-func (r *Reminders) Due(ctx context.Context, set ReminderSettings) ([]ledger.Status, error) {
+// ones not yet reminded about since they went out of date. Each gets one
+// reminder; after that the Savings page shows it as needing an update.
+func (r *Reminders) Due(ctx context.Context) ([]ledger.Status, error) {
 	b, err := r.Book(ctx)
 	if err != nil {
 		return nil, err
@@ -142,7 +134,6 @@ func (r *Reminders) Due(ctx context.Context, set ReminderSettings) ([]ledger.Sta
 		switch {
 		case !ok:
 		case st.LastValued != "" && last < addDays(st.LastValued, st.ReminderDays):
-		case set.RepeatDays > 0 && last <= addDays(b.Today, -set.RepeatDays):
 		default:
 			continue
 		}
@@ -165,7 +156,7 @@ func (r *Reminders) Tick(ctx context.Context) (bool, error) {
 	if err := r.setLastRun(today); err != nil {
 		return false, err
 	}
-	due, err := r.Due(ctx, set)
+	due, err := r.Due(ctx)
 	if err != nil || len(due) == 0 {
 		return false, err
 	}

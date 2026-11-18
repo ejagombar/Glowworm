@@ -171,9 +171,7 @@ DATABASE (SQLite). Tables you may query:
   COALESCE(NULLIF(merchant,''), description); when the user names a
   merchant/payee/shop, match that expression, never merchant alone.
 - categories(id, name)
-- accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date,
-  tax_wrapper TEXT ''|'isa'|'lisa'|'pension'|'other' [a label the user set],
-  balance_reminder_days, deleted_at)
+- accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date, deleted_at)
 - goals(id, name, target_minor, target_date TEXT 'YYYY-MM-DD' or NULL, color, deleted_at) and
   goal_accounts(goal_id, account_id): savings goals; a goal with no goal_accounts rows
   covers every savings account. Prefer goal_progress (below) for how a goal is going.
@@ -204,7 +202,7 @@ DATABASE (SQLite). Tables you may query:
   Filter dates with start_date/end_date (e.g. end_date >= :from AND
   start_date <= :to), not period, so the filter is applied early.
 - account_status(account_id, account, account_type, currency, balance_minor,
-  last_valued, days_since, reminder_days, due, tax_wrapper):
+  last_valued, days_since, reminder_days, due):
   worked out by the app. Each account's balance now, the date of its latest
   recorded balance and how many days ago that was (NULL if never), the
   reminder interval that applies (0 = none) and due = 1 when the balance is
