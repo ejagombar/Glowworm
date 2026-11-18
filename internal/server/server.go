@@ -25,6 +25,7 @@ import (
 	"glowworm/internal/core/goals"
 	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
+	"glowworm/internal/core/notify"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/recurring"
 	"glowworm/internal/core/settings"
@@ -63,6 +64,8 @@ type App struct {
 	Changes      *changes.Service
 	Query        *query.Service
 	Goals        *goals.Service
+	Notify       *notify.Service
+	Reminders    *notify.Reminders
 
 	AuditWriter  *audit.Writer
 	Exec         *auditexec.Executor
@@ -152,6 +155,11 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		Repo: &query.ConvRepo{DB: db},
 	}
 	app.Goals = &goals.Service{DB: db, Audit: writer, Currency: func() string { return app.Settings.Get().Currency }}
+	app.Notify = &notify.Service{DB: db, Secret: secret}
+	app.Reminders = &notify.Reminders{
+		DB: db, Notify: app.Notify, Book: app.book, Now: clk.TodayTime,
+		Log: log.With("job", "reminders"),
+	}
 	app.startMidnightSummariser(log)
 	app.Exec = &auditexec.Executor{
 		DB: db, Accounts: rp.Accounts, Categories: rp.Categories, Txs: rp.Transactions,

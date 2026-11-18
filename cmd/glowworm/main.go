@@ -133,6 +133,7 @@ func serve() {
 	srv := newHTTPServer(cfg.Addr, app.Router())
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	app.StartReminders(stop)
 	failed := make(chan error, 1)
 	go func() { failed <- srv.ListenAndServe() }()
 	select {

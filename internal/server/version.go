@@ -63,6 +63,7 @@ func (v *dataVersion) middleware(next http.Handler) http.Handler {
 // readOnlyPosts are POSTs that change no data, so other pages needn't refresh.
 var readOnlyPosts = map[string]bool{
 	"/sw-log":                         true,
+	"/api/v1/notifications/test":      true,
 	"/api/v1/settings/ai/models":      true,
 	"/api/v1/settings/ai/test":        true,
 	"/api/v1/imports/preview-date":    true,

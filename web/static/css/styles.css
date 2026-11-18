@@ -2410,3 +2410,12 @@ input[type="date"].field { min-height: 34px; }
 .check-row { display: flex !important; align-items: center; gap: 8px; font-size: 13px !important; color: var(--text) !important; margin: 0 !important; font-weight: 400 !important; }
 .field-label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; color: var(--text-2); }
 #goalColor { height: 36px; padding: 2px 4px; max-width: 80px; }
+
+/* Settings → Reminders */
+.notify-status { margin: 0 0 10px; font-size: 13px; line-height: 1.45; }
+.notify-device .account-actions { margin-bottom: 14px; }
+.notify-devices .passkey-item strong { display: inline; }
+.notify-devices .badge { margin-left: 4px; vertical-align: 1px; }
+.notify-error { font-size: 11.5px; color: var(--danger); overflow-wrap: anywhere; }
+.notify-form { border-top: 1px solid var(--line); padding-top: 14px; }
+.notify-form .account-actions { flex-wrap: wrap; }

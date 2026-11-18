@@ -16,7 +16,9 @@ func TestBalancesRecordedOnSavingsAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	panel := func(body, id string) bool { return strings.Contains(body, `data-balance-panel data-account-id="`+id+`"`) }
+	panel := func(body, id string) bool {
+		return strings.Contains(body, `data-balance-panel data-account-id="`+id+`"`)
+	}
 
 	savings := c.do("GET", "/savings", "", "").Body.String()
 	if !panel(savings, "Easy Saver") {

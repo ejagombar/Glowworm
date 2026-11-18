@@ -22,6 +22,7 @@ import (
 	"glowworm/internal/core/goals"
 	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
+	"glowworm/internal/core/notify"
 	"glowworm/internal/core/setup"
 	"glowworm/internal/core/transactions"
 	"glowworm/internal/core/transfers"
@@ -116,6 +117,11 @@ func serviceError(w http.ResponseWriter, err error) bool {
 	var gve *goals.ValidationError
 	if errors.As(err, &gve) {
 		apiError(w, http.StatusBadRequest, "validation_failed", gve.Message)
+		return true
+	}
+	var nve *notify.ValidationError
+	if errors.As(err, &nve) {
+		apiError(w, http.StatusBadRequest, "validation_failed", nve.Message)
 		return true
 	}
 	if errors.Is(err, goals.ErrNotFound) {
@@ -243,6 +249,12 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/goals", j(a.apiGoalCreate))
 	mux.HandleFunc("PATCH /api/v1/goals/{id}", j(a.apiGoalUpdate))
 	mux.HandleFunc("DELETE /api/v1/goals/{id}", j(a.apiGoalDelete))
+	mux.HandleFunc("GET /api/v1/notifications", j(a.apiNotifications))
+	mux.HandleFunc("PUT /api/v1/notifications/settings", j(a.apiNotifySettings))
+	mux.HandleFunc("POST /api/v1/notifications/subscribe", j(a.apiNotifySubscribe))
+	mux.HandleFunc("POST /api/v1/notifications/unsubscribe", j(a.apiNotifyUnsubscribe))
+	mux.HandleFunc("DELETE /api/v1/notifications/devices/{id}", j(a.apiNotifyRemove))
+	mux.HandleFunc("POST /api/v1/notifications/test", j(a.apiNotifyTest))
 }
 
 func (a *App) apiAccountsList(w http.ResponseWriter, r *http.Request) error {

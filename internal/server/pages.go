@@ -13,9 +13,9 @@ import (
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/accounts"
-	"glowworm/internal/core/ledger"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/balances"
+	"glowworm/internal/core/ledger"
 	"glowworm/internal/core/periods"
 	"glowworm/internal/core/query"
 	"glowworm/internal/core/widgets"
@@ -717,8 +717,8 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 type savingsCard struct {
 	*accountCard
 	Card        *accountCard // the same, for the balance panel template
-	Rate        string // "4.5%", or ""
-	Wrapper     string // "ISA", or ""
+	Rate        string       // "4.5%", or ""
+	Wrapper     string       // "ISA", or ""
 	StatusText  string
 	Due         bool
 	NeverValued bool

@@ -134,3 +134,63 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(caches.match(key).then((c) => c || fetch(req)));
   }
 });
+
+// Web Push: balance reminders and test notifications (see internal/core/notify).
+// The payload is {title, body, url, tag}.
+self.addEventListener("push", (e) => {
+  let msg = {};
+  try {
+    msg = e.data ? e.data.json() : {};
+  } catch (_) {
+    msg = { body: e.data ? e.data.text() : "" };
+  }
+  const title = msg.title || "Glowworm";
+  e.waitUntil(self.registration.showNotification(title, {
+    body: msg.body || "",
+    tag: msg.tag || undefined,
+    renotify: !!msg.tag,
+    icon: "/static/icons/icon-192.png",
+    badge: "/static/icons/icon-192.png",
+    data: { url: msg.url || "/" },
+  }));
+});
+
+// Tapping a notification brings an open Glowworm window to its page, or
+// opens one.
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const target = new URL((e.notification.data && e.notification.data.url) || "/", self.location.origin);
+  if (target.origin !== self.location.origin) return;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    for (const c of list) {
+      if (new URL(c.url).origin === self.location.origin && "focus" in c) {
+        return c.focus().then((w) => (w && "navigate" in w ? w.navigate(target.href) : w)).catch(() => self.clients.openWindow(target.href));
+      }
+    }
+    return self.clients.openWindow(target.href);
+  }));
+});
+
+// A browser that renews a subscription by itself tells the server the new
+// one, so reminders keep arriving. Where the worker can't read the CSRF
+// cookie (no cookieStore), the next page opened sends it instead (see
+// syncPushSubscription in app.js).
+self.addEventListener("pushsubscriptionchange", (e) => {
+  const old = e.oldSubscription;
+  e.waitUntil((async () => {
+    let sub = e.newSubscription;
+    if (!sub && old && old.options) {
+      sub = await self.registration.pushManager.subscribe(old.options);
+    }
+    if (!sub || !self.cookieStore) return;
+    const c = await self.cookieStore.get("glowworm_csrf");
+    if (!c) return;
+    const post = (url, body) => fetch(url, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": c.value },
+      body: JSON.stringify(body),
+    });
+    await post("/api/v1/notifications/subscribe", sub.toJSON());
+    if (old && old.endpoint !== sub.endpoint) await post("/api/v1/notifications/unsubscribe", { endpoint: old.endpoint });
+  })().catch(() => {}));
+});

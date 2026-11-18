@@ -4985,3 +4985,251 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 });
+
+// ---- Push notifications (Settings → Reminders). A device turns them on by
+// subscribing with the server's VAPID key and sending the subscription to
+// the server, which sends balance reminders to every subscribed device.
+const push = (() => {
+  const supported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const send = (method, url, body) => fetch(url, {
+    method, headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => jsonOk(r));
+  // The service worker's registration, or null when there isn't one soon.
+  const registration = () => Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((ok) => setTimeout(() => ok(null), 4000)),
+  ]);
+  const subscription = async () => {
+    if (!supported() || !window.isSecureContext) return null;
+    const reg = await registration();
+    return reg ? reg.pushManager.getSubscription() : null;
+  };
+  const keyBytes = (b64) => {
+    const s = (b64 + "===".slice((b64.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  };
+  const sameKey = (sub, key) => {
+    const k = sub.options && sub.options.applicationServerKey;
+    if (!k) return true;
+    const a = new Uint8Array(k), b = keyBytes(key);
+    return a.length === b.length && a.every((x, i) => x === b[i]);
+  };
+  const STORE = "glowworm-push-endpoint";
+  const remember = (endpoint) => { try { endpoint ? localStorage.setItem(STORE, endpoint) : localStorage.removeItem(STORE); } catch (e) {} };
+  return {
+    supported, isIOS, standalone, send, subscription, remember,
+    // on asks for permission and subscribes this device.
+    async on(publicKey) {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error(perm === "denied"
+        ? "Notifications are blocked for Glowworm. Allow them in this browser's settings, then try again."
+        : "Notifications weren't allowed.");
+      const reg = await registration();
+      if (!reg) throw new Error("Couldn't start notifications on this device. Reload the page and try again.");
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && !sameKey(sub, publicKey)) { await sub.unsubscribe(); sub = null; }
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
+      await send("POST", "/api/v1/notifications/subscribe", sub.toJSON());
+      remember(sub.endpoint);
+      return sub;
+    },
+    async off(sub) {
+      if (!sub) return;
+      await send("POST", "/api/v1/notifications/unsubscribe", { endpoint: sub.endpoint }).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+      remember("");
+    },
+    // sync tells the server about a subscription the browser renewed by
+    // itself since this device last said, so reminders keep reaching it.
+    async sync() {
+      if (!supported() || !("Notification" in window) || Notification.permission !== "granted") return;
+      const sub = await subscription();
+      let known = "";
+      try { known = localStorage.getItem(STORE) || ""; } catch (e) {}
+      if (!sub || !known || sub.endpoint === known) return;
+      await send("POST", "/api/v1/notifications/subscribe", sub.toJSON());
+      await send("POST", "/api/v1/notifications/unsubscribe", { endpoint: known }).catch(() => {});
+      remember(sub.endpoint);
+    },
+  };
+})();
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(() => push.sync().catch(() => {}), 3000);
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  const root = document.getElementById("notifySettings");
+  if (!root) return;
+  const $ = (id) => document.getElementById(id);
+  const status = $("notifyStatus"), toggle = $("notifyToggle"), test = $("notifyTest");
+  let info = null, sub = null, busy = false;
+
+  const hourSel = $("notifyHour");
+  for (let h = 0; h < 24; h++) hourSel.insertAdjacentHTML("beforeend", `<option value="${h}">${String(h).padStart(2, "0")}:00</option>`);
+  // A value the list doesn't offer (set some other way) still shows.
+  const setSelect = (sel, v, label) => {
+    v = String(v);
+    if (![...sel.options].some((o) => o.value === v)) sel.insertAdjacentHTML("beforeend", `<option value="${esc(v)}">${esc(label(v))}</option>`);
+    sel.value = v;
+  };
+  const serviceName = (host) => {
+    if (/apple\.com$/.test(host)) return "Apple";
+    if (/googleapis\.com$/.test(host)) return "Google";
+    if (/mozilla\.(com|org)$/.test(host)) return "Mozilla";
+    if (/windows\.com$/.test(host)) return "Microsoft";
+    return host;
+  };
+  const day = (s) => (s ? new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
+
+  // What this device can do, as a sentence; null when it can have them.
+  const blocker = () => {
+    if (!window.isSecureContext) return "Notifications need Glowworm to be opened over HTTPS.";
+    if (push.isIOS() && !push.standalone()) return "On iPhone and iPad, add Glowworm to your Home Screen (Share → Add to Home Screen), open it from there, and turn notifications on here.";
+    if (!push.supported()) return "This browser can't show notifications from websites.";
+    if (Notification.permission === "denied") return "Notifications are blocked for Glowworm in this browser's settings. Allow them there, then reload this page.";
+    return null;
+  };
+
+  const renderDevices = () => {
+    const list = $("notifyDevices");
+    const devices = (info && info.devices) || [];
+    list.hidden = !devices.length;
+    list.innerHTML = devices.map((d) => {
+      const mine = sub && d.this_device;
+      const bits = [`via ${esc(serviceName(d.service))}`, `added ${esc(day(d.created_at))}`];
+      if (d.last_sent_at) bits.push(`last sent ${esc(day(d.last_sent_at))}`);
+      return `<li class="passkey-item">
+        <div>
+          <strong>${esc(d.label || "A device")}</strong>${mine ? ` <span class="badge badge-soft">This device</span>` : ""}
+          <span class="muted">${bits.join(" · ")}</span>
+          ${d.last_error ? `<span class="notify-error">${esc(d.last_error)}</span>` : ""}
+        </div>
+        <button class="btn btn-ghost btn-xs" type="button" data-notify-remove="${esc(d.id)}" data-mine="${mine ? 1 : ""}">Remove</button>
+      </li>`;
+    }).join("");
+  };
+
+  const render = () => {
+    const why = blocker();
+    const devices = (info && info.devices) || [];
+    if (why) {
+      status.textContent = why;
+      toggle.hidden = true;
+    } else {
+      status.textContent = sub ? "Notifications are on for this device." : "Notifications are off for this device.";
+      toggle.hidden = false;
+      toggle.textContent = sub ? "Turn off for this device" : "Turn on for this device";
+      toggle.className = sub ? "btn btn-ghost" : "btn btn-primary";
+    }
+    test.hidden = !(sub || devices.length);
+    test.textContent = sub ? "Send a test notification" : "Send a test to my devices";
+    renderDevices();
+    if (info) {
+      const s = info.settings;
+      $("notifyEnabled").checked = !!s.enabled;
+      setSelect($("notifyDays"), s.default_days, (v) => `After ${v} days`);
+      setSelect(hourSel, s.hour, (v) => `${v}:00`);
+      setSelect($("notifyRepeat"), s.repeat_days, (v) => `Every ${v} days`);
+      hourSel.title = info.timezone ? `Time in ${info.timezone}` : "";
+      $("notifyForm").hidden = false;
+    }
+  };
+
+  const load = async () => {
+    sub = await push.subscription().catch(() => null);
+    const q = sub ? `?endpoint=${encodeURIComponent(sub.endpoint)}` : "";
+    info = await fetch(`/api/v1/notifications${q}`).then((r) => jsonOk(r));
+    // Subscribed here but unknown to the server (removed on another
+    // device, or the server's data was replaced): say so again.
+    if (sub && !info.devices.some((d) => d.this_device) && Notification.permission === "granted") {
+      try {
+        await push.on(info.public_key);
+        sub = await push.subscription();
+        info = await fetch(`/api/v1/notifications?endpoint=${encodeURIComponent(sub.endpoint)}`).then((r) => jsonOk(r));
+      } catch (e) { sub = null; }
+    }
+    render();
+  };
+
+  toggle.addEventListener("click", async () => {
+    if (busy || !info) return;
+    busy = true;
+    toggle.disabled = true;
+    try {
+      if (sub) {
+        await push.off(sub);
+        toast("Notifications turned off for this device");
+      } else {
+        await push.on(info.public_key);
+        toast("Notifications turned on for this device", "ok");
+      }
+      await load();
+    } catch (e) {
+      toast(e.message || "Could not change notifications", "error");
+      await load().catch(() => {});
+    } finally {
+      busy = false;
+      toggle.disabled = false;
+    }
+  });
+
+  const runTest = async (btn, body, fallback) => {
+    btn.disabled = true;
+    try {
+      const out = await push.send("POST", "/api/v1/notifications/test", body);
+      const failed = (out.results || []).filter((r) => !r.ok);
+      if (!out.sent) toast(failed[0] ? `Not delivered: ${failed[0].error}` : fallback, "error");
+      else if (failed.length) toast(`Sent to ${out.sent}; ${failed.length} device${failed.length > 1 ? "s" : ""} didn't take it`, "error");
+      else toast(out.sent > 1 ? `Sent to ${out.sent} devices` : "Sent. It should appear in a moment.", "ok");
+      await load();
+    } catch (e) {
+      toast(e.message || fallback, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  test.addEventListener("click", () => runTest(test, sub ? { endpoint: sub.endpoint } : {}, "Could not send the test"));
+  $("notifyTryReminder").addEventListener("click", (e) =>
+    runTest(e.currentTarget, { reminder: true, endpoint: sub ? sub.endpoint : "" }, "Could not send the reminder"));
+
+  $("notifyDevices").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-notify-remove]");
+    if (!b) return;
+    showConfirm("Remove device?", "It won't get reminders until notifications are turned on there again.", "Remove", async () => {
+      try {
+        if (b.dataset.mine) await push.off(sub);
+        else await push.send("DELETE", `/api/v1/notifications/devices/${b.dataset.notifyRemove}`);
+        await load();
+      } catch (err) {
+        toast(err.message || "Could not remove the device", "error");
+      }
+    });
+  });
+
+  $("notifyForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("notifySave");
+    btn.disabled = true;
+    try {
+      const s = await push.send("PUT", "/api/v1/notifications/settings", {
+        enabled: $("notifyEnabled").checked,
+        default_days: Number($("notifyDays").value),
+        hour: Number(hourSel.value),
+        repeat_days: Number($("notifyRepeat").value),
+      });
+      info.settings = s;
+      render();
+      toast("Reminders saved", "ok");
+    } catch (err) {
+      toast(err.message || "Could not save the reminders", "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  load().catch((e) => { status.textContent = e.message || "Couldn't load the notification settings."; });
+});

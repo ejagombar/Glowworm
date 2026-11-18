@@ -243,6 +243,66 @@
                 <button class="btn btn-primary" id="appearanceSave">Save appearance</button>
             </div>
         </div>
+
+        {{/* Filled in by app.js from /api/v1/notifications: whether this device
+             can have notifications and has them on, the devices that do, and
+             when reminders go out. */}}
+        <div class="panel setting-block notify-settings" id="notifySettings">
+            <h2>Reminders</h2>
+            <p class="muted">A notification when a balance on the Savings page hasn't been updated for a while.</p>
+            <div class="notify-device">
+                <p class="notify-status" id="notifyStatus" aria-live="polite">Checking this device…</p>
+                <div class="account-actions">
+                    <button class="btn btn-primary" id="notifyToggle" type="button" hidden>Turn on for this device</button>
+                    <button class="btn btn-ghost" id="notifyTest" type="button" hidden>Send a test notification</button>
+                </div>
+            </div>
+            <ul class="passkey-list notify-devices" id="notifyDevices" hidden></ul>
+            <form class="notify-form" id="notifyForm" hidden>
+                <div class="field-row">
+                    <label class="switch-label" for="notifyEnabled">
+                        <span>Send balance reminders</span>
+                        <input type="checkbox" id="notifyEnabled" />
+                        <span class="switch" aria-hidden="true"></span>
+                    </label>
+                </div>
+                <div class="field-row">
+                    <label for="notifyDays">Remind me when a savings balance is older than</label>
+                    <select class="field select" id="notifyDays">
+                        <option value="7">A week</option>
+                        <option value="14">Two weeks</option>
+                        <option value="30">A month</option>
+                        <option value="60">Two months</option>
+                        <option value="91">Three months</option>
+                        <option value="182">Six months</option>
+                        <option value="365">A year</option>
+                        <option value="0">Never (only accounts set to remind)</option>
+                    </select>
+                    <span class="field-hint">Any account can set its own in its details.</span>
+                </div>
+                <div class="field-cols">
+                    <div class="field-row">
+                        <label for="notifyHour">At about</label>
+                        <select class="field select" id="notifyHour"></select>
+                    </div>
+                    <div class="field-row">
+                        <label for="notifyRepeat">Until it's updated, remind again</label>
+                        <select class="field select" id="notifyRepeat">
+                            <option value="1">Every day</option>
+                            <option value="3">Every 3 days</option>
+                            <option value="7">Every week</option>
+                            <option value="14">Every two weeks</option>
+                            <option value="30">Every month</option>
+                            <option value="0">Don't</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="field-row account-actions">
+                    <button class="btn btn-primary" id="notifySave" type="submit">Save reminders</button>
+                    <button class="btn btn-ghost" id="notifyTryReminder" type="button">Send today's reminder now</button>
+                </div>
+            </form>
+        </div>
     </div>
 </section>
 
