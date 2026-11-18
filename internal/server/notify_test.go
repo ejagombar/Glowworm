@@ -36,6 +36,7 @@ func TestNotificationsAPI(t *testing.T) {
 			Enabled     bool `json:"enabled"`
 			DefaultDays int  `json:"default_days"`
 			Hour        int  `json:"hour"`
+			RepeatDays  int  `json:"repeat_days"`
 		} `json:"settings"`
 	}
 	get := func(q string) {
@@ -53,7 +54,7 @@ func TestNotificationsAPI(t *testing.T) {
 	if info.PublicKey == "" || len(info.Devices) != 0 {
 		t.Fatalf("%+v", info)
 	}
-	if !info.Settings.Enabled || info.Settings.DefaultDays != 30 || info.Settings.Hour != 9 {
+	if !info.Settings.Enabled || info.Settings.DefaultDays != 30 || info.Settings.Hour != 9 || info.Settings.RepeatDays != 7 {
 		t.Errorf("defaults %+v", info.Settings)
 	}
 
@@ -95,12 +96,12 @@ func TestNotificationsAPI(t *testing.T) {
 	if rec := c.do("PUT", "/api/v1/notifications/settings", "application/json", `{"hour":25}`); rec.Code != 400 {
 		t.Errorf("hour 25: %d", rec.Code)
 	}
-	rec = c.do("PUT", "/api/v1/notifications/settings", "application/json", `{"enabled":false,"default_days":60,"hour":18}`)
+	rec = c.do("PUT", "/api/v1/notifications/settings", "application/json", `{"enabled":false,"default_days":60,"hour":18,"repeat_days":0}`)
 	if rec.Code != 200 {
 		t.Fatalf("save: %d %s", rec.Code, rec.Body)
 	}
 	get("")
-	if s := info.Settings; s.Enabled || s.DefaultDays != 60 || s.Hour != 18 {
+	if s := info.Settings; s.Enabled || s.DefaultDays != 60 || s.Hour != 18 || s.RepeatDays != 0 {
 		t.Errorf("saved %+v", s)
 	}
 	// The savings page and the ledger follow the default interval.

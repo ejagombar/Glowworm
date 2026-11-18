@@ -5090,6 +5090,7 @@ document.addEventListener("DOMContentLoaded", () => {
       $("notifyEnabled").checked = !!s.enabled;
       setSelect($("notifyDays"), s.default_days, (v) => (v === "0" ? "Never" : `${v} days`));
       setSelect(hourSel, s.hour, (v) => `${v}:00`);
+      setSelect($("notifyRepeat"), s.repeat_days, (v) => `Every ${v} days`);
       hourSel.title = info.timezone ? `Time in ${info.timezone}` : "";
       $("notifyForm").hidden = false;
     }
@@ -5175,6 +5176,7 @@ document.addEventListener("DOMContentLoaded", () => {
         enabled: $("notifyEnabled").checked,
         default_days: Number($("notifyDays").value),
         hour: Number(hourSel.value),
+        repeat_days: Number($("notifyRepeat").value),
       });
       info.settings = s;
       render();
@@ -5188,3 +5190,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   load().catch((e) => { status.textContent = e.message || "Couldn't load the notification settings."; });
 });
+
+// ---- The Savings tab's dot (see savings_dot.go). The installed web app's
+// icon carries the same dot where the browser can badge it (an HTTPS Home
+// Screen or installed app). Opening the Savings page clears both; other
+// tabs, and pages brought back with the back button, follow at once.
+(() => {
+  const SEEN = "glowworm-savings-seen";
+  const loadedAt = Date.now();
+  const badge = (on) => {
+    if (!("setAppBadge" in navigator) || !window.isSecureContext) return;
+    (on ? navigator.setAppBadge() : navigator.clearAppBadge()).catch(() => {});
+  };
+  const seenSince = () => { try { return Number(localStorage.getItem(SEEN)) || 0; } catch (e) { return 0; } };
+  const clearIfSeen = () => {
+    if (seenSince() <= loadedAt) return;
+    document.querySelectorAll("[data-savings-dot]").forEach((d) => d.remove());
+    badge(false);
+  };
+  document.addEventListener("DOMContentLoaded", () => {
+    if (document.getElementById("view-savings")) {
+      try { localStorage.setItem(SEEN, String(Date.now())); } catch (e) {}
+      badge(false);
+      return;
+    }
+    badge(!!document.querySelector("[data-savings-dot]"));
+  });
+  window.addEventListener("pageshow", (e) => { if (e.persisted) clearIfSeen(); });
+  window.addEventListener("storage", (e) => { if (e.key === SEEN) clearIfSeen(); });
+})();

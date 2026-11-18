@@ -397,12 +397,11 @@ body.privacy .pie-total { display: none; }
   transition: color 0.14s, border-color 0.14s;
 }
 .tabnav-item:hover { color: var(--text); }
-/* How many savings balances are out of date. */
-.tab-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
-  background: var(--warn, #b5761b); color: #fff;
-  font-size: 10.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+/* A savings balance went out of date since the page was last opened: a
+   dot in the glowworm's own green, with its glow. */
+.tab-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: #2cc57a; box-shadow: 0 0 0 2px rgba(125, 255, 184, 0.35), 0 0 6px rgba(44, 197, 122, 0.7);
 }
 .tabnav-item.active {
   color: var(--text);
@@ -2274,7 +2273,7 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
   .masthead .tabnav-item.tabnav-icon .icon { width: 19px; height: 19px; }
   .masthead .tabnav-item .tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .masthead .tabnav-item { position: relative; }
-  .masthead .tab-badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 15px; height: 15px; font-size: 9.5px; padding: 0 4px; }
+  .masthead .tab-dot { position: absolute; top: 7px; left: calc(50% + 8px); }
   .masthead .period-wrap { margin-left: auto; }
   .content { padding-top: 12px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .content:has(#view-queries.active) { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }

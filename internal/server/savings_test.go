@@ -71,7 +71,7 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 		t.Errorf("list: %s", list)
 	}
 	page := c.do("GET", "/savings", "", "").Body.String()
-	for _, want := range []string{"House", "50%", "years ago", "is-due", `class="tab-badge"`} {
+	for _, want := range []string{"House", "50%", "years ago", "is-due"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Savings page lacks %q", want)
 		}
@@ -91,5 +91,44 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 	}
 	if list = c.do("GET", "/api/v1/goals", "", "").Body.String(); strings.Contains(list, "Flat") {
 		t.Errorf("deleted goal still listed: %s", list)
+	}
+}
+
+// The Savings tab has a dot when a balance goes out of date, until the
+// Savings page is opened; a balance going out of date again brings it back.
+func TestSavingsDot(t *testing.T) {
+	a, c := newLockTestApp(t)
+	insertAccount(t, a.DB, "ISA", 0, "")
+	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings' WHERE id = 'ISA'`); err != nil {
+		t.Fatal(err)
+	}
+	dot := func(path string) bool {
+		t.Helper()
+		return strings.Contains(c.do("GET", path, "", "").Body.String(), "data-savings-dot")
+	}
+	if !dot("/transactions") {
+		t.Fatal("no dot for a savings account with no balance")
+	}
+	if dot("/savings") {
+		t.Error("the Savings page shows its own dot")
+	}
+	if dot("/transactions") {
+		t.Error("the dot is still there after opening Savings")
+	}
+	// Updated, then out of date again: a new dot.
+	if _, err := a.DB.Exec(`INSERT INTO valuations (id, account_id, value_minor, date, source, created_at, updated_at)
+		VALUES ('v1', 'ISA', 1000, '2020-01-01', 'manual', '2020-01-01', '2020-01-01')`); err != nil {
+		t.Fatal(err)
+	}
+	if !dot("/transactions") {
+		t.Error("no dot once the new balance is out of date")
+	}
+	dot("/savings")
+	// A reminder going out brings it back.
+	if _, err := a.DB.Exec(`DELETE FROM settings WHERE key = 'savings_due_seen'`); err != nil {
+		t.Fatal(err)
+	}
+	if !dot("/transactions") {
+		t.Error("no dot after a reminder")
 	}
 }
