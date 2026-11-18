@@ -43,7 +43,7 @@
         <span class="goal-card-name">{{.Name}}</span>
         <span class="goal-card-pct">{{pct .Progress}}</span>
       </div>
-      <div class="progress-track"><div class="progress-fill" style="width:{{widthPct .Progress}};background:{{.Color}}"></div></div>
+      <div class="goal-track"><div class="goal-fill" style="width:{{widthPct .Progress}};background:{{.Color}}"></div></div>
       <div class="goal-card-figures"><strong>{{money .CurrentMinor $.Currency}}</strong> <span class="muted">of {{money .TargetMinor $.Currency}}{{if .TargetDate}} by {{monthYear .TargetDate}}{{end}}</span></div>
       <div class="goal-card-note muted">
         {{if eq .RemainingMin 0}}Reached.

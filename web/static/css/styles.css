@@ -2396,13 +2396,13 @@ input[type="date"].field { min-height: 34px; }
 .savings-card.is-due { box-shadow: inset 3px 0 0 var(--warn, #b5761b); }
 .goals-head { margin-top: 28px; }
 .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-.goal-card { display: flex; flex-direction: column; gap: 8px; text-align: left; font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); }
+.goal-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); }
 .goal-card:hover { border-color: var(--primary); }
 .goal-card-head { display: flex; align-items: center; gap: 8px; }
 .goal-card-name { font-weight: 600; font-size: 14.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .goal-card-pct { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-2); }
-.goal-card .progress-track { height: 8px; border-radius: 4px; background: var(--chart-grid); overflow: hidden; }
-.goal-card .progress-fill { height: 100%; border-radius: 4px; }
+.goal-card .goal-track { height: 8px; border-radius: 4px; background: var(--chart-grid); overflow: hidden; }
+.goal-card .goal-fill { height: 100%; border-radius: 4px; }
 .goal-card-figures { font-variant-numeric: tabular-nums; font-size: 13px; }
 .goal-card-note, .goal-card-accounts { font-size: 12px; line-height: 1.4; }
 .goals-empty { font-size: 13px; max-width: 560px; }

@@ -342,8 +342,8 @@ function progressHTML(data) {
     const color = esc(it.color || WIDGET_COLORS[0]);
     return `<div class="progress-item"><div class="progress-head"><span class="progress-label">${esc(it.label)}</span>`
       + `<span class="progress-figures"><span class="progress-value">${esc(it.value_text)}</span> <span class="muted">of ${esc(it.target_text)}</span></span></div>`
-      + `<div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct * 100)}" aria-label="${esc(it.label)}">`
-      + `<div class="progress-fill" style="width:${Math.min(pct, 1) * 100}%;background:${color}"></div></div>`
+      + `<div class="pw-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct * 100)}" aria-label="${esc(it.label)}">`
+      + `<div class="pw-fill" style="width:${Math.min(pct, 1) * 100}%;background:${color}"></div></div>`
       + `<div class="progress-pct">${Math.round(pct * 100)}%</div></div>`;
   }).join("")}${data.caption ? `<div class="num-caption">${esc(data.caption)}</div>` : ""}</div>`;
 }
@@ -992,8 +992,8 @@ function ensureWidgetStyles() {
     .progress-label { font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .progress-figures { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
     .progress-value { font-weight: 600; }
-    .progress-track { height: 8px; border-radius: 4px; background: var(--chart-grid); overflow: hidden; }
-    .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .pw-track { height: 8px; border-radius: 4px; background: var(--chart-grid); overflow: hidden; }
+    .pw-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
     .progress-pct { font-size: 11.5px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
   `;
   document.head.appendChild(style);
