@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func TestFrankfurterRatesFillWeekendsAndCache(t *testing.T) {

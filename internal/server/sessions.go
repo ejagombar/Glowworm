@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core"
-	"glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/crypto"
 )
 
 const (

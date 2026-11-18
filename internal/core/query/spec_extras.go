@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"glowworm/internal/core/widgets"
+	"github.com/ejagombar/Glowworm/internal/core/widgets"
 )
 
 // SpecTarget is a reference line drawn across a line or bar chart: a goal,

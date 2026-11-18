@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/clock"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/clock"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func referenceBalanceAt(t *testing.T, db *store.DB, accountID, date string) int64 {

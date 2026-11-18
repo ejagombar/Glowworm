@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 // seedBig builds 20 accounts over 10 years: ~50k transactions and a

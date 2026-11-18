@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core"
 )
 
 // Follow-up questions ("same but for Amex", "why was that so high?") need the

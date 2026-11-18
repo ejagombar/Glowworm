@@ -1,8 +1,8 @@
 package repos
 
 import (
-	"glowworm/internal/store"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 // Passkey is a passkey that unlocks Glowworm. Credential is the go-webauthn

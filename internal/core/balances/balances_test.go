@@ -3,7 +3,7 @@ package balances
 import (
 	"testing"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func TestAccountReplay(t *testing.T) {

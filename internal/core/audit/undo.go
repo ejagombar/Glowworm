@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 // How history works

@@ -17,9 +17,9 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
-	"glowworm/internal/crypto"
-	"glowworm/internal/store"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 // Settings keys.

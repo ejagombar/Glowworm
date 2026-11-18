@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 // conflict is why an entry can't be replayed against the data as it is now.

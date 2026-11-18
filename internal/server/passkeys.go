@@ -13,8 +13,8 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"glowworm/internal/core"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 // Passkeys sign in instead of the password. A passkey lives wherever the

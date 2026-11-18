@@ -11,16 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/accounts"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/balances"
-	"glowworm/internal/core/ledger"
-	"glowworm/internal/core/periods"
-	"glowworm/internal/core/query"
-	"glowworm/internal/core/widgets"
-	"glowworm/internal/money"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/accounts"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/balances"
+	"github.com/ejagombar/Glowworm/internal/core/ledger"
+	"github.com/ejagombar/Glowworm/internal/core/periods"
+	"github.com/ejagombar/Glowworm/internal/core/query"
+	"github.com/ejagombar/Glowworm/internal/core/widgets"
+	"github.com/ejagombar/Glowworm/internal/money"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 type queryMessageView struct {

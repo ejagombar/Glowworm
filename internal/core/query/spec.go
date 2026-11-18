@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core/widgets"
-	"glowworm/internal/money"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core/widgets"
+	"github.com/ejagombar/Glowworm/internal/money"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 // SpecVersion is the version of the saved format. A saved plan with any

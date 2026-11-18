@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/store/repos"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 type snapshot struct {

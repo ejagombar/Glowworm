@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 // Two providers connect side by side, each role keeps the provider its model

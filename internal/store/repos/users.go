@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"glowworm/internal/core"
-	"glowworm/internal/store"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 type Users struct{ DB *store.DB }

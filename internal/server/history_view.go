@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
 )
 
 // historyPage is how many audit entries the history page lists to begin

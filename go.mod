@@ -1,4 +1,4 @@
-module glowworm
+module github.com/ejagombar/Glowworm
 
 go 1.26.0
 

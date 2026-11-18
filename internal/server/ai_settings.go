@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/crypto"
-	"glowworm/internal/store"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 // Models are chosen per role. Each role's model is stored under the role's

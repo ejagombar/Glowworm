@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 const (

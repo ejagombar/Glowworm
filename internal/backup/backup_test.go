@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/crypto"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func seededInstance(t *testing.T) (dir string, secret *crypto.Secret) {

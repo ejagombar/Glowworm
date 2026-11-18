@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/core"
 )
 
 var histNow = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)

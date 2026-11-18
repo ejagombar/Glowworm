@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/core/accounts"
-	"glowworm/internal/core/categories"
-	"glowworm/internal/core/transactions"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core/accounts"
+	"github.com/ejagombar/Glowworm/internal/core/categories"
+	"github.com/ejagombar/Glowworm/internal/core/transactions"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 func (l *ledger) accounts() *accounts.Service {

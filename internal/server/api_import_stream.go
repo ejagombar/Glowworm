@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core/imports"
-	"glowworm/internal/importer"
+	"github.com/ejagombar/Glowworm/internal/core/imports"
+	"github.com/ejagombar/Glowworm/internal/importer"
 )
 
 func (a *App) apiImportPreviewDate(w http.ResponseWriter, r *http.Request) error {

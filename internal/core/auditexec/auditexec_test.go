@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/core/accounts"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/auditexec"
-	"glowworm/internal/core/transactions"
-	"glowworm/internal/store"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core/accounts"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/auditexec"
+	"github.com/ejagombar/Glowworm/internal/core/transactions"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 // Undoing an older edit puts back only the fields it changed. A field that

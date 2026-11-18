@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"glowworm/internal/core/audit"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func newService(t *testing.T) *Service {

@@ -4,14 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/classifier"
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/normalize"
-	"glowworm/internal/store"
-	"glowworm/internal/store/repos"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/classifier"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/normalize"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 type Service struct {

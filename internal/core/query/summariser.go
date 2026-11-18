@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 type DayEntry struct {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func TestValidateReadonly(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/core/balances"
+	"github.com/ejagombar/Glowworm/internal/core/balances"
 )
 
 func seedPeriodsData(t *testing.T) *Service {

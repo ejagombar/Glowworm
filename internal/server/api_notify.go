@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core/ledger"
-	"glowworm/internal/core/notify"
+	"github.com/ejagombar/Glowworm/internal/core/ledger"
+	"github.com/ejagombar/Glowworm/internal/core/notify"
 )
 
 // reminderEvery is how often the reminder job looks whether it's time.

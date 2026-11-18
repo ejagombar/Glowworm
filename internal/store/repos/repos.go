@@ -3,7 +3,7 @@ package repos
 import (
 	"database/sql"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 type Scanner interface {

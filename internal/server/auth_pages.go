@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"glowworm/internal/core/setup"
+	"github.com/ejagombar/Glowworm/internal/core/setup"
 )
 
 func seriesJSON(labels []string, values []int64) string {

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"glowworm/internal/core/ledger"
-	"glowworm/internal/crypto"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/core/ledger"
+	"github.com/ejagombar/Glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 // pushService stands in for a browser's push service: it records what it

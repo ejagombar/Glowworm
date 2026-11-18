@@ -3,7 +3,7 @@ package classifier
 import (
 	"testing"
 
-	"glowworm/internal/core/normalize"
+	"github.com/ejagombar/Glowworm/internal/core/normalize"
 )
 
 func TestTrainPredictRoundtrip(t *testing.T) {

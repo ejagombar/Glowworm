@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/core"
-	"glowworm/internal/core/widgets"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/widgets"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 type Service struct {

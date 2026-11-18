@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"strings"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/store"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 const (

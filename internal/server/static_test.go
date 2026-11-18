@@ -11,7 +11,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	staticFS "glowworm/web/static"
+	staticFS "github.com/ejagombar/Glowworm/web/static"
 )
 
 func testStatic() *staticSet {

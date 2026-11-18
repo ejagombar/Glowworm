@@ -5,13 +5,13 @@ import (
 	"sync"
 	"testing"
 
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/auditexec"
-	"glowworm/internal/core/changes"
-	"glowworm/internal/core/transactions"
-	"glowworm/internal/core/transfers"
-	"glowworm/internal/store"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/auditexec"
+	"github.com/ejagombar/Glowworm/internal/core/changes"
+	"github.com/ejagombar/Glowworm/internal/core/transactions"
+	"github.com/ejagombar/Glowworm/internal/core/transfers"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 type fixture struct {

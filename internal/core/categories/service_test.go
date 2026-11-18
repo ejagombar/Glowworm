@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/auditexec"
-	"glowworm/internal/core/categories"
-	"glowworm/internal/store"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/auditexec"
+	"github.com/ejagombar/Glowworm/internal/core/categories"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 func strp(s string) *string { return &s }

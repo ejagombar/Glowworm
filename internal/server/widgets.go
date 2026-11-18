@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"glowworm/internal/core/periods"
-	"glowworm/internal/core/query"
-	"glowworm/internal/money"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core/periods"
+	"github.com/ejagombar/Glowworm/internal/core/query"
+	"github.com/ejagombar/Glowworm/internal/money"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 func defaultSpanCol(t string) int {

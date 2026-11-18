@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"time"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/backup"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/backup"
 )
 
 func (a *App) setProviders(cat, queries ai.Provider) {

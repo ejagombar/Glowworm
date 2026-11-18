@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func TestSearchMatchesGroupsIgnoringSpaces(t *testing.T) {

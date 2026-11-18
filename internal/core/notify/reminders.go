@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/core/ledger"
-	"glowworm/internal/store"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core/ledger"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 // Settings keys for reminders. How old a balance may get before it's due is

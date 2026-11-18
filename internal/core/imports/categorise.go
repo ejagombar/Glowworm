@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/core"
-	"glowworm/internal/core/normalize"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/normalize"
 )
 
 // Rows sharing a key must always share a category. Direction is part of the key

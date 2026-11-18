@@ -11,8 +11,8 @@ import (
 
 	"modernc.org/sqlite/vtab"
 
-	"glowworm/internal/core/ledger"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/core/ledger"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 // Derived tables are tables a query can read that the app works out from

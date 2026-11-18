@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/transactions"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/transactions"
 )
 
 // in is the account a transaction is in.

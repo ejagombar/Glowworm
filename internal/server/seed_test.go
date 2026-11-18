@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"glowworm/internal/config"
-	"glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/config"
+	"github.com/ejagombar/Glowworm/internal/crypto"
 )
 
 func TestSeedExamplesOnceAsSystem(t *testing.T) {

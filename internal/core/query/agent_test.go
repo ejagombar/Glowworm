@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/core/changes"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/core/changes"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func newAgentTestDB(t *testing.T) *store.DB {

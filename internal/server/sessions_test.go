@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/config"
-	"glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/config"
+	"github.com/ejagombar/Glowworm/internal/crypto"
 )
 
 type testClient struct {

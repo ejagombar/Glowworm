@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"strings"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 const keyExamplesSeeded = "examples_seeded"

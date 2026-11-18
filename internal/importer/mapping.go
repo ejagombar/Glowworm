@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/money"
+	"github.com/ejagombar/Glowworm/internal/money"
 )
 
 const (

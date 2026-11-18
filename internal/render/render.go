@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/money"
-	"glowworm/web/static"
+	"github.com/ejagombar/Glowworm/internal/money"
+	"github.com/ejagombar/Glowworm/web/static"
 )
 
 //go:embed templates/*.html

@@ -16,9 +16,9 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"glowworm/internal/config"
-	"glowworm/internal/crypto"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/config"
+	"github.com/ejagombar/Glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 func newLockTestApp(t *testing.T) (*App, *testClient) {

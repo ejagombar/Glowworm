@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"glowworm/internal/crypto"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 const (

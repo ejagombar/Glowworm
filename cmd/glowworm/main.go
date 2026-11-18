@@ -8,18 +8,30 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 
-	"glowworm/internal/backup"
-	"glowworm/internal/config"
-	"glowworm/internal/crypto"
-	"glowworm/internal/server"
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/backup"
+	"github.com/ejagombar/Glowworm/internal/config"
+	"github.com/ejagombar/Glowworm/internal/crypto"
+	"github.com/ejagombar/Glowworm/internal/server"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
+// version is set at build time (-X main.version=v1.2.3); a build by
+// `go install …@v1.2.3` gets it from the module version instead.
 var version = "dev"
+
+func init() {
+	if version != "dev" {
+		return
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		version = bi.Main.Version
+	}
+}
 
 const usage = `Usage: glowworm <command>
 

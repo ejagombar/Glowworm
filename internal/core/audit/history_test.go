@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 // history is a log over a scratch table: each written entry adds a row, undo

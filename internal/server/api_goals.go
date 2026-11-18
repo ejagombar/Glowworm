@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"glowworm/internal/core/goals"
-	"glowworm/internal/core/ledger"
+	"github.com/ejagombar/Glowworm/internal/core/goals"
+	"github.com/ejagombar/Glowworm/internal/core/ledger"
 )
 
 // book is the ledger as of today, shared with widget queries' cache.

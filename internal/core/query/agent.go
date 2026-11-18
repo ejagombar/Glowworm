@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/core/changes"
-	"glowworm/internal/core/grouping"
-	"glowworm/internal/core/widgets"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/core/changes"
+	"github.com/ejagombar/Glowworm/internal/core/grouping"
+	"github.com/ejagombar/Glowworm/internal/core/widgets"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 const (

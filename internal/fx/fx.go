@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 // Source gives the rate for 1 unit of from in to, for each requested date.

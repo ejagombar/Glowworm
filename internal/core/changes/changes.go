@@ -12,12 +12,12 @@ import (
 	"strings"
 	"sync"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/transactions"
-	"glowworm/internal/core/transfers"
-	"glowworm/internal/store"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/transactions"
+	"github.com/ejagombar/Glowworm/internal/core/transfers"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 const (

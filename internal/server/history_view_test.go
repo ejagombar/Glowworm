@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"glowworm/internal/clock"
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/clock"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
 )
 
 func TestGroupAuditEntries(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store"
 )
 
 func TestUndoRedoDiscardTakeDependantsAlong(t *testing.T) {

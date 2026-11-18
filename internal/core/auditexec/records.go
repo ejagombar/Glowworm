@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 // expect refuses to delete or bring back a record that isn't as the entry

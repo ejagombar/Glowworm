@@ -13,15 +13,15 @@ import (
 	"sort"
 	"strings"
 
-	"glowworm/internal/ai"
-	"glowworm/internal/core"
-	"glowworm/internal/core/audit"
-	"glowworm/internal/core/categoriser"
-	"glowworm/internal/fx"
-	"glowworm/internal/importer"
-	"glowworm/internal/store"
-	"glowworm/internal/store/repos"
-	"glowworm/internal/util"
+	"github.com/ejagombar/Glowworm/internal/ai"
+	"github.com/ejagombar/Glowworm/internal/core"
+	"github.com/ejagombar/Glowworm/internal/core/audit"
+	"github.com/ejagombar/Glowworm/internal/core/categoriser"
+	"github.com/ejagombar/Glowworm/internal/fx"
+	"github.com/ejagombar/Glowworm/internal/importer"
+	"github.com/ejagombar/Glowworm/internal/store"
+	"github.com/ejagombar/Glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/util"
 )
 
 type Service struct {
