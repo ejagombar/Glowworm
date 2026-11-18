@@ -3,6 +3,7 @@ module glowworm
 go 1.26.0
 
 require (
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/xuri/excelize/v2 v2.11.0
 	golang.org/x/crypto v0.57.0
