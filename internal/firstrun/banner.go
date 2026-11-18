@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -115,8 +116,13 @@ func Banner(w io.Writer, link string, a Address, tried bool, reach error, color 
 	_, _ = io.WriteString(w, b.String())
 }
 
-// IsTerminal reports whether f is a terminal, for colour.
-func IsTerminal(f *os.File) bool {
+// UseColor reports whether the QR code can set its own colours on f: a
+// terminal, and not on Windows, whose console may print the colour codes as
+// text. The plain drawing suits its usual dark background.
+func UseColor(f *os.File) bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
 	st, err := f.Stat()
 	return err == nil && st.Mode()&os.ModeCharDevice != 0
 }

@@ -44,7 +44,7 @@ func announceSetup(ctx context.Context, cfg config.Config, log *slog.Logger, db 
 		log.Info("no account yet: open the setup link to create it", args...)
 		return
 	}
-	firstrun.Banner(os.Stdout, link, where, tried, reach, firstrun.IsTerminal(os.Stdout))
+	firstrun.Banner(os.Stdout, link, where, tried, reach, firstrun.UseColor(os.Stdout))
 }
 
 func runSetupURL(args []string) {
@@ -90,5 +90,5 @@ func runSetupURL(args []string) {
 	if tried {
 		reach = firstrun.Reachable(context.Background(), cfg.PublicURL, "")
 	}
-	firstrun.Banner(os.Stdout, link, where, tried, reach, firstrun.IsTerminal(os.Stdout))
+	firstrun.Banner(os.Stdout, link, where, tried, reach, firstrun.UseColor(os.Stdout))
 }
