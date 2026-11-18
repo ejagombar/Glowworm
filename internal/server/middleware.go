@@ -201,10 +201,14 @@ func isTrustedProxy(host, cidrs string) bool {
 		return false
 	}
 	for _, c := range strings.Split(cidrs, ",") {
-		if _, network, err := net.ParseCIDR(strings.TrimSpace(c)); err == nil {
+		c = strings.TrimSpace(c)
+		if _, network, err := net.ParseCIDR(c); err == nil {
 			if network.Contains(ip) {
 				return true
 			}
+		} else if one := net.ParseIP(c); one != nil && one.Equal(ip) {
+			// A single address, as the docs and the systemd unit give it.
+			return true
 		}
 	}
 	return false
