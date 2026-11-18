@@ -5191,31 +5191,11 @@ document.addEventListener("DOMContentLoaded", () => {
   load().catch((e) => { status.textContent = e.message || "Couldn't load the notification settings."; });
 });
 
-// ---- The Savings tab's dot (see savings_dot.go). The installed web app's
-// icon carries the same dot where the browser can badge it (an HTTPS Home
-// Screen or installed app). Opening the Savings page clears both; other
-// tabs, and pages brought back with the back button, follow at once.
-(() => {
-  const SEEN = "glowworm-savings-seen";
-  const loadedAt = Date.now();
-  const badge = (on) => {
-    if (!("setAppBadge" in navigator) || !window.isSecureContext) return;
-    (on ? navigator.setAppBadge() : navigator.clearAppBadge()).catch(() => {});
-  };
-  const seenSince = () => { try { return Number(localStorage.getItem(SEEN)) || 0; } catch (e) { return 0; } };
-  const clearIfSeen = () => {
-    if (seenSince() <= loadedAt) return;
-    document.querySelectorAll("[data-savings-dot]").forEach((d) => d.remove());
-    badge(false);
-  };
-  document.addEventListener("DOMContentLoaded", () => {
-    if (document.getElementById("view-savings")) {
-      try { localStorage.setItem(SEEN, String(Date.now())); } catch (e) {}
-      badge(false);
-      return;
-    }
-    badge(!!document.querySelector("[data-savings-dot]"));
-  });
-  window.addEventListener("pageshow", (e) => { if (e.persisted) clearIfSeen(); });
-  window.addEventListener("storage", (e) => { if (e.key === SEEN) clearIfSeen(); });
-})();
+// ---- The Savings tab's count of out-of-date balances (see savings_dot.go).
+// An installed HTTPS web app shows the same number on its icon where the
+// platform badges web apps; it goes as balances are updated.
+document.addEventListener("DOMContentLoaded", () => {
+  if (!("setAppBadge" in navigator) || !window.isSecureContext) return;
+  const n = Number(document.querySelector("[data-balances-due]")?.dataset.balancesDue || 0);
+  (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+});

@@ -94,41 +94,48 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 	}
 }
 
-// The Savings tab has a dot when a balance goes out of date, until the
-// Savings page is opened; a balance going out of date again brings it back.
-func TestSavingsDot(t *testing.T) {
+// The Savings tab counts the out-of-date savings balances on every page,
+// the Savings page too, and the count goes down only as they're updated.
+func TestSavingsTabCount(t *testing.T) {
 	a, c := newLockTestApp(t)
 	insertAccount(t, a.DB, "ISA", 0, "")
-	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings' WHERE id = 'ISA'`); err != nil {
+	insertAccount(t, a.DB, "Pension", 0, "")
+	insertAccount(t, a.DB, "Current", 0, "")
+	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings' WHERE id IN ('ISA', 'Pension')`); err != nil {
 		t.Fatal(err)
 	}
-	dot := func(path string) bool {
+	count := func(path string) string {
 		t.Helper()
-		return strings.Contains(c.do("GET", path, "", "").Body.String(), "data-savings-dot")
+		body := c.do("GET", path, "", "").Body.String()
+		_, rest, ok := strings.Cut(body, `data-balances-due="`)
+		if !ok {
+			return ""
+		}
+		n, _, _ := strings.Cut(rest, `"`)
+		return n
 	}
-	if !dot("/transactions") {
-		t.Fatal("no dot for a savings account with no balance")
+	if got := count("/transactions"); got != "2" {
+		t.Fatalf("count %q, want 2 (the current account is never due)", got)
 	}
-	if dot("/savings") {
-		t.Error("the Savings page shows its own dot")
+	if got := count("/savings"); got != "2" {
+		t.Errorf("opening Savings changed the count to %q", got)
 	}
-	if dot("/transactions") {
-		t.Error("the dot is still there after opening Savings")
+	if got := count("/transactions"); got != "2" {
+		t.Errorf("count %q after opening Savings", got)
 	}
-	// Updated, then out of date again: a new dot.
+	today := a.Clock.Today()
 	if _, err := a.DB.Exec(`INSERT INTO valuations (id, account_id, value_minor, date, source, created_at, updated_at)
-		VALUES ('v1', 'ISA', 1000, '2020-01-01', 'manual', '2020-01-01', '2020-01-01')`); err != nil {
+		VALUES ('v1', 'ISA', 1000, ?, 'manual', ?, ?)`, today, today, today); err != nil {
 		t.Fatal(err)
 	}
-	if !dot("/transactions") {
-		t.Error("no dot once the new balance is out of date")
+	if got := count("/transactions"); got != "1" {
+		t.Errorf("count %q after updating one balance, want 1", got)
 	}
-	dot("/savings")
-	// A reminder going out brings it back.
-	if _, err := a.DB.Exec(`DELETE FROM settings WHERE key = 'savings_due_seen'`); err != nil {
+	if _, err := a.DB.Exec(`INSERT INTO valuations (id, account_id, value_minor, date, source, created_at, updated_at)
+		VALUES ('v2', 'Pension', 1000, ?, 'manual', ?, ?)`, today, today, today); err != nil {
 		t.Fatal(err)
 	}
-	if !dot("/transactions") {
-		t.Error("no dot after a reminder")
+	if got := count("/transactions"); got != "" {
+		t.Errorf("count %q with everything up to date", got)
 	}
 }

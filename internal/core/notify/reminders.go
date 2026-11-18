@@ -22,10 +22,6 @@ const (
 	KeyReminderHour     = "reminder_hour"
 	KeyReminderRepeat   = "reminder_repeat_days"
 	keyReminderLastRun  = "reminder_last_run"
-	// KeySavingsSeen is what the Savings page was last opened with (see
-	// the server's savings dot); a reminder going out clears it, so the
-	// Savings tab's dot comes back with each reminder.
-	KeySavingsSeen = "savings_due_seen"
 )
 
 // ReminderSettings is how reminders are set up.
@@ -173,7 +169,17 @@ func (r *Reminders) Tick(ctx context.Context) (bool, error) {
 	if err != nil || len(due) == 0 {
 		return false, err
 	}
-	results, err := r.Notify.SendAll(ctx, ReminderMessage(due))
+	m := ReminderMessage(due)
+	// The app icon's badge counts every out-of-date balance, as the
+	// Savings tab does, not only those reminded about today.
+	if b, err := r.Book(ctx); err == nil {
+		for _, st := range b.Statuses() {
+			if st.Due {
+				m.Badge++
+			}
+		}
+	}
+	results, err := r.Notify.SendAll(ctx, m)
 	if errors.Is(err, ErrNoDevices) {
 		return false, nil
 	}
@@ -198,8 +204,7 @@ func (r *Reminders) Tick(ctx context.Context) (bool, error) {
 				return err
 			}
 		}
-		_, err := tx.Exec(`DELETE FROM settings WHERE key = ?`, KeySavingsSeen)
-		return err
+		return nil
 	})
 }
 

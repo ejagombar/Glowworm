@@ -145,10 +145,11 @@ self.addEventListener("push", (e) => {
     msg = { body: e.data ? e.data.text() : "" };
   }
   const title = msg.title || "Glowworm";
-  // A balance reminder also puts the dot on the app's icon, where the
-  // platform badges installed web apps; the Savings page clears it.
-  if (msg.tag === "balance-reminder" && self.navigator.setAppBadge) {
-    e.waitUntil(self.navigator.setAppBadge().catch(() => {}));
+  // A balance reminder also puts the number of out-of-date balances on the
+  // app's icon, where the platform badges installed web apps; pages keep
+  // it up to date from then on.
+  if (msg.badge > 0 && self.navigator.setAppBadge) {
+    e.waitUntil(self.navigator.setAppBadge(msg.badge).catch(() => {}));
   }
   e.waitUntil(self.registration.showNotification(title, {
     body: msg.body || "",

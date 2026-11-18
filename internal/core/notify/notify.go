@@ -59,6 +59,8 @@ type Message struct {
 	Body  string `json:"body"`
 	URL   string `json:"url,omitempty"`
 	Tag   string `json:"tag,omitempty"`
+	// Badge is the number the app's icon shows (0 leaves it alone).
+	Badge int `json:"badge,omitempty"`
 }
 
 type ValidationError struct{ Message string }

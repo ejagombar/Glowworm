@@ -261,13 +261,7 @@ func TestRemindersOncePerDayAndRepeat(t *testing.T) {
 	}
 	tick(false) // 30 days old, but not 9 yet
 	now = now.Add(2 * time.Minute)
-	must(`INSERT INTO settings (key, value, updated_at) VALUES (?, '["isa:2026-03-01"]', ?)`, KeySavingsSeen, ts)
 	tick(true)
-	var n int
-	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = ?`, KeySavingsSeen).Scan(&n)
-	if n != 0 {
-		t.Error("a reminder didn't bring the Savings tab's dot back")
-	}
 	if p.count("/phone") != 1 {
 		t.Fatalf("%d sent", p.count("/phone"))
 	}

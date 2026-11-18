@@ -53,9 +53,9 @@ type viewBase struct {
 	Nonce string
 	// DataVersion is the data this page was built from; see dataVersion.
 	DataVersion string
-	// SavingsDot marks the Savings tab: a balance has gone out of date
-	// since the Savings page was last opened.
-	SavingsDot bool
+	// BalancesDue is how many savings balances are out of date, shown on
+	// the Savings tab until they're updated.
+	BalancesDue int
 }
 
 // shortDate is "22 Oct 2025", matching the date range button in app.js.
@@ -124,9 +124,9 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, view, title string) (
 	nonce := randomHex(16)
 	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
 	return &viewBase{
-		SavingsDot: a.savingsDot(r.Context(), view),
-		Nonce:      nonce,
-		Title:      title, View: view, Period: period, PeriodLabel: label,
+		BalancesDue: a.balancesDue(r.Context()),
+		Nonce:       nonce,
+		Title:       title, View: view, Period: period, PeriodLabel: label,
 		PeriodFrom: from, PeriodTo: to,
 		Currency: s.Currency, Theme: s.Theme, UserName: s.UserName,
 		Privacy: privacy, CSRFToken: CSRFToken(w, r, a.Secret),
