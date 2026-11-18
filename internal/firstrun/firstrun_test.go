@@ -41,7 +41,7 @@ func TestToken(t *testing.T) {
 func TestWhere(t *testing.T) {
 	for _, c := range []struct {
 		public, listen, base string
-		qr, note           bool
+		qr, note             bool
 	}{
 		{"https://money.example.com", "127.0.0.1:8080", "https://money.example.com", true, false},
 		{"http://money.example.com", "127.0.0.1:8080", "http://money.example.com", true, true}, // not HTTPS

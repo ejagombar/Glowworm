@@ -42,3 +42,16 @@ func TestPublicURLFromFile(t *testing.T) {
 		t.Errorf("%+v %v", c, err)
 	}
 }
+
+func TestUpdateCheck(t *testing.T) {
+	for in, want := range map[string]string{"": "on", "on": "on", "OFF": "off", "false": "off"} {
+		t.Setenv("GLOWWORM_UPDATE_CHECK", in)
+		if c, err := Load(); err != nil || c.UpdateCheck != want {
+			t.Errorf("%q: %q %v", in, c.UpdateCheck, err)
+		}
+	}
+	t.Setenv("GLOWWORM_UPDATE_CHECK", "weekly")
+	if _, err := Load(); err == nil {
+		t.Error("weekly accepted")
+	}
+}

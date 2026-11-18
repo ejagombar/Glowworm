@@ -44,6 +44,11 @@ Commands:
                             stop the server first
   user create [-u NAME]     create the account from the terminal (prompts
                             for the password); otherwise the browser asks
+  update [--check] [--restart UNIT]
+                            install the latest release in place of this
+                            binary, after backing up; --check only says
+                            whether there is one; --restart restarts that
+                            systemd unit afterwards
   setup-url [--qr]          print the link that creates the account, and a
                             QR code of it with --qr
   version                   print the version
@@ -67,6 +72,8 @@ func main() {
 		runRestore(args)
 	case "user":
 		runUser(args)
+	case "update":
+		runUpdate(args)
 	case "setup-url":
 		runSetupURL(args)
 	case "version":
@@ -155,6 +162,7 @@ func serve() {
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	app.StartReminders(stop)
+	app.StartUpdateCheck(stop)
 	failed := make(chan error, 1)
 	go func() { failed <- srv.Serve(ln) }()
 	if cfg.AuthMode == "password" && !app.Audit.HasUser() {
@@ -215,31 +223,36 @@ func runBackup(args []string) {
 	if _, err := os.Stat(dsn); err != nil {
 		fail("no database at %s — nothing to back up", dsn)
 	}
-	secret, err := crypto.LoadOrCreate(cfg.SecretKey, cfg.DataDir)
-	if err != nil {
-		fail("secret key: %v", err)
-	}
-	db, err := store.Open(dsn)
-	if err != nil {
-		fail("store: %v", err)
-	}
-	defer func() { _ = db.Close() }()
 	if out == "" {
 		out = backup.FileName(time.Now())
 	}
+	if err := writeBackup(cfg, out); err != nil {
+		fail("%v", err)
+	}
+	fmt.Printf("Backup written to %s\nIt contains all your data and the key that decrypts your AI key — keep it private.\n", out)
+}
+
+// writeBackup writes a full backup of cfg's instance to a new file at out.
+func writeBackup(cfg config.Config, out string) error {
+	secret, err := crypto.LoadOrCreate(cfg.SecretKey, cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("secret key: %w", err)
+	}
+	db, err := store.Open(cfg.DSNSQLite())
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	defer func() { _ = db.Close() }()
 	f, err := os.OpenFile(out, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		fail("%v", err)
+		return err
 	}
 	if err := backup.Write(f, db, secret, version); err != nil {
 		_ = f.Close()
 		_ = os.Remove(out)
-		fail("backup: %v", err)
+		return fmt.Errorf("backup: %w", err)
 	}
-	if err := f.Close(); err != nil {
-		fail("%v", err)
-	}
-	fmt.Printf("Backup written to %s\nIt contains all your data and the key that decrypts your AI key — keep it private.\n", out)
+	return f.Close()
 }
 
 func runRestore(args []string) {

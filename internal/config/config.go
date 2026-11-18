@@ -22,6 +22,7 @@ type Config struct {
 	TrustedProxies string
 	SetupToken     string // "" = one is made on first run; "off" = none
 	PublicURL      string // the address people open Glowworm at, e.g. https://money.example.com
+	UpdateCheck    string // "off" stops the daily look for a new release
 	OwnerUsername  string
 	OwnerPassword  string
 	ExchangeRates  string // "ecb" (default) fetches daily rates; "off" = typed-in rates only
@@ -96,6 +97,9 @@ func Load() (Config, error) {
 	if v := os.Getenv("GLOWWORM_SETUP_TOKEN"); v != "" {
 		c.SetupToken = v
 	}
+	if v := os.Getenv("GLOWWORM_UPDATE_CHECK"); v != "" {
+		c.UpdateCheck = v
+	}
 	if v := os.Getenv("GLOWWORM_PUBLIC_URL"); v != "" {
 		c.PublicURL = v
 	}
@@ -105,6 +109,14 @@ func Load() (Config, error) {
 			return c, err
 		}
 		c.PublicURL = u
+	}
+	switch strings.ToLower(c.UpdateCheck) {
+	case "", "on", "true", "1":
+		c.UpdateCheck = "on"
+	case "off", "false", "0":
+		c.UpdateCheck = "off"
+	default:
+		return c, fmt.Errorf("config: GLOWWORM_UPDATE_CHECK must be on|off (got %q)", c.UpdateCheck)
 	}
 	if c.AuthMode != "password" && c.AuthMode != "none" {
 		return c, fmt.Errorf("config: GLOWWORM_AUTH_MODE must be password|none (got %q)", c.AuthMode)
@@ -178,6 +190,8 @@ func (c *Config) loadFile(path string) error {
 			c.SetupToken = val
 		case "public_url":
 			c.PublicURL = val
+		case "update_check":
+			c.UpdateCheck = val
 		}
 	}
 	return scan.Err()

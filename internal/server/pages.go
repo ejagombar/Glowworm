@@ -1107,8 +1107,9 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) error {
 		AICatModel     string
 		SetupDone      bool
 		Passkeys       *passkeySettings
+		About          aboutView
 	}{
-		viewBase: base, Categories: cats, Accounts: cards, Archives: archives,
+		viewBase: base, Categories: cats, Accounts: cards, Archives: archives, About: a.about(),
 		AIProviders: aiSet.views(), SetupDone: s.SetupCompleted,
 		AIQueriesModel: aiSet.pickerValue(modelRoleQueries), AICatModel: aiSet.pickerValue(modelRoleCategorisation),
 	}

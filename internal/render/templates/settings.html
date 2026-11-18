@@ -212,6 +212,18 @@
                     <button class="btn btn-danger" id="instanceDeleteBtn" type="button">Delete Glowworm account…</button>
                 </div>
             </div>
+
+            <div class="panel setting-block" id="aboutSettings">
+                <h2>Glowworm</h2>
+                <p class="muted">Version {{.About.Version}}{{if and .About.Checked (not .About.Latest)}} · up to date{{end}}</p>
+                {{with .About.Latest}}
+                <div class="update-note">
+                    <p><strong>{{.Tag}} is out.</strong> <a href="{{.URL}}" target="_blank" rel="noopener">What's new</a></p>
+                    <p><code>{{$.About.HowCmd}}</code></p>
+                    <p class="muted">{{$.About.HowNote}}</p>
+                </div>
+                {{end}}
+            </div>
         </div>
 
         <div class="panel setting-block">

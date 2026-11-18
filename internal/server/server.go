@@ -38,6 +38,7 @@ import (
 	"github.com/ejagombar/Glowworm/internal/render"
 	"github.com/ejagombar/Glowworm/internal/store"
 	"github.com/ejagombar/Glowworm/internal/store/repos"
+	"github.com/ejagombar/Glowworm/internal/updates"
 
 	staticFS "github.com/ejagombar/Glowworm/web/static"
 )
@@ -83,6 +84,8 @@ type App struct {
 	// Instance is a random name for this run of the server, in /healthz, so
 	// a check of the public address can tell it reached this server.
 	Instance string
+	// Updates is the daily look for a new release; nil when it's off.
+	Updates *updates.Checker
 }
 
 type Repos struct {
