@@ -149,7 +149,13 @@ func truncateCell(s string) string {
 // inner LIMIT; SQLite accepts WITH inside the subquery. args bind the query's
 // parameters, such as a widget's :from and :to.
 func RunReadonlyQuery(db *store.DB, sql string, args ...any) (res *QueryResult, err error) {
-	err = WithReadonlyRows(db, sql, wrapLimit, args, func(rows *gosql.Rows) error {
+	return runReadonlyQuery(db, time.Now().Format("2006-01-02"), sql, args...)
+}
+
+// runReadonlyQuery is RunReadonlyQuery with derived tables (see derived.go)
+// built up to today.
+func runReadonlyQuery(db *store.DB, today, sql string, args ...any) (res *QueryResult, err error) {
+	err = withReadonlyRows(db, today, sql, wrapLimit, args, func(rows *gosql.Rows) error {
 		res, err = scanResult(rows)
 		return err
 	})
@@ -160,6 +166,10 @@ func RunReadonlyQuery(db *store.DB, sql string, args ...any) (res *QueryResult, 
 // limit rows, on a connection that SQLite itself keeps read-only for the
 // duration, so a query that slipped past the check still can't write.
 func WithReadonlyRows(db *store.DB, sql string, limit int, args []any, fn func(*gosql.Rows) error) error {
+	return withReadonlyRows(db, time.Now().Format("2006-01-02"), sql, limit, args, fn)
+}
+
+func withReadonlyRows(db *store.DB, today, sql string, limit int, args []any, fn func(*gosql.Rows) error) error {
 	if err := validateReadonly(sql); err != nil {
 		return fmt.Errorf("query rejected: %w", err)
 	}
@@ -171,13 +181,27 @@ func WithReadonlyRows(db *store.DB, sql string, limit int, args []any, fn func(*
 		return err
 	}
 	defer conn.Close()
+	// Derived tables are written before the connection turns read-only,
+	// and dropped once it can write again.
+	derived := derivedNames(sql)
+	if len(derived) > 0 {
+		if err := buildDerived(ctx, conn, derived, today); err != nil {
+			_ = dropDerived(context.Background(), conn, derived)
+			return err
+		}
+	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA query_only = ON`); err != nil {
+		_ = dropDerived(context.Background(), conn, derived)
 		return err
 	}
 	defer func() {
-		// Back in the pool it must write again; if it can't be switched
-		// back, throw the connection away instead.
-		if _, err := conn.ExecContext(context.Background(), `PRAGMA query_only = OFF`); err != nil {
+		// Back in the pool it must write again and hold no derived tables;
+		// if it can't be put back that way, throw the connection away.
+		_, err := conn.ExecContext(context.Background(), `PRAGMA query_only = OFF`)
+		if err == nil {
+			err = dropDerived(context.Background(), conn, derived)
+		}
+		if err != nil {
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 		}
 	}()

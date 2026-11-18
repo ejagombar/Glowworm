@@ -37,6 +37,7 @@ type agentWidgetSpec struct {
 	Series  string                `json:"series"`
 	Fill    string                `json:"fill"`
 	Stacked bool                  `json:"stacked"`
+	Project *SpecProjection       `json:"project"`
 	// A text widget: its words, and no query.
 	Body string `json:"body"`
 	// A group_rule widget: grouping rules drafted for the user to create.
@@ -91,6 +92,12 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	_ = json.Unmarshal(m["columns"], &sp.Columns)
 	sp.Series, sp.Fill = rawStr(m["series"]), strings.ToLower(rawStr(m["fill"]))
 	_ = json.Unmarshal(m["stacked"], &sp.Stacked)
+	if len(m["project"]) > 0 && string(m["project"]) != "null" {
+		var p SpecProjection
+		if json.Unmarshal(m["project"], &p) == nil {
+			sp.Project = &p
+		}
+	}
 	// Models put a widget's own fields either beside its type or under "data".
 	var data map[string]json.RawMessage
 	_ = json.Unmarshal(m["data"], &data)
@@ -170,6 +177,23 @@ DATABASE (SQLite). Tables you may query:
   balance on a day is its latest valuation on or before that day plus its
   transactions after the valuation's date; with no valuation, the formula
   below.
+- account_periods(grain TEXT 'day'|'week'|'month'|'year', period, start_date,
+  end_date, account_id, account, account_type, currency, opening_minor,
+  closing_minor, deposits_minor, withdrawals_minor, income_minor, spend_minor,
+  growth_minor): worked out by the app, not stored. One row per account per
+  period at every grain, from the account's start to today with no gaps
+  (period is labelled like TIME SERIES buckets: the day, the Monday of the
+  week, YYYY-MM, YYYY). opening/closing are the balance at the period's
+  start and end, valuations and opening balances already applied — PREFER
+  THIS over computing balances from transactions and valuations yourself.
+  deposits/withdrawals = transfers in/out (money the user moved, both
+  positive); income and spend are net of refunds; growth = the change no
+  transaction explains (interest and returns, from recorded balances).
+  closing = opening + deposits - withdrawals + income - spend + growth.
+  Pick one grain (WHERE grain = :grain to follow the chart, or a fixed
+  one such as 'month' or 'year'). Balances add up across accounts per
+  period (SUM(closing_minor) GROUP BY period); flows add up over periods.
+  Savings: paid in = deposits - withdrawals; returns = income + growth.
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
@@ -341,6 +365,40 @@ EXAMPLE FINAL (spending split by category over time — stacked bars):
    "widgets":[{"type":"bar","title":"Spending by category","series":"category","stacked":true,
     "sql":"SELECT CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END AS period, COALESCE(c.name, 'Uncategorised') AS category, SUM(-t.amount_minor) AS spend FROM transactions t LEFT JOIN categories c ON c.id = t.category_id WHERE t.deleted_at IS NULL AND t.type = 'expense' AND t.date BETWEEN :from AND :to GROUP BY 1, 2 ORDER BY 1, 3 DESC",
     "columns":{"period":{"format":"text"},"category":{"format":"text"},"spend":{"label":"Spend","format":"money"}},"caption":"Spend per period by category, refunds netted off"}]}
+
+PROJECTIONS — a line, bar or number widget can carry its series on into the
+future: add "project" to the widget. Use it whenever the user asks where
+something is heading, "at this rate", "by 2030", "in 5 years", forecasts or
+what-ifs ("if I save £300 a month at 4%"). The query returns the history
+as a time series (dates as labels: YYYY, YYYY-MM or YYYY-MM-DD, oldest
+first); the app adds the projected points, drawn dashed after the real ones.
+  "project":{"method":"trend|average|compound","until":"+5y"|"2030-12",
+    "periods":12,"basis":24,"rate":0.04,"contribution":30000,"series":["..."]}
+- method: trend (default; slope of a line fitted to the points), average
+  (average change per period), compound (each period grows by "rate", a
+  yearly ratio, and adds "contribution", minor units per MONTH; use it for
+  savings what-ifs or when the user gives a rate).
+- until: a date or a span past the last point (+18m, +5y, +12w); else
+  "periods" (default 12). basis: fit to the last N points only.
+- series: names of the series to project (default all).
+- number widget with "project": the rows are label, value (the series),
+  and the number shown is the projected value at the end; caption WITHOUT
+  dates (the app adds "projected to ...").
+- Projections need a steady bucket: use a fixed grain ('month' usually)
+  rather than :grain, and history that doesn't follow :from/:to when the
+  user asks about the future (a projection from a short window is noisy).
+EXAMPLE FINAL (total savings, monthly, projected two years on):
+  {"action":"final","text":"Savings total £12,400.00; at the trend of the last 12 months they reach about £16,900 by 2028-11.",
+   "widgets":[{"type":"line","title":"Savings projection",
+    "sql":"SELECT period, SUM(closing_minor) AS balance FROM account_periods WHERE grain = 'month' AND account_type = 'savings' GROUP BY period ORDER BY period",
+    "columns":{"period":{"format":"text"},"balance":{"label":"Savings","format":"money"}},
+    "caption":"Savings at each month end, then projected","project":{"method":"trend","basis":12,"until":"+2y"}}]}
+EXAMPLE FINAL (paid in vs returns per year — stacked bars):
+  {"action":"final","text":"Paid in and returns on savings for each year.",
+   "widgets":[{"type":"bar","title":"Savings: paid in vs returns","stacked":true,
+    "sql":"SELECT period, SUM(deposits_minor - withdrawals_minor) AS paid_in, SUM(income_minor + growth_minor) AS returns FROM account_periods WHERE grain = 'year' AND account_type = 'savings' GROUP BY period ORDER BY period",
+    "columns":{"period":{"format":"text"},"paid_in":{"label":"Paid in","format":"money"},"returns":{"label":"Returns","format":"money"}},
+    "caption":"Net money paid in, and interest and growth, per year"}]}
 
 EXAMPLE QUERIES (verified against this schema — prefer these patterns):
 - An account's balance at the end of each :grain bucket (long periods):
@@ -567,7 +625,7 @@ func (s *Service) askAgent(question string, history []Turn, win *TimeWindow, onS
 				msgs = append(msgs, ai.ChatMessage{Role: "user", Content: "TOOL RESULT: " + invalidFeedback})
 				continue
 			}
-			res, qerr := RunReadonlyQuery(s.DB, sql, s.queryArgs(sql, win)...)
+			res, qerr := runReadonlyQuery(s.DB, s.today(), sql, s.queryArgs(sql, win)...)
 			if qerr != nil {
 				// A step is a heading line, then the full SQL (shown as code).
 				emit(fmt.Sprintf("Query failed: %s\n%s", truncateChars(oneLine(qerr.Error(), 200), 200), strings.TrimSpace(sql)))
@@ -744,7 +802,7 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow) ([]*wid
 		}
 		spec := &Spec{V: SpecVersion, SQL: stripFences(sp.SQL), Columns: sp.Columns,
 			Caption: truncateChars(strings.TrimSpace(sp.Caption), 120),
-			Series:  sp.Series, Fill: sp.Fill, Stacked: sp.Stacked}
+			Series:  sp.Series, Fill: sp.Fill, Stacked: sp.Stacked, Project: sp.Project}
 		w, res, err := s.runSpec(spec, typ, win)
 		if err == nil {
 			err = checkSpec(spec, typ, res)
@@ -837,7 +895,7 @@ func (s *Service) draftValuation(sp agentWidgetSpec) (*ValuationDraft, error) {
 // selectIDs runs a change's read-only query and returns its first column.
 func (s *Service) selectIDs(query string, win *TimeWindow) ([]string, error) {
 	var ids []string
-	err := WithReadonlyRows(s.DB, query, changes.MaxTransactions+1, s.queryArgs(query, win), func(rows *sql.Rows) error {
+	err := withReadonlyRows(s.DB, s.today(), query, changes.MaxTransactions+1, s.queryArgs(query, win), func(rows *sql.Rows) error {
 		cols, err := rows.Columns()
 		if err != nil {
 			return err

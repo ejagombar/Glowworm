@@ -3,6 +3,7 @@ package query
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"glowworm/internal/ai"
 	"glowworm/internal/core"
@@ -80,4 +81,12 @@ func (s *Service) currency() string {
 		cc = "GBP"
 	}
 	return cc
+}
+
+// today is the last day derived tables cover.
+func (s *Service) today() string {
+	if s.Clock != nil {
+		return s.Clock.Today()
+	}
+	return time.Now().Format("2006-01-02")
 }

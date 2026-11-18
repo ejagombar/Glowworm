@@ -44,6 +44,9 @@ type Spec struct {
 	Stacked bool `json:"stacked,omitempty"`
 	// Links lets each row of a table open the transactions behind it.
 	Links *SpecLinks `json:"links,omitempty"`
+	// Project carries a line, bar or number widget's time series on into
+	// the future (see SpecProjection).
+	Project *SpecProjection `json:"project,omitempty"`
 }
 
 // SpecLinks says what a table's first column names, so the dashboard can
@@ -190,7 +193,7 @@ func (s *Service) RunSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widge
 }
 
 func (s *Service) runSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widget, *QueryResult, error) {
-	res, err := RunReadonlyQuery(s.DB, sp.SQL, s.queryArgs(sp.SQL, win)...)
+	res, err := runReadonlyQuery(s.DB, s.today(), sp.SQL, s.queryArgs(sp.SQL, win)...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -222,7 +225,7 @@ func (s *Service) Batch(win *TimeWindow) *SpecBatch {
 func (b *SpecBatch) Run(sp *Spec, typ string) (*widgets.Widget, error) {
 	r, ok := b.results[sp.SQL]
 	if !ok {
-		r.res, r.err = RunReadonlyQuery(b.s.DB, sp.SQL, b.s.queryArgs(sp.SQL, b.win)...)
+		r.res, r.err = runReadonlyQuery(b.s.DB, b.s.today(), sp.SQL, b.s.queryArgs(sp.SQL, b.win)...)
 		b.results[sp.SQL] = r
 	}
 	if r.err != nil {
@@ -233,8 +236,17 @@ func (b *SpecBatch) Run(sp *Spec, typ string) (*widgets.Widget, error) {
 
 func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur string) (*widgets.Widget, error) {
 	w := &widgets.Widget{ID: "w-" + util.NewID(), Type: typ, Plan: sp}
+	if err := sp.Project.check(); err != nil {
+		return nil, err
+	}
+	if sp.Project != nil && typ != "number" && typ != "bar" && typ != "line" {
+		return nil, fmt.Errorf("only line, bar and number widgets can show a projection")
+	}
 	switch typ {
 	case "number":
+		if sp.Project != nil {
+			return shapeProjectedNumber(w, sp, res, cur)
+		}
 		value := "—"
 		if len(res.Rows) > 0 && len(res.Columns) > 0 {
 			value = formatCell(res.Rows[0][0], sp.format(res.Columns[0]), cur)
@@ -248,6 +260,11 @@ func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur stri
 		labels, series, format, err := chartSeries(sp, typ, res)
 		if err != nil {
 			return nil, err
+		}
+		if sp.Project != nil {
+			if labels, series, err = sp.Project.projectChart(typ, labels, series); err != nil {
+				return nil, err
+			}
 		}
 		d := map[string]any{"labels": labels, "series": series, "format": format}
 		if typ == "bar" && sp.Stacked && len(series) > 1 {
@@ -326,6 +343,34 @@ func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur stri
 	default:
 		return nil, fmt.Errorf("unknown widget type %q", typ)
 	}
+	return w, nil
+}
+
+// shapeProjectedNumber shows where a number widget's series ends up: its
+// rows are label, value, oldest first, as for a line chart, and the value
+// shown is the projection's last.
+func shapeProjectedNumber(w *widgets.Widget, sp *Spec, res *QueryResult, cur string) (*widgets.Widget, error) {
+	if len(res.Columns) < 2 {
+		return nil, fmt.Errorf("a projected number needs a series: a date label column and a value column")
+	}
+	if len(res.Rows) == 0 {
+		w.Data = map[string]any{"value": "—", "caption": sp.Caption}
+		return w, nil
+	}
+	labels := make([]string, len(res.Rows))
+	vals := make([]*float64, len(res.Rows))
+	for i, row := range res.Rows {
+		labels[i] = cellText(row[0])
+		if v, ok := cellNumber(row[1]); ok {
+			vals[i] = &v
+		}
+	}
+	value, until, err := sp.Project.projectNumber(labels, vals)
+	if err != nil {
+		return nil, err
+	}
+	caption := strings.TrimPrefix(sp.Caption+" · projected to "+until, " · ")
+	w.Data = map[string]any{"value": formatCell(value, sp.format(res.Columns[1]), cur), "caption": caption}
 	return w, nil
 }
 
@@ -457,7 +502,7 @@ func checkSpec(sp *Spec, typ string, res *QueryResult) error {
 		return nil
 	}
 	first := 0
-	if typ == "bar" || typ == "line" || typ == "pie" {
+	if typ == "bar" || typ == "line" || typ == "pie" || (typ == "number" && sp.Project != nil) {
 		first = 1
 	}
 	var missing []string
