@@ -1,0 +1,38 @@
+# Glowworm as a Podman Quadlet: systemd runs the container and Podman keeps
+# it up to date. Rootless, as your own user:
+#
+#   mkdir -p ~/.config/containers/systemd
+#   cp glowworm.container ~/.config/containers/systemd/
+#   systemctl --user daemon-reload
+#   systemctl --user start glowworm
+#   journalctl --user -u glowworm          # the setup link and its QR code
+#   loginctl enable-linger "$USER"         # keep it running after you log out
+#
+# For the whole machine instead, copy it to /etc/containers/systemd/ and
+# drop --user. Updates: `systemctl --user enable --now podman-auto-update.timer`
+# pulls a new image daily and restarts Glowworm on it (AutoUpdate below).
+[Unit]
+Description=Glowworm finance tracker
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/ejagombar/glowworm:latest
+ContainerName=glowworm
+AutoUpdate=registry
+# Only this machine; put Caddy (deploy/Caddyfile) in front for HTTPS.
+PublishPort=127.0.0.1:8080:8080
+Volume=glowworm-data:/data
+Environment=GLOWWORM_TIMEZONE=Europe/London
+# Behind a proxy, the address its requests arrive from, so sign-in limits
+# count each visitor rather than the proxy:
+# Environment=GLOWWORM_TRUSTED_PROXIES=10.0.2.2
+# Environment=GLOWWORM_PUBLIC_URL=https://money.example.com
+HealthCmd=/glowworm healthcheck
+HealthInterval=30s
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

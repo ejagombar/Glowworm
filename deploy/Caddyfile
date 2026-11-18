@@ -1,0 +1,14 @@
+# Caddy in front of Glowworm: gets and renews the HTTPS certificate for
+# GLOWWORM_PUBLIC_URL and passes requests on. Passkeys, reminders and
+# installing Glowworm as an app all need HTTPS.
+#
+# With compose.yaml, `docker compose --profile caddy up -d` uses this as is.
+# With Caddy installed on the same machine as the binary, copy it to
+# /etc/caddy/Caddyfile and set, in Caddy's environment (or edit them in):
+#   GLOWWORM_PUBLIC_URL=https://money.example.com
+#   GLOWWORM_UPSTREAM=127.0.0.1:8080   (Glowworm's GLOWWORM_ADDR)
+# and give Glowworm GLOWWORM_TRUSTED_PROXIES=127.0.0.1.
+{$GLOWWORM_PUBLIC_URL} {
+	encode zstd gzip
+	reverse_proxy {$GLOWWORM_UPSTREAM:127.0.0.1:8080}
+}

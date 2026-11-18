@@ -1,8 +1,11 @@
 name: Release and deploy
 
-# Pushing a version tag on main (v1.2, v1.2.3, …) builds Glowworm for the
-# arm64 server, publishes a GitHub release with the binary, and deploys it.
-# Setup on the server: deploy/README.md.
+# Pushing a version tag on main (v1.2, v1.2.3, …) checks the code, then:
+#   release: builds Glowworm for Linux, macOS and Windows, publishes a GitHub
+#            release with the binaries and their checksums, and deploys the
+#            linux/arm64 one to the server (setup: deploy/README.md);
+#   image:   builds the container image for amd64 and arm64 and pushes it to
+#            ghcr.io/<owner>/glowworm as the version and latest.
 #
 # Secrets (the same ones the website repo uses):
 #   DEPLOY_KEY   private SSH key the server accepts
@@ -15,18 +18,17 @@ on:
       - "v*.*"
 
 permissions:
-  contents: write # to publish the release
+  contents: read
 
 concurrency:
   group: deploy
   cancel-in-progress: false
 
 jobs:
-  release:
+  check:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.ref_name }}
-      HOST: ${{ vars.SERVER_HOST || 'eagombar.uk' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -56,16 +58,40 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.15.0
           golangci-lint run ./...
 
-      - name: Build for linux/arm64
+  release:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the release
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # The names are what `glowworm update`, install.sh and deploy.sh
+      # download: glowworm-<os>-<arch>[.exe]. Keep glowworm-linux-arm64.
+      - name: Build
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
-            -ldflags "-s -w -X main.version=$TAG" \
-            -o glowworm-linux-arm64 ./cmd/glowworm
+          mkdir dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*} arch=${target#*/} ext=
+            [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$TAG" \
+              -o "dist/glowworm-$os-$arch$ext" ./cmd/glowworm
+          done
+          (cd dist && sha256sum glowworm-* > checksums.txt)
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" glowworm-linux-arm64 --title "$TAG" --generate-notes --verify-tag
+        run: gh release create "$TAG" dist/* --title "$TAG" --generate-notes --verify-tag
 
       - name: Set up SSH
         run: |
@@ -78,5 +104,48 @@ jobs:
           SSH: ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new
           TARGET: ${{ secrets.SERVER_USER }}@${{ vars.SERVER_HOST || 'eagombar.uk' }}
         run: |
-          rsync -avz -e "$SSH" glowworm-linux-arm64 deploy/deploy.sh deploy/backup.sh "$TARGET:glowworm-deploy/"
+          rsync -avz -e "$SSH" dist/glowworm-linux-arm64 deploy/deploy.sh deploy/backup.sh "$TARGET:glowworm-deploy/"
           $SSH "$TARGET" "bash ~/glowworm-deploy/deploy.sh '$TAG'"
+
+  image:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # to push to ghcr.io
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Sign in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/glowworm
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=tag
+            type=raw,value=latest
+
+      # The Dockerfile cross-compiles, so both platforms build natively.
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ github.ref_name }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

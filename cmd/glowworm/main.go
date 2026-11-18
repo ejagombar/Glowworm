@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // zone names work on Windows and in minimal containers
 
 	"github.com/ejagombar/Glowworm/internal/backup"
 	"github.com/ejagombar/Glowworm/internal/config"

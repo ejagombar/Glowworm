@@ -1,0 +1,7 @@
+.git
+.github
+data
+glowworm
+glowworm-*
+*.db
+*.zip
