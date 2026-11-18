@@ -10,7 +10,6 @@ func TestTargetsProgressAndRateSQL(t *testing.T) {
 	svc := seedPeriodsData(t)
 	ts := "2024-01-01T00:00:00Z"
 	for _, q := range []string{
-		`UPDATE accounts SET interest_rate = 0.12 WHERE id = 'sav'`,
 		`INSERT INTO goals (id, name, target_minor, created_at, updated_at) VALUES ('g1', 'House', 300000, '` + ts + `', '` + ts + `')`,
 	} {
 		if _, err := svc.DB.Exec(q); err != nil {
@@ -22,7 +21,7 @@ func TestTargetsProgressAndRateSQL(t *testing.T) {
 		SQL:     `SELECT period, closing_minor FROM account_periods WHERE grain = 'month' AND account_id = 'sav' ORDER BY period`,
 		Columns: map[string]SpecColumn{"closing_minor": {Label: "ISA", Format: "money"}},
 		Targets: []SpecTarget{{Label: "Floor", Value: &ten}, {SQL: `SELECT name, target_minor FROM goals WHERE deleted_at IS NULL`}},
-		Project: &SpecProjection{Method: "compound", Periods: 12, RateSQL: `SELECT interest_rate FROM accounts WHERE id = 'sav'`},
+		Project: &SpecProjection{Method: "compound", Periods: 12, RateSQL: `SELECT 0.12`},
 	}
 	w, err := svc.RunSpec(sp, "line", nil)
 	if err != nil {
@@ -34,7 +33,7 @@ func TestTargetsProgressAndRateSQL(t *testing.T) {
 	}
 	// 12% a year from £1,210 over 12 months.
 	if !strings.Contains(string(b), `135520`) {
-		t.Errorf("projection didn't use the account's rate: %s", b)
+		t.Errorf("projection didn't use the rate from its query: %s", b)
 	}
 	if p, _ := json.Marshal(w.Plan); strings.Contains(string(p), `"rate":`) {
 		t.Errorf("the saved plan gained the looked-up rate: %s", p)

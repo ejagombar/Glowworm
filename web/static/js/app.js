@@ -645,6 +645,8 @@ function fillProjectionFields(p) {
   }
   $("wProjBasis").value = p && p.basis ? p.basis : "";
   $("wProjRate").value = p && p.rate ? +(p.rate * 100).toFixed(4) : "";
+  // A rate the widget's query works out is kept while this is left empty.
+  $("wProjRate").placeholder = p && p.rate_sql ? "From its query" : "0";
   $("wProjContrib").value = p && p.contribution ? +(p.contribution / 100).toFixed(2) : "";
   $("wProjError").hidden = true;
 }
@@ -658,8 +660,6 @@ function syncProjectionFields() {
   box.querySelectorAll("[data-proj-show]").forEach((row) => {
     row.hidden = !method || !row.dataset.projShow.split(" ").includes(method);
   });
-  const rateRow = document.getElementById("wProjRateRow");
-  if (rateRow && method === "compound") rateRow.hidden = !!document.getElementById("wProjRateFrom").value;
   const targets = document.getElementById("wTargets");
   if (targets) targets.hidden = !(state.editingPlan && TARGETABLE.includes(typ));
 }
@@ -668,10 +668,8 @@ function syncProjectionFields() {
 // query. A fixed line has a label and a value; a goal's line is a query, so
 // it follows the goal.
 const TARGETABLE = ["line", "bar"];
-const accountRateSQL = (id) => `SELECT interest_rate FROM accounts WHERE id = '${id.replace(/'/g, "''")}'`;
 const goalTargetSQL = (id) => `SELECT name, target_minor FROM goals WHERE id = '${id.replace(/'/g, "''")}' AND deleted_at IS NULL`;
 const quotedID = (sql, pattern) => { const m = pattern.exec(sql || ""); return m ? m[1].replace(/''/g, "'") : ""; };
-const RATE_SQL_RE = /^SELECT interest_rate FROM accounts WHERE id = '((?:[^']|'')*)'$/;
 const GOAL_SQL_RE = /^SELECT name, target_minor FROM goals WHERE id = '((?:[^']|'')*)' AND deleted_at IS NULL$/;
 
 function targetRowHTML(t) {
@@ -715,23 +713,11 @@ function collectTargets() {
   return out;
 }
 
-// The drawer's account and goal choices, fetched each time it opens.
+// The drawer's goal choices, fetched each time it opens.
 function loadDrawerLists() {
-  const rateSel = document.getElementById("wProjRateFrom");
   const goalSel = document.getElementById("wTargetGoal");
-  if (!rateSel || !goalSel) return;
+  if (!goalSel) return;
   const editing = state.editingId;
-  const p = state.editingPlan && state.editingPlan.project;
-  const rateID = quotedID(p && p.rate_sql, RATE_SQL_RE);
-  fetch("/api/v1/accounts").then((r) => jsonOk(r)).then((out) => {
-    if (state.editingId !== editing) return;
-    const withRate = (out.items || []).filter((a) => a.interest_rate != null);
-    rateSel.innerHTML = `<option value="">A rate I set</option>` + withRate.map((a) =>
-      `<option value="${esc(a.id)}">${esc(a.name)}'s interest rate (${+(a.interest_rate * 100).toFixed(2)}%)</option>`).join("")
-      + (p && p.rate_sql && !rateID ? `<option value="__query">From its query</option>` : "");
-    rateSel.value = rateID && withRate.some((a) => a.id === rateID) ? rateID : p && p.rate_sql && !rateID ? "__query" : "";
-    syncProjectionFields();
-  }).catch(() => {});
   fetch("/api/v1/goals").then((r) => jsonOk(r)).then((out) => {
     if (state.editingId !== editing) return;
     state.goalNames = {};
@@ -771,12 +757,10 @@ function withProjection(plan, type) {
   const basis = parseInt($("wProjBasis").value, 10);
   if (method !== "compound" && basis > 1) p.basis = basis;
   if (method === "compound") {
-    const from = $("wProjRateFrom") ? $("wProjRateFrom").value : "";
     const rate = parseFloat($("wProjRate").value);
     const contrib = parseFloat($("wProjContrib").value);
-    if (from === "__query") p.rate_sql = old.rate_sql;
-    else if (from) p.rate_sql = accountRateSQL(from);
-    else if (rate) p.rate = rate / 100;
+    if (rate) p.rate = rate / 100;
+    else if (old.rate_sql) p.rate_sql = old.rate_sql;
     if (contrib) p.contribution = Math.round(contrib * 100);
     if (old.contribution_sql) p.contribution_sql = old.contribution_sql;
   }
@@ -1501,7 +1485,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const wApply = document.getElementById("wApply");
   if (wApply) {
     document.getElementById("wProjMethod")?.addEventListener("change", syncProjectionFields);
-    document.getElementById("wProjRateFrom")?.addEventListener("change", syncProjectionFields);
     document.getElementById("wTargetAdd")?.addEventListener("click", () => {
       document.getElementById("wTargetList").insertAdjacentHTML("beforeend", targetRowHTML({}));
       document.querySelector("#wTargetList .target-row:last-child [data-target-label-input]")?.focus();
@@ -2643,8 +2626,6 @@ function accountPayload() {
     opening_balance_date: document.getElementById("accOpeningDate").value || "",
   };
   // The savings details: sent when new, or when changed since loading.
-  const rateRaw = document.getElementById("accRate")?.value.trim();
-  const rate = rateRaw === "" || rateRaw == null ? null : Math.round(parseFloat(rateRaw) * 10000) / 1000000;
   const remindRaw = document.getElementById("accReminder")?.value;
   const remind = remindRaw === "" || remindRaw == null ? null : parseInt(remindRaw, 10);
   const wrapper = document.getElementById("accWrapper")?.value || "";
@@ -2653,8 +2634,7 @@ function accountPayload() {
     const value = document.getElementById(el).value.trim();
     if (!editing || (accountLoaded && value !== accountLoaded[key])) body[key] = value;
   });
-  if (document.getElementById("accRate")) {
-    if (!editing || rate !== accountLoaded.interest_rate) body.interest_rate = rate;
+  if (document.getElementById("accWrapper")) {
     if (!editing || remind !== accountLoaded.balance_reminder_days) body.balance_reminder_days = remind;
     if (!editing || wrapper !== accountLoaded.tax_wrapper) body.tax_wrapper = wrapper;
   }
@@ -2681,7 +2661,7 @@ function openAccountForm(id) {
   document.getElementById("accDangerZone").hidden = !id;
   accountLoaded = null;
   ["accName", "accOpening", "accOpeningDate", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
-  ["accRate", "accWrapper", "accReminder"].forEach((x) => { const el = document.getElementById(x); if (el) el.value = ""; });
+  ["accWrapper", "accReminder"].forEach((x) => { const el = document.getElementById(x); if (el) el.value = ""; });
   syncDateField(document.getElementById("accOpeningDate"));
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
@@ -2696,12 +2676,9 @@ function openAccountForm(id) {
         accountLoaded[key] = a[key] || "";
         document.getElementById(el).value = accountLoaded[key];
       });
-      accountLoaded.interest_rate = a.interest_rate ?? null;
       accountLoaded.balance_reminder_days = a.balance_reminder_days ?? null;
       accountLoaded.tax_wrapper = a.tax_wrapper || "";
-      const rateEl = document.getElementById("accRate");
-      if (rateEl) {
-        rateEl.value = a.interest_rate == null ? "" : +(a.interest_rate * 100).toFixed(4);
+      if (document.getElementById("accWrapper")) {
         document.getElementById("accWrapper").value = accountLoaded.tax_wrapper;
         const rem = document.getElementById("accReminder");
         const want = a.balance_reminder_days == null ? "" : String(a.balance_reminder_days);

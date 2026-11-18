@@ -11,12 +11,10 @@
         <span class="account-dot" style="background:{{.Color}}"></span>
         <h3 class="savings-card-name">{{.Name}}</h3>
         {{if .RefLast4}}<span class="muted savings-card-ref">···· {{.RefLast4}}</span>{{end}}
-        <button class="btn btn-ghost btn-xs" type="button" data-account-form="{{.ID}}" title="Interest rate, tax wrapper and reminders">Details</button>
       </div>
       <div class="savings-meta">
         {{if .Wrapper}}<span class="chip">{{.Wrapper}}</span>{{end}}
-        {{if .Rate}}<span class="chip">{{.Rate}} interest</span>{{end}}
-        <span class="savings-age{{if .Due}} due{{end}}">{{if .Due}}<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>{{end}}{{.StatusText}}{{if .Due}} · time to update{{end}}</span>
+        <span class="savings-age{{if .Due}} due{{end}}">{{if .Due}}<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>{{end}}{{.StatusText}}</span>
       </div>
       {{template "balance-panel" dict "A" .Card "Currency" $.Currency "Symbol" (symbol $.Currency)}}
     </article>
@@ -110,5 +108,4 @@
     </div>
   </div>
 </div>
-{{template "account-modal" dict "CSRF" .CSRFToken "Currency" .Currency "Symbol" (symbol .Currency) "ReminderDays" .ReminderDays}}
 {{end}}

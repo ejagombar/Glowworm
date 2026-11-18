@@ -63,8 +63,6 @@ type Account struct {
 	IBAN                string `json:"-"`
 	BIC                 string `json:"-"`
 	Notes               string `json:"notes"`
-	// InterestRate is a yearly ratio (0.045 for 4.5%), nil when not known.
-	InterestRate *float64 `json:"interest_rate"`
 	// TaxWrapper is "" (none), "isa", "lisa", "pension" or "other".
 	TaxWrapper string `json:"tax_wrapper"`
 	// BalanceReminderDays: nil follows the reminder settings, 0 never

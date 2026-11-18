@@ -13,7 +13,7 @@ type Accounts struct{ DB *store.DB }
 
 // AccountCols are the columns ScanAccount reads, in its order.
 const AccountCols = `id, name, type, color, currency, opening_balance_minor, COALESCE(opening_balance_date,''),
-	account_number, sort_code, iban, bic, notes, interest_rate, tax_wrapper, balance_reminder_days,
+	account_number, sort_code, iban, bic, notes, tax_wrapper, balance_reminder_days,
 	created_at, updated_at, deleted_at`
 
 const accountCols = AccountCols
@@ -24,16 +24,12 @@ func scanAccount(sc Scanner) (*core.Account, error) { return ScanAccount(sc) }
 func ScanAccount(sc Scanner) (*core.Account, error) {
 	var a core.Account
 	var openingDate, deletedAt sql.NullString
-	var rate sql.NullFloat64
 	var remind sql.NullInt64
 	err := sc.Scan(&a.ID, &a.Name, &a.Type, &a.Color, &a.Currency, &a.OpeningBalanceMinor, &openingDate,
-		&a.AccountNumber, &a.SortCode, &a.IBAN, &a.BIC, &a.Notes, &rate, &a.TaxWrapper, &remind,
+		&a.AccountNumber, &a.SortCode, &a.IBAN, &a.BIC, &a.Notes, &a.TaxWrapper, &remind,
 		&a.CreatedAt, &a.UpdatedAt, &deletedAt)
 	if err != nil {
 		return nil, err
-	}
-	if rate.Valid {
-		a.InterestRate = &rate.Float64
 	}
 	if remind.Valid {
 		a.BalanceReminderDays = &remind.Int64
@@ -99,10 +95,10 @@ func (r *Accounts) Create(tx *sql.Tx, a *core.Account) error {
 	}
 	_, err := exec(r.DB, tx, `INSERT INTO accounts
 		(id, name, type, color, currency, opening_balance_minor, opening_balance_date, account_number, sort_code, iban, bic, notes,
-		 interest_rate, tax_wrapper, balance_reminder_days, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 tax_wrapper, balance_reminder_days, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.Name, a.Type, a.Color, a.Currency, a.OpeningBalanceMinor, nullIfEmpty(a.OpeningBalanceDate),
-		a.AccountNumber, a.SortCode, a.IBAN, a.BIC, a.Notes, a.InterestRate, a.TaxWrapper, a.BalanceReminderDays,
+		a.AccountNumber, a.SortCode, a.IBAN, a.BIC, a.Notes, a.TaxWrapper, a.BalanceReminderDays,
 		a.CreatedAt, a.UpdatedAt)
 	return err
 }
@@ -111,9 +107,9 @@ func (r *Accounts) Update(tx *sql.Tx, a *core.Account) error {
 	a.UpdatedAt = util.NowStr()
 	_, err := exec(r.DB, tx, `UPDATE accounts SET name=?, type=?, color=?, currency=?, opening_balance_minor=?,
 		opening_balance_date=?, account_number=?, sort_code=?, iban=?, bic=?, notes=?,
-		interest_rate=?, tax_wrapper=?, balance_reminder_days=?, updated_at=? WHERE id=? AND deleted_at IS NULL`,
+		tax_wrapper=?, balance_reminder_days=?, updated_at=? WHERE id=? AND deleted_at IS NULL`,
 		a.Name, a.Type, a.Color, a.Currency, a.OpeningBalanceMinor, nullIfEmpty(a.OpeningBalanceDate),
-		a.AccountNumber, a.SortCode, a.IBAN, a.BIC, a.Notes, a.InterestRate, a.TaxWrapper, a.BalanceReminderDays,
+		a.AccountNumber, a.SortCode, a.IBAN, a.BIC, a.Notes, a.TaxWrapper, a.BalanceReminderDays,
 		a.UpdatedAt, a.ID)
 	return err
 }

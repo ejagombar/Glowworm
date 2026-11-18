@@ -50,7 +50,7 @@ func TestBalancesRecordedOnSavingsAndHistory(t *testing.T) {
 func TestGoalsAndBalanceAge(t *testing.T) {
 	a, c := newLockTestApp(t)
 	insertAccount(t, a.DB, "ISA", 0, "")
-	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings', interest_rate = 0.045, tax_wrapper = 'isa' WHERE id = 'ISA'`); err != nil {
+	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings', tax_wrapper = 'isa' WHERE id = 'ISA'`); err != nil {
 		t.Fatal(err)
 	}
 	old := "2020-01-01"
@@ -71,10 +71,14 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 		t.Errorf("list: %s", list)
 	}
 	page := c.do("GET", "/savings", "", "").Body.String()
-	for _, want := range []string{"House", "50%", "4.5% interest", ">ISA<", "time to update", "is-due"} {
+	for _, want := range []string{"House", "50%", ">ISA<", "years ago", "is-due"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Savings page lacks %q", want)
 		}
+	}
+	// Accounts are edited in Settings only.
+	if strings.Contains(page, "data-account-form") {
+		t.Error("Savings page has a way to edit the account")
 	}
 	if rec = c.do("PATCH", "/api/v1/goals/"+id, "application/json", `{"name":"Flat","target_minor":500000}`); rec.Code != 200 {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
@@ -89,11 +93,17 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 		t.Errorf("deleted goal still listed: %s", list)
 	}
 	// Account details round-trip through the API, and a null clears.
-	if rec = c.do("PATCH", "/api/v1/accounts/ISA", "application/json", `{"name":"ISA","type":"savings","interest_rate":null,"balance_reminder_days":14}`); rec.Code != 200 {
+	if rec = c.do("PATCH", "/api/v1/accounts/ISA", "application/json", `{"name":"ISA","type":"savings","balance_reminder_days":14}`); rec.Code != 200 {
 		t.Fatalf("account patch: %d %s", rec.Code, rec.Body)
 	}
 	got := c.do("GET", "/api/v1/accounts/ISA", "", "").Body.String()
-	if !strings.Contains(got, `"interest_rate":null`) || !strings.Contains(got, `"balance_reminder_days":14`) || !strings.Contains(got, `"tax_wrapper":"isa"`) {
+	if !strings.Contains(got, `"balance_reminder_days":14`) || !strings.Contains(got, `"tax_wrapper":"isa"`) {
 		t.Errorf("account: %s", got)
+	}
+	if rec = c.do("PATCH", "/api/v1/accounts/ISA", "application/json", `{"name":"ISA","type":"savings","balance_reminder_days":null}`); rec.Code != 200 {
+		t.Fatalf("account patch: %d %s", rec.Code, rec.Body)
+	}
+	if got = c.do("GET", "/api/v1/accounts/ISA", "", "").Body.String(); !strings.Contains(got, `"balance_reminder_days":null`) {
+		t.Errorf("null didn't clear the reminder: %s", got)
 	}
 }

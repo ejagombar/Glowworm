@@ -283,20 +283,17 @@ var accountPeriods = &derivedTable{
 var accountStatus = &derivedTable{
 	columns: []string{"account_id TEXT", "account TEXT", "account_type TEXT", "currency TEXT", "balance_minor INTEGER",
 		"last_valued TEXT", "days_since INTEGER", "reminder_days INTEGER", "due INTEGER",
-		"interest_rate REAL", "tax_wrapper TEXT"},
+		"tax_wrapper TEXT"},
 	rows: func(b *ledger.Book, _ filters) [][]vtab.Value {
 		var out [][]vtab.Value
 		for _, s := range b.Statuses() {
 			a := s.Account
-			var last, since, rate vtab.Value
+			var last, since vtab.Value
 			if s.LastValued != "" {
 				last, since = s.LastValued, int64(s.DaysSince)
 			}
-			if a.InterestRate != nil {
-				rate = *a.InterestRate
-			}
 			out = append(out, []vtab.Value{a.ID, a.Name, a.Type, a.Currency, s.Balance, last, since,
-				int64(s.ReminderDays), boolInt(s.Due), rate, a.TaxWrapper})
+				int64(s.ReminderDays), boolInt(s.Due), a.TaxWrapper})
 		}
 		return out
 	},

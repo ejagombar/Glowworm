@@ -717,7 +717,6 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 type savingsCard struct {
 	*accountCard
 	Card        *accountCard // the same, for the balance panel template
-	Rate        string       // "4.5%", or ""
 	Wrapper     string       // "ISA", or ""
 	StatusText  string
 	Due         bool
@@ -748,9 +747,6 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 		sc := &savingsCard{accountCard: c, Card: c}
 		if acc := book.Account(c.ID); acc != nil {
 			st := book.Status(acc)
-			if acc.InterestRate != nil {
-				sc.Rate = strconv.FormatFloat(*acc.InterestRate*100, 'f', -1, 64) + "%"
-			}
 			if acc.TaxWrapper != "" {
 				sc.Wrapper = accounts.TaxWrappers[acc.TaxWrapper]
 			}
@@ -776,18 +772,17 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 	}
 	return a.Render.Render(w, "savings", struct {
 		*viewBase
-		Accounts     []*savingsCard
-		AllAccounts  []*accountCard
-		Goals        []goalView
-		ReminderDays int
-	}{base, saving, allAccounts, goalList, book.ReminderDays})
+		Accounts    []*savingsCard
+		AllAccounts []*accountCard
+		Goals       []goalView
+	}{base, saving, allAccounts, goalList})
 }
 
 // balanceAge says how old an account's latest recorded balance is.
 func balanceAge(st ledger.Status) string {
 	switch {
 	case st.DaysSince < 0:
-		return "No balance recorded yet"
+		return "No balance yet"
 	case st.DaysSince == 0:
 		return "Updated today"
 	case st.DaysSince == 1:

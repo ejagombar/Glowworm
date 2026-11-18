@@ -37,7 +37,7 @@ var accountFields = []field{
 	{"name", "name"}, {"type", "type"}, {"color", "colour"}, {"currency", "currency"},
 	{"opening_balance_minor", "opening balance"}, {"opening_balance_date", "opening balance date"},
 	{"notes", "notes"}, {"account_number", "account number"}, {"sort_code", "sort code"},
-	{"iban", "IBAN"}, {"bic", "BIC"}, {"interest_rate", "interest rate"}, {"tax_wrapper", "tax wrapper"},
+	{"iban", "IBAN"}, {"bic", "BIC"}, {"tax_wrapper", "tax wrapper"},
 	{"balance_reminder_days", "reminder interval"},
 }
 
@@ -101,7 +101,7 @@ func (x *Executor) applyAccountUpdate(tx *sql.Tx, id string, from, to map[string
 		"name": a.Name, "type": a.Type, "color": a.Color, "currency": a.Currency,
 		"opening_balance_minor": a.OpeningBalanceMinor, "opening_balance_date": a.OpeningBalanceDate,
 		"notes": a.Notes, "account_number": a.AccountNumber, "sort_code": a.SortCode, "iban": a.IBAN, "bic": a.BIC,
-		"interest_rate": optFloat(a.InterestRate), "tax_wrapper": a.TaxWrapper,
+		"tax_wrapper":           a.TaxWrapper,
 		"balance_reminder_days": optInt(a.BalanceReminderDays),
 	}, from, to)
 	for k, v := range set {
@@ -128,12 +128,6 @@ func (x *Executor) applyAccountUpdate(tx *sql.Tx, id string, from, to map[string
 			a.IBAN = str(v)
 		case "bic":
 			a.BIC = str(v)
-		case "interest_rate":
-			if f, ok := v.(float64); ok {
-				a.InterestRate = &f
-			} else {
-				a.InterestRate = nil
-			}
 		case "tax_wrapper":
 			a.TaxWrapper = str(v)
 		case "balance_reminder_days":
@@ -257,13 +251,6 @@ func (x *Executor) setValuation(tx *sql.Tx, id string, live bool) error {
 		return x.Accounts.RestoreValuation(tx, id)
 	}
 	return x.Accounts.DeleteValuation(tx, id)
-}
-
-func optFloat(p *float64) any {
-	if p == nil {
-		return nil
-	}
-	return *p
 }
 
 func optInt(p *int64) any {

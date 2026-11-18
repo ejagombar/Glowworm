@@ -45,7 +45,6 @@ type Book struct {
 // Account is one account and its history.
 type Account struct {
 	ID, Name, Type, Currency, TaxWrapper string
-	InterestRate                         *float64
 	ReminderDays                         *int64
 	Opening                              int64
 	OpeningDate, Created                 string
@@ -147,7 +146,7 @@ func (b *Book) loadSettings(ctx context.Context, q Querier) error {
 
 func (b *Book) loadAccounts(ctx context.Context, q Querier) error {
 	rows, err := q.QueryContext(ctx, `SELECT id, name, type, currency, opening_balance_minor,
-		COALESCE(opening_balance_date, ''), created_at, interest_rate, tax_wrapper, balance_reminder_days
+		COALESCE(opening_balance_date, ''), created_at, tax_wrapper, balance_reminder_days
 		FROM accounts WHERE deleted_at IS NULL ORDER BY name, id`)
 	if err != nil {
 		return err
@@ -155,14 +154,10 @@ func (b *Book) loadAccounts(ctx context.Context, q Querier) error {
 	defer rows.Close()
 	for rows.Next() {
 		a := &Account{flows: map[string]Flows{}, values: map[string]int64{}}
-		var rate sql.NullFloat64
 		var remind sql.NullInt64
 		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Currency, &a.Opening, &a.OpeningDate, &a.Created,
-			&rate, &a.TaxWrapper, &remind); err != nil {
+			&a.TaxWrapper, &remind); err != nil {
 			return err
-		}
-		if rate.Valid {
-			a.InterestRate = &rate.Float64
 		}
 		if remind.Valid {
 			a.ReminderDays = &remind.Int64
