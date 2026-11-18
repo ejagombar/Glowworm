@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,8 @@ type Config struct {
 	LogLevel       string
 	UploadMaxMB    int
 	TrustedProxies string
-	SetupToken     string
+	SetupToken     string // "" = one is made on first run; "off" = none
+	PublicURL      string // the address people open Glowworm at, e.g. https://money.example.com
 	OwnerUsername  string
 	OwnerPassword  string
 	ExchangeRates  string // "ecb" (default) fetches daily rates; "off" = typed-in rates only
@@ -94,6 +96,16 @@ func Load() (Config, error) {
 	if v := os.Getenv("GLOWWORM_SETUP_TOKEN"); v != "" {
 		c.SetupToken = v
 	}
+	if v := os.Getenv("GLOWWORM_PUBLIC_URL"); v != "" {
+		c.PublicURL = v
+	}
+	if c.PublicURL != "" {
+		u, err := cleanPublicURL(c.PublicURL)
+		if err != nil {
+			return c, err
+		}
+		c.PublicURL = u
+	}
 	if c.AuthMode != "password" && c.AuthMode != "none" {
 		return c, fmt.Errorf("config: GLOWWORM_AUTH_MODE must be password|none (got %q)", c.AuthMode)
 	}
@@ -164,9 +176,26 @@ func (c *Config) loadFile(path string) error {
 			c.OwnerPassword = val
 		case "setup_token":
 			c.SetupToken = val
+		case "public_url":
+			c.PublicURL = val
 		}
 	}
 	return scan.Err()
+}
+
+// cleanPublicURL checks the public address is a whole http(s) address at the
+// root of a host, and drops a trailing slash.
+func cleanPublicURL(raw string) (string, error) {
+	bad := fmt.Errorf("config: GLOWWORM_PUBLIC_URL must be like https://money.example.com (got %q)", raw)
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		u.RawQuery != "" || u.Fragment != "" {
+		return "", bad
+	}
+	if p := u.EscapedPath(); p != "" && p != "/" {
+		return "", fmt.Errorf("config: GLOWWORM_PUBLIC_URL can't have a path: Glowworm has to be at the root of its address (got %q)", raw)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 func fileExists(p string) bool {

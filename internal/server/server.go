@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/rand"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
@@ -79,6 +80,9 @@ type App struct {
 	// series twice.
 	derivedMu sync.Mutex
 	Version   string
+	// Instance is a random name for this run of the server, in /healthz, so
+	// a check of the public address can tell it reached this server.
+	Instance string
 }
 
 type Repos struct {
@@ -108,7 +112,8 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 	}
 	writer := &audit.Writer{DB: db}
 	app := &App{
-		Cfg: cfg, Clock: clk, Secret: secret, DB: db, Render: r, Log: log,
+		Instance: rand.Text(),
+		Cfg:      cfg, Clock: clk, Secret: secret, DB: db, Render: r, Log: log,
 		Repos:        rp,
 		AuditWriter:  writer,
 		Audit:        audit.NewEngine(db, writer),
@@ -195,6 +200,7 @@ func (a *App) bootstrapOwner() error {
 	if _, err := a.Setup.CreateOwner(a.Cfg.OwnerUsername, a.Cfg.OwnerPassword, "", core.ActorSystem, "from config"); err != nil {
 		return fmt.Errorf("owner account from config: %w", err)
 	}
+	a.accountCreated()
 	a.Log.Info("owner account created from config — you can remove owner_password now", "username", a.Cfg.OwnerUsername)
 	return nil
 }
@@ -250,7 +256,8 @@ func (a *App) Router() http.Handler {
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(`{"status":"ok","instance":"` + a.Instance + `"}`))
 	})
 
 	mux.HandleFunc("GET /{$}", a.page(a.handleDashboard))

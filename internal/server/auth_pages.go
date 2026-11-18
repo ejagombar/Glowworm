@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/ejagombar/Glowworm/internal/core/setup"
+	"github.com/ejagombar/Glowworm/internal/firstrun"
 )
 
 func seriesJSON(labels []string, values []int64) string {
@@ -141,6 +142,7 @@ func (a *App) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	a.accountCreated()
 	issueSession(w, r, a.Secret, owner)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
@@ -150,12 +152,30 @@ func (a *App) setupAllowed(w http.ResponseWriter, r *http.Request) bool {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return false
 	}
-	if a.Cfg.SetupToken != "" &&
-		subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(a.Cfg.SetupToken)) != 1 {
-		http.Error(w, "Setup token required. Check the server log for the first-run token.", http.StatusForbidden)
+	token, err := a.setupToken()
+	if err != nil {
+		a.Log.Error("setup token", "err", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return false
+	}
+	if token != "" && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(token)) != 1 {
+		http.Error(w, "This setup link needs its token. The server prints the whole link when it starts, "+
+			"or run `glowworm setup-url` on the server.", http.StatusForbidden)
 		return false
 	}
 	return true
+}
+
+// setupToken is the token the setup page asks for; see firstrun.Token.
+func (a *App) setupToken() (string, error) {
+	return firstrun.Token(a.DB.DB, a.Cfg.SetupToken)
+}
+
+// accountCreated drops the first-run token, which has done its job.
+func (a *App) accountCreated() {
+	if err := firstrun.Clear(a.DB.DB); err != nil {
+		a.Log.Warn("clearing the setup token", "err", err)
+	}
 }
 
 func (a *App) renderSetup(w http.ResponseWriter, r *http.Request, errMsg, username string) {

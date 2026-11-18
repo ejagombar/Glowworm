@@ -2,8 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/ejagombar/Glowworm/internal/config"
+	"github.com/ejagombar/Glowworm/internal/crypto"
 )
 
 // The account settings form loads one account, shows its bank details, and
@@ -86,9 +93,75 @@ func TestInstanceDeleteLeadsToSetup(t *testing.T) {
 	if rec := c.do("GET", "/setup", "", ""); rec.Code != 403 {
 		t.Errorf("setup without the token: %d", rec.Code)
 	}
-	// With no token set, plain /setup.
-	a.Cfg.SetupToken = ""
+	// With the token switched off, plain /setup.
+	a.Cfg.SetupToken = "off"
 	if got := a.setupURL(); got != "/setup" {
 		t.Errorf("no token: %q", got)
+	}
+}
+
+// With no token configured, a new instance makes one: the setup page needs
+// it, the link carries it, and it's gone once the account exists. Deleting
+// the account makes a fresh one.
+func TestSetupTokenMadeOnFirstRun(t *testing.T) {
+	secret, err := crypto.LoadOrCreate("", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{AuthMode: "password", Timezone: "UTC"}
+	a, err := New(cfg, newSeriesTestDB(t), secret, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &testClient{t: t, h: a.Router(), cookies: map[string]*http.Cookie{}}
+
+	link := a.setupURL()
+	token := strings.TrimPrefix(link, "/setup?token=")
+	if token == link || len(token) < 20 {
+		t.Fatalf("setup link %q", link)
+	}
+	if again := a.setupURL(); again != link {
+		t.Errorf("the token changed: %q then %q", link, again)
+	}
+	if rec := c.do("GET", "/setup", "", ""); rec.Code != 403 {
+		t.Errorf("setup without the token: %d", rec.Code)
+	}
+	if rec := c.do("GET", "/setup?token=wrong", "", ""); rec.Code != 403 {
+		t.Errorf("setup with the wrong token: %d", rec.Code)
+	}
+	if rec := c.do("GET", link, "", ""); rec.Code != 200 {
+		t.Fatalf("setup with the token: %d", rec.Code)
+	}
+	form := url.Values{"username": {"owner"}, "password": {"longpassword1"}, "password_confirm": {"longpassword1"},
+		"csrf_token": {c.cookies[csrfCookie].Value}}.Encode()
+	if rec := c.do("POST", link, "application/x-www-form-urlencoded", form); rec.Code != 302 || rec.Header().Get("Location") != "/" {
+		t.Fatalf("create account: %d %s", rec.Code, rec.Body)
+	}
+	var n int
+	if err := a.DB.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = 'setup_token'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("token still stored after setup (%d, %v)", n, err)
+	}
+
+	rec := c.do("POST", "/api/v1/instance/delete", "application/json", `{"password":"longpassword1","confirm":"DELETE"}`)
+	var out struct {
+		Next string `json:"next"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body)
+	}
+	if out.Next == link || !strings.HasPrefix(out.Next, "/setup?token=") {
+		t.Errorf("after deleting, setup link %q (was %q)", out.Next, link)
+	}
+	if rec := c.do("GET", out.Next, "", ""); rec.Code != 200 {
+		t.Errorf("new setup link: %d", rec.Code)
+	}
+}
+
+// /healthz names this run of the server, for the public address check.
+func TestHealthzInstance(t *testing.T) {
+	a, c := newLockTestApp(t)
+	body := c.do("GET", "/healthz", "", "").Body.String()
+	if a.Instance == "" || !strings.Contains(body, `"instance":"`+a.Instance+`"`) {
+		t.Errorf("healthz %s, instance %q", body, a.Instance)
 	}
 }

@@ -3,11 +3,11 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/ejagombar/Glowworm/internal/ai"
 	"github.com/ejagombar/Glowworm/internal/backup"
+	"github.com/ejagombar/Glowworm/internal/firstrun"
 )
 
 func (a *App) setProviders(cat, queries ai.Provider) {
@@ -94,12 +94,13 @@ func (a *App) apiInstanceDelete(w http.ResponseWriter, r *http.Request) error {
 }
 
 // setupURL is where a new account is made, with the setup token when one
-// is set. Only the owner, who has just confirmed with their password, is
+// is needed. Only the owner, who has just confirmed with their password, is
 // sent it: they could read it on the server anyway, and this saves them
 // looking it up to start again.
 func (a *App) setupURL() string {
-	if a.Cfg.SetupToken == "" {
-		return "/setup"
+	token, err := a.setupToken()
+	if err != nil {
+		a.Log.Error("setup token", "err", err)
 	}
-	return "/setup?token=" + url.QueryEscape(a.Cfg.SetupToken)
+	return firstrun.SetupLink("", token)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -42,6 +43,8 @@ Commands:
                             stop the server first
   user create [-u NAME]     create the account from the terminal (prompts
                             for the password); otherwise the browser asks
+  setup-url [--qr]          print the link that creates the account, and a
+                            QR code of it with --qr
   version                   print the version
   healthcheck [--url URL]   exit 0 if the server answers /healthz
 
@@ -63,6 +66,8 @@ func main() {
 		runRestore(args)
 	case "user":
 		runUser(args)
+	case "setup-url":
+		runSetupURL(args)
 	case "version":
 		fmt.Println(version)
 	case "healthcheck":
@@ -83,7 +88,7 @@ func fail(format string, a ...any) {
 func loadConfig() config.Config {
 	cfg, err := config.Load()
 	if err != nil {
-		fail("config: %v", err)
+		fail("%v", err)
 	}
 	return cfg
 }
@@ -138,8 +143,11 @@ func serve() {
 		os.Exit(1)
 	}
 	app.Version = version
-	if cfg.SetupToken != "" {
-		log.Info("first-run setup gated by GLOWWORM_SETUP_TOKEN")
+	ln, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		log.Error("listen", "err", err)
+		exitCode = 1
+		return
 	}
 	log.Info("glowworm listening", "addr", cfg.Addr, "version", version, "db", dsn, "auth", cfg.AuthMode, "log_level", cfg.LogLevel)
 	srv := newHTTPServer(cfg.Addr, app.Router())
@@ -147,7 +155,10 @@ func serve() {
 	defer cancel()
 	app.StartReminders(stop)
 	failed := make(chan error, 1)
-	go func() { failed <- srv.ListenAndServe() }()
+	go func() { failed <- srv.Serve(ln) }()
+	if cfg.AuthMode == "password" && !app.Audit.HasUser() {
+		go announceSetup(stop, cfg, log, db.DB, app.Instance)
+	}
 	select {
 	case err := <-failed:
 		// Not os.Exit: the deferred calls release the data directory and

@@ -11,7 +11,7 @@ services:
       GLOWWORM_TIMEZONE: "Europe/London"
       GLOWWORM_UPLOAD_MAX_MB: "25"
       GLOWWORM_LOG_FORMAT: "json"
-      # GLOWWORM_SETUP_TOKEN: "print-a-secret-here"   # optional gate for first-run setup
+      # GLOWWORM_SETUP_TOKEN: "print-a-secret-here"   # made and logged if unset
     healthcheck:
       test: ["CMD", "/glowworm", "healthcheck", "--url", "http://127.0.0.1:8080/healthz"]
       interval: 30s

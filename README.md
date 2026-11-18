@@ -45,7 +45,8 @@ Environment variables (see `glowworm.example.toml` for the file equivalent):
 | `GLOWWORM_TIMEZONE` | system | "Today" boundaries |
 | `GLOWWORM_AUTH_MODE` | `password` | `none` only for trusted networks |
 | `GLOWWORM_UPLOAD_MAX_MB` | `25` | Statement upload cap |
-| `GLOWWORM_SETUP_TOKEN` | — | Optional gate for first-run setup |
+| `GLOWWORM_PUBLIC_URL` | — | The address you open Glowworm at, e.g. `https://money.example.com`. Used for the setup link and its QR code |
+| `GLOWWORM_SETUP_TOKEN` | made on first run | Token the setup page needs while no account exists. Unset: Glowworm makes one and prints the link at startup (`glowworm setup-url` shows it again). `off`: no token |
 | `GLOWWORM_AI_MOCK` | — | `=1` injects a deterministic mock AI (tests/dev) |
 
 AI providers are configured in-app (Settings → AI provider): OpenAI,

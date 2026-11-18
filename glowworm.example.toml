@@ -15,7 +15,12 @@ upload_max_mb = 25
 # "off" means you type rates in yourself.
 # exchange_rates = "ecb"
 # trusted_proxies = "127.0.0.1"  # behind NGINX
-# setup_token = "..."           # optional gate for the first-run setup page
+# The address you open Glowworm at; the setup link and its QR code use it.
+# public_url = "https://money.example.com"
+# Until the account exists, the setup page needs a token. By default one is
+# made and the whole link printed at startup; `glowworm setup-url` prints it
+# again. Set your own, or "off" for none.
+# setup_token = "..."
 # Create the account at startup instead of in the browser (only when none
 # exists; remove the password afterwards). `glowworm user create` also works.
 # owner_username = "emma"

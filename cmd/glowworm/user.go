@@ -10,6 +10,7 @@ import (
 	"github.com/ejagombar/Glowworm/internal/core"
 	"github.com/ejagombar/Glowworm/internal/core/audit"
 	"github.com/ejagombar/Glowworm/internal/core/setup"
+	"github.com/ejagombar/Glowworm/internal/firstrun"
 	"github.com/ejagombar/Glowworm/internal/store"
 	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
@@ -58,6 +59,7 @@ func runUser(args []string) {
 	if _, err := svc.CreateOwner(username, password, "", core.ActorSystem, "from terminal"); err != nil {
 		fail("%v", err)
 	}
+	_ = firstrun.Clear(db.DB)
 	fmt.Printf("Created account %q. Sign in with it in the browser.\n", username)
 }
 
