@@ -2442,7 +2442,6 @@ function openAccountForm(id) {
   document.getElementById("accountModalTitle").textContent = id ? "Account settings" : "Add account";
   document.getElementById("accountModalSub").textContent = id ? "Edit this account's details." : "Add a new account to Glowworm.";
   document.getElementById("accDangerZone").hidden = !id;
-  resetValuationFields();
   accountLoaded = null;
   ["accName", "accOpening", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
   if (id) {
@@ -2457,15 +2456,10 @@ function openAccountForm(id) {
         accountLoaded[key] = a[key] || "";
         document.getElementById(el).value = accountLoaded[key];
       });
-      showAccountBalance(a);
-      syncValuationBlock();
-      loadValuations(id);
     }).catch((e) => toast(e.message || "Could not load account"));
   } else {
-    document.getElementById("accValuationHistory").hidden = true;
     document.getElementById("accType").value = "debit";
   }
-  syncValuationBlock();
   modal.hidden = false;
   modal.scrollTop = 0;
   // Only a new account starts in the Name box, and not on a touch screen,
@@ -2473,98 +2467,22 @@ function openAccountForm(id) {
   if (!id && !window.matchMedia("(pointer: coarse)").matches) document.getElementById("accName").focus();
 }
 
-// Any account's balance can be recorded for a day: a savings account's value,
-// or the balance a bank statement shows, which is checked against the
-// transactions. Update records it straight away; it doesn't wait for Save
-// changes.
 function localISODate(d) {
   const t = d || new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-}
-function resetValuationFields() {
-  document.getElementById("accValuation").value = "";
-  document.getElementById("accValuationDate").value = localISODate();
-  document.getElementById("accValuationDate").max = localISODate();
-}
-function showAccountBalance(a) {
-  const cc = a.currency || (typeof WIDGET_CURRENCY === "string" ? WIDGET_CURRENCY : "GBP");
-  const now = document.getElementById("accBalanceNow");
-  now.textContent = (a.current_balance_minor < 0 ? "\u2212" : "") + fmtMoneyMinor(a.current_balance_minor, cc);
-  now.dataset.currency = cc;
-}
-// Existing dated values for the account, newest first, each removable (it's
-// logged, so the removal can be undone from History).
-function loadValuations(accountID) {
-  const box = document.getElementById("accValuationHistory");
-  const list = document.getElementById("accValuationList");
-  const asOf = document.getElementById("accBalanceAsOf");
-  const cc = document.getElementById("accBalanceNow").dataset.currency || "GBP";
-  fetch(`/api/v1/accounts/${accountID}/valuations`).then((r) => jsonOk(r)).then((b) => {
-    const items = (b.items || []).slice().sort((x, y) => (y.date + y.created_at).localeCompare(x.date + x.created_at));
-    asOf.textContent = items.length
-      ? `Last set to ${(items[0].value_minor < 0 ? "\u2212" : "") + fmtMoneyMinor(items[0].value_minor, cc)} on ${dayMonthYearJS(items[0].date)}, plus any transactions since.`
-      : "From the opening balance and transactions. Record today's balance below.";
-    box.hidden = !items.length;
-    document.getElementById("accValuationCount").textContent = items.length ? `(${items.length})` : "";
-    list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
-        <span class="valuation-date">${esc(dayMonthYearJS(v.date))}</span>
-        <span class="valuation-value">${v.value_minor < 0 ? "\u2212" : ""}${esc(fmtMoneyMinor(v.value_minor, cc))}</span>
-        <button type="button" class="widget-btn" data-valuation-delete title="Delete" aria-label="Delete"><svg class="icon"><use href="#i-close"/></svg></button>
-      </li>`).join("");
-    list.querySelectorAll("[data-valuation-delete]").forEach((btn) => btn.addEventListener("click", () => {
-      const li = btn.closest("li");
-      showConfirm("Delete this value?", `The ${li.querySelector(".valuation-value").textContent} recorded on ${li.querySelector(".valuation-date").textContent} is removed. You can undo this from History.`, "Delete", () => {
-        fetch(`/api/v1/accounts/${accountID}/valuations/${li.dataset.valuationId}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
-          .then(async (r) => {
-            if (!r.ok) {
-              const e = await r.json().catch(() => ({}));
-              toast((e.error && e.error.message) || "Could not delete the value");
-              return;
-            }
-            toast("Value deleted");
-            refreshAccountBalance(accountID);
-          }).catch(() => toast("Could not delete the value"));
-      }, "danger");
-    }));
-  }).catch(() => {});
-}
-function refreshAccountBalance(accountID) {
-  document.getElementById("accountModal").dataset.changed = "1";
-  fetch(`/api/v1/accounts/${accountID}`).then((r) => jsonOk(r)).then((a) => {
-    showAccountBalance(a);
-    loadValuations(accountID);
-  }).catch(() => {});
 }
 function dayMonthYearJS(iso) {
   const d = new Date(iso + "T00:00:00");
   return isNaN(d) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
-
-// The balance panel is for an account that already exists: a new one starts
-// from its opening balance.
-function syncValuationBlock() {
-  const savings = document.getElementById("accType").value === "savings";
-  const existing = !!document.getElementById("accountForm").dataset.accountId;
-  document.getElementById("accValuationBlock").hidden = !existing;
-  const credit = document.getElementById("accType").value === "credit";
-  document.getElementById("accValuationHint").textContent = savings
-    ? "What the account is worth on that day, e.g. after interest. Undo it from History."
-    : credit
-      ? "What you owe at the end of that day, from your statement or app. It's checked against your transactions, and any gap shows on History."
-      : "The balance your bank shows at the end of that day. It's checked against your transactions, and any gap shows on History.";
-  const input = document.getElementById("accValuation");
-  input.placeholder = credit ? "Amount owed" : "New balance";
-  input.setAttribute("aria-label", input.placeholder);
-  if (!existing) resetValuationFields();
-}
 // What recording a balance found: a statement that disagrees with the
 // transactions, or a savings account's returns since its last value.
 function valuationToast(res, type, hadEarlier) {
   const drift = res && res.drift_minor;
-  const cc = (res && res.valuation && res.valuation.currency) || document.getElementById("accBalanceNow")?.dataset.currency || "GBP";
+  const cc = (res && res.valuation && res.valuation.currency) || "GBP";
   if (type === "savings") return drift && hadEarlier ? `Balance updated · ${fmtMoneySigned(drift, cc)} since its last value` : "Balance updated";
   if (!drift) return "Balance recorded · matches your transactions";
-  return `Balance recorded · ${fmtMoneyMinor(Math.abs(drift), cc)} out from your transactions, see History`;
+  return `Balance recorded · ${fmtMoneyMinor(Math.abs(drift), cc)} out from your transactions`;
 }
 // "50,000", "£50000.00" and "50k" all read as 50,000.
 function parseMoneyInput(raw) {
@@ -2574,36 +2492,102 @@ function parseMoneyInput(raw) {
   if (!/^-?(\d+\.?\d*|\.\d+)$/.test(t)) return null;
   return Math.round(parseFloat(t) * mult * 100);
 }
-function pendingValuation() {
-  if (document.getElementById("accValuationBlock").hidden) return null;
-  const raw = document.getElementById("accValuation").value.trim();
-  if (raw === "") return null;
-  const minor = parseMoneyInput(raw);
-  if (minor === null) return { error: "Enter the balance as a number, e.g. 4520.00" };
-  // A credit card's balance is what's owed, stored as a negative.
-  const owed = document.getElementById("accType").value === "credit";
-  return { value_minor: owed ? -minor : minor, date: document.getElementById("accValuationDate").value || localISODate(), note: "Manual valuation" };
+const signedMoney = (minor, cc) => (minor < 0 ? "−" : "") + fmtMoneyMinor(minor, cc);
+
+// A balance panel (frag_balance_panel.html) records an account's balance on
+// a day: a savings account's value on the Savings tab, or the balance a bank
+// statement shows for a current or credit account on History, which is
+// checked against the transactions. Each recorded balance is logged, so
+// deleting one can be undone from History. onChange runs after either.
+function initBalancePanel(root, onChange) {
+  const id = root.dataset.accountId;
+  const type = root.dataset.accountType;
+  const cc = root.dataset.currency || "GBP";
+  const q = (k) => root.querySelector(`[data-bp-${k}]`);
+  const input = q("value"), date = q("date"), btn = q("record"), list = q("list");
+  date.value = localISODate();
+  date.max = localISODate();
+  const load = () => {
+    fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
+      q("now").textContent = signedMoney(a.current_balance_minor, cc);
+    }).catch(() => {});
+    fetch(`/api/v1/accounts/${id}/valuations`).then((r) => jsonOk(r)).then((b) => {
+      const items = (b.items || []).slice().sort((x, y) => (y.date + y.created_at).localeCompare(x.date + x.created_at));
+      const shown = (v) => signedMoney(v, cc);
+      q("asof").textContent = items.length
+        ? `Last set to ${shown(items[0].value_minor)} on ${dayMonthYearJS(items[0].date)}, plus any transactions since.`
+        : "From the opening balance and transactions. Record today's balance below.";
+      q("history").hidden = !items.length;
+      q("count").textContent = items.length ? `(${items.length})` : "";
+      list.innerHTML = items.map((v) => `<li data-valuation-id="${esc(v.id)}">
+          <span class="valuation-date">${esc(dayMonthYearJS(v.date))}</span>
+          <span class="valuation-value">${esc(shown(v.value_minor))}</span>
+          <button type="button" class="widget-btn" data-valuation-delete title="Delete" aria-label="Delete"><svg class="icon"><use href="#i-close"/></svg></button>
+        </li>`).join("");
+    }).catch(() => {});
+  };
+  list.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-valuation-delete]");
+    if (!del) return;
+    const li = del.closest("li");
+    showConfirm("Delete this balance?", `The ${li.querySelector(".valuation-value").textContent} recorded on ${li.querySelector(".valuation-date").textContent} is removed. You can undo this from History.`, "Delete", () => {
+      fetch(`/api/v1/accounts/${id}/valuations/${li.dataset.valuationId}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } })
+        .then(async (r) => {
+          if (!r.ok) { toast(await apiErrorText(r, "Could not delete the balance")); return; }
+          toast("Balance deleted");
+          load();
+          if (onChange) onChange();
+        }).catch(() => toast("Could not delete the balance"));
+    }, "danger");
+  });
+  const record = () => {
+    const raw = input.value.trim();
+    if (raw === "") { input.focus(); return; }
+    const minor = parseMoneyInput(raw);
+    if (minor === null) { toast("Enter the balance as a number, e.g. 4520.00"); return; }
+    // A credit card's balance is what's owed, stored as a negative.
+    const body = { value_minor: type === "credit" ? -minor : minor, date: date.value || localISODate(), note: "Manual valuation" };
+    const hadEarlier = list.children.length > 0;
+    btn.disabled = true;
+    fetch(`/api/v1/accounts/${id}/valuations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) { toast(await apiErrorText(r, "Could not record the balance")); return; }
+      const res = await r.json().catch(() => null);
+      if (res && res.valuation && !res.valuation.currency) res.valuation.currency = cc;
+      toast(valuationToast(res, type, hadEarlier));
+      input.value = "";
+      input.blur();
+      load();
+      if (onChange) onChange();
+    }).catch(() => toast("Could not record the balance")).finally(() => { btn.disabled = false; });
+  };
+  btn.addEventListener("click", record);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); record(); } });
+  load();
 }
-function recordAccountValuation() {
-  const id = document.getElementById("accountForm").dataset.accountId;
-  const v = pendingValuation();
-  if (!id || !v) { document.getElementById("accValuation").focus(); return; }
-  if (v.error) { toast(v.error); return; }
-  const btn = document.getElementById("accValuationRecord");
-  const hadEarlier = document.getElementById("accValuationList").children.length > 0;
-  btn.disabled = true;
-  fetch(`/api/v1/accounts/${id}/valuations`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-    body: JSON.stringify(v),
-  }).then(async (r) => {
-    if (!r.ok) { toast(await apiErrorText(r, "Could not update the balance")); return; }
-    toast(valuationToast(await r.json().catch(() => null), document.getElementById("accType").value, hadEarlier));
-    document.getElementById("accValuation").value = "";
-    document.getElementById("accValuation").blur();
-    refreshAccountBalance(id);
-  }).catch(() => toast("Could not update the balance")).finally(() => { btn.disabled = false; });
-}
+
+document.addEventListener("DOMContentLoaded", () => {
+  // Savings tab: one panel per savings account.
+  document.querySelectorAll("#view-savings [data-balance-panel]").forEach((p) => initBalancePanel(p));
+  // History: the Reconciled card opens a statement balance for a current or
+  // credit account; closing it after a change reloads the page's figures.
+  const modal = document.getElementById("reconcileModal");
+  if (!modal) return;
+  const select = document.getElementById("reconcileAccount");
+  const show = () => modal.querySelectorAll("[data-reconcile-account]").forEach((el) => { el.hidden = el.dataset.reconcileAccount !== select.value; });
+  modal.querySelectorAll("[data-balance-panel]").forEach((p) => initBalancePanel(p, () => { modal.dataset.changed = "1"; }));
+  select?.addEventListener("change", show);
+  if (select) show();
+  document.getElementById("reconcileOpen")?.addEventListener("click", () => {
+    modal.hidden = false;
+    modal.scrollTop = 0;
+  });
+  modal.querySelectorAll("[data-close-reconcile]").forEach((b) => b.addEventListener("click", () => closeModal("reconcileModal")));
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal("reconcileModal"); });
+});
 
 function saveAccount() {
   const form = document.getElementById("accountForm");
@@ -2611,8 +2595,6 @@ function saveAccount() {
   // An account whose details never arrived isn't saved over with an empty form.
   if (id && !accountLoaded) { toast("This account's details haven't loaded. Close and open it again.", "error"); return; }
   const body = accountPayload();
-  const valuation = pendingValuation();
-  if (valuation && valuation.error) { toast(valuation.error); return; }
   const url = id ? `/api/v1/accounts/${id}` : "/api/v1/accounts";
   fetch(url, {
     method: id ? "PATCH" : "POST",
@@ -2626,20 +2608,7 @@ function saveAccount() {
     }
     return r.json();
   }).then((acct) => {
-    if (!acct) return false;
-    if (!valuation) return true;
-    return fetch(`/api/v1/accounts/${id || acct.id}/valuations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify(valuation),
-    }).then(async (r) => {
-      if (r.ok) return true;
-      const b = await r.json().catch(() => ({}));
-      toast(apiErrorFrom(r, b, "Account saved, but the value couldn't be recorded"));
-      return false;
-    });
-  }).then((ok) => {
-    if (!ok) return;
+    if (!acct) return;
     closeModal("accountModal");
     toast("Account saved");
     location.reload();
@@ -2653,11 +2622,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("accSaveBtn")?.addEventListener("click", (e) => { e.preventDefault(); saveAccount(); });
   document.getElementById("accCancelBtn")?.addEventListener("click", () => closeModal("accountModal"));
   document.querySelectorAll("[data-action='close-account']").forEach((b) => b.addEventListener("click", () => closeModal("accountModal")));
-  document.getElementById("accType")?.addEventListener("change", syncValuationBlock);
-  document.getElementById("accValuationRecord")?.addEventListener("click", recordAccountValuation);
-  document.getElementById("accValuation")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); recordAccountValuation(); }
-  });
   // The new-transaction modal is wired in the boot handler (guarded by
   // #newTxBtn). An unguarded copy here threw on pages without it and killed
   // every binding below.

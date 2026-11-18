@@ -62,11 +62,11 @@
       <div class="stat-label">Balance at this date</div>
       <div class="stat-value" id="timelineBalance">{{money .LatestBalance .Currency}}</div>
     </article>
-    <article class="stat-card">
-      <div class="stat-label">Reconciled</div>
+    <button class="stat-card stat-card-action" type="button" id="reconcileOpen" aria-haspopup="dialog">
+      <div class="stat-label">Reconciled <span class="stat-card-cta">Record <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></span></div>
       <div class="stat-value {{if eq .ReconcileStatus "verified"}}ok{{end}} no-blur" id="timelineReconLabel">{{.ReconcileLabel}}</div>
       <div class="stat-trend {{if eq .ReconcileStatus "verified"}}up{{end}} no-blur" id="timelineReconHint">{{.ReconcileHint}}</div>
-    </article>
+    </button>
     <article class="stat-card">
       <div class="stat-label">Transactions in period</div>
       <div class="stat-value no-blur" id="timelineTxCount">{{.TxCountToDate}}</div>
@@ -91,6 +91,41 @@
       <h2>Balance over time</h2>
     </div>
     <div class="chart-host" id="timelineChart" data-chart-type="line" data-chart-data="{{jsonAttr .Series}}"></div>
+  </div>
+
+  <div class="modal-backdrop" id="reconcileModal" hidden>
+    <div class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="reconcileTitle">
+      <button class="icon-btn modal-close" type="button" data-close-reconcile aria-label="Close">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div class="modal-head">
+        <div class="modal-head-text">
+          <h3 id="reconcileTitle">Record statement balance</h3>
+          <p class="muted">Enter the balance your bank or card shows. Glowworm checks it against your transactions. Savings balances are updated on the Savings tab.</p>
+        </div>
+      </div>
+      <div class="modal-body">
+        {{$hasAcct := false}}{{range .Accounts}}{{if ne .Type "savings"}}{{$hasAcct = true}}{{end}}{{end}}
+        {{if $hasAcct}}
+        <div class="field-row">
+          <label for="reconcileAccount">Account</label>
+          <select class="field select" id="reconcileAccount">
+            {{range .Accounts}}{{if ne .Type "savings"}}<option value="{{.ID}}">{{.Name}} · {{.TypeLabel}}</option>{{end}}{{end}}
+          </select>
+        </div>
+        {{range .Accounts}}{{if ne .Type "savings"}}
+        <div class="reconcile-panel" data-reconcile-account="{{.ID}}" hidden>
+          {{template "balance-panel" dict "A" . "Currency" $.Currency "Symbol" (symbol $.Currency)}}
+        </div>
+        {{end}}{{end}}
+        {{else}}
+        <p class="muted">There are no current or credit accounts. Add one in <a href="/settings">Settings</a>.</p>
+        {{end}}
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" type="button" data-close-reconcile>Done</button>
+      </div>
+    </div>
   </div>
 </div>
 {{end}}
