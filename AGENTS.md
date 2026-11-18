@@ -4,7 +4,9 @@
 
 Tags (`vX.Y`, `vX.Y.Z`) deploy straight to the live server, which holds real
 financial data (see `deploy/README.md`). A new release has to pick up exactly
-where any earlier tagged release left off, with no manual steps. That means:
+where any earlier tagged release left off, with no manual steps. The point
+is that no data is ever lost and the server keeps running, so the rules below
+cover stored data, backups, configuration and deployment. That means:
 
 - **Data.** A new build must open a data directory written by any earlier
   tagged version, and upgrade it by itself on start.
@@ -24,8 +26,9 @@ where any earlier tagged release left off, with no manual steps. That means:
 - **Configuration.** Environment variables (`GLOWWORM_*`), `glowworm.toml`
   keys, CLI commands and flags keep working. To rename one, read both names.
   Never quietly change what an existing setting means.
-- **Links.** Page URLs keep working, so bookmarks and the home-screen app
-  survive. Redirect a moved page instead of letting it 404.
+- **Not covered.** Page URLs, the HTTP API (`/api/v1/...`), page layout and
+  the UI can change freely between releases: rename, move or remove them
+  without redirects or keeping old forms.
 - **Deployment contract.** These files are used as they are by the server and
   the release workflow, so keep them compatible:
   - the release asset name `glowworm-linux-arm64`
