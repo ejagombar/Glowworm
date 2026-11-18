@@ -40,11 +40,12 @@ Below, `ed` stands for your username on the server. Use yours.
    to match.
 
 3. **Settings file.** Create `/etc/glowworm/glowworm.env`, readable only by
-   root and `ed` (the deploy script reads the port from it). It needs at least
-   a setup token. Without one, whoever opens the site first could create the
-   account:
+   root and `ed` (the deploy script reads the port from it). Give it the
+   public address, which the setup link uses. Until the account exists the
+   setup page needs a token: Glowworm makes one and logs the whole link, or set
+   your own with `GLOWWORM_SETUP_TOKEN`:
    ```sh
-   echo "GLOWWORM_SETUP_TOKEN=$(openssl rand -hex 16)" | sudo tee /etc/glowworm/glowworm.env
+   echo "GLOWWORM_PUBLIC_URL=https://glowworm.eagombar.uk" | sudo tee /etc/glowworm/glowworm.env
    sudo chown root:ed /etc/glowworm/glowworm.env && sudo chmod 640 /etc/glowworm/glowworm.env
    ```
    The unit already sets the data directory, JSON logs, timezone (Europe/London)
@@ -113,10 +114,12 @@ git checkout main && git pull
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-Watch it run under *Actions*. Then open
-`https://glowworm.eagombar.uk/setup?token=<GLOWWORM_SETUP_TOKEN>` to create
-the account. After that the token isn't needed, and you can remove it from
-`glowworm.env`.
+Watch it run under *Actions*. Then open the setup link to create the
+account: it's in the log (`journalctl -u glowworm@ed`, the "no account yet"
+line), or run `GLOWWORM_DATA_DIR=/var/lib/glowworm /opt/glowworm/current/glowworm setup-url`
+as `ed`. If you set `GLOWWORM_SETUP_TOKEN`, it's
+`https://glowworm.eagombar.uk/setup?token=<GLOWWORM_SETUP_TOKEN>`, and you can
+remove it from `glowworm.env` once the account exists.
 
 **Bringing data across.** To start from existing data instead, use *Settings →
 Backup & deletion → Download full backup* on the old copy. Copy the zip to the

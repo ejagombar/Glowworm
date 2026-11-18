@@ -21,6 +21,9 @@ upload_max_mb = 25
 # made and the whole link printed at startup; `glowworm setup-url` prints it
 # again. Set your own, or "off" for none.
 # setup_token = "..."
+# A release build looks for a new release on GitHub daily; Settings says when
+# one is out. "off" stops it.
+# update_check = "on"
 # Create the account at startup instead of in the browser (only when none
 # exists; remove the password afterwards). `glowworm user create` also works.
 # owner_username = "emma"

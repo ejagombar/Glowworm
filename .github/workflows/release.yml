@@ -87,6 +87,8 @@ jobs:
               -o "dist/glowworm-$os-$arch$ext" ./cmd/glowworm
           done
           (cd dist && sha256sum glowworm-* > checksums.txt)
+          # releases/latest/download/install.sh is the one-line install.
+          cp deploy/install.sh dist/
 
       - name: Publish the release
         env:
