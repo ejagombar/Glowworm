@@ -77,6 +77,7 @@ function widgetIsEmpty(type, data) {
     case "table": return !(data.rows || []).length;
     case "transactions": return !(data.transactions || []).length;
     case "pie": return !(data.values || []).some((v) => Number(v) > 0);
+    case "progress": return !(data.items || []).length;
     default: return !toSeries(data).series.some((s) => (s.values || []).some((v) => Number(v)));
   }
 }
@@ -177,6 +178,7 @@ function barGeom(data, W, H) {
     });
     if (sum > max) max = sum;
   });
+  (data.targets || []).forEach((t) => { if (Number(t.value) > max) max = Number(t.value); });
   const scale = max || 1; // an empty chart would otherwise divide by zero
   const padL = 46, padB = 30, padT = 14, padR = 10;
   const innerW = W - padL - padR, innerH = H - padT - padB;
@@ -238,6 +240,7 @@ function barChartSVG(data, width = 640, height = 260) {
     });
   });
 
+  parts.push(targetLinesSVG(data.targets, padL, W - padR, py, data.format));
   barTickLabels(labels, groupW).forEach(({ i, text }) => {
     const x = cx(i);
     const anchor = labels.length === 1 ? "middle" : x - padL < 30 ? "start" : padL + innerW - x < 30 ? "end" : "middle";
@@ -293,6 +296,12 @@ function lineGeom(data, W, H, view) {
       if (v < dmin) dmin = v;
     }
   });
+  (data.targets || []).forEach((t) => {
+    const v = Number(t.value);
+    if (!isFinite(v)) return;
+    if (v > dmax) dmax = v;
+    if (v < dmin) dmin = v;
+  });
   const { min, max, ticks } = lineAxis(dmin, dmax);
   const span = (max - min) || 1;
   const px = (i) => (n <= 1 ? padL + innerW / 2 : padL + ((i - lo) / (hi - lo)) * innerW);
@@ -310,6 +319,33 @@ function lineRuns(vals, i0, i1) {
     run.push(i);
   }
   return runs;
+}
+
+// Target lines: a dashed rule across the plot at each target's value, its
+// label (and value) at the right-hand end.
+function targetLinesSVG(targets, x0, x1, py, format) {
+  return (targets || []).map((t) => {
+    const y = py(Number(t.value));
+    if (!isFinite(y)) return "";
+    const color = esc(t.color || "#c0483f");
+    const label = `${t.label ? t.label + " · " : ""}${fmtAxis(Number(t.value), format)}`;
+    return `<g class="chart-target"><line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="${color}" stroke-width="1.5" stroke-dasharray="6 4"/>`
+      + `<text x="${x1 - 4}" y="${y - 5}" text-anchor="end" class="chart-tooltip chart-target-label" style="fill:${color}">${esc(label)}</text></g>`;
+  }).join("");
+}
+
+// A progress widget: one bar per item, value against target.
+function progressHTML(data) {
+  const items = data.items || [];
+  return `<div class="progress-widget">${items.map((it) => {
+    const pct = Math.max(0, Number(it.progress) || 0);
+    const color = esc(it.color || WIDGET_COLORS[0]);
+    return `<div class="progress-item"><div class="progress-head"><span class="progress-label">${esc(it.label)}</span>`
+      + `<span class="progress-figures"><span class="progress-value">${esc(it.value_text)}</span> <span class="muted">of ${esc(it.target_text)}</span></span></div>`
+      + `<div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct * 100)}" aria-label="${esc(it.label)}">`
+      + `<div class="progress-fill" style="width:${Math.min(pct, 1) * 100}%;background:${color}"></div></div>`
+      + `<div class="progress-pct">${Math.round(pct * 100)}%</div></div>`;
+  }).join("")}${data.caption ? `<div class="num-caption">${esc(data.caption)}</div>` : ""}</div>`;
 }
 
 function lineChartSVG(data, width = 640, height = 260, view = null) {
@@ -362,6 +398,7 @@ function lineChartSVG(data, width = 640, height = 260, view = null) {
     }
   });
   parts.push(`<defs>${defs.join("")}</defs><g clip-path="url(#clip-${fillId})">${body.join("")}</g>`);
+  parts.push(targetLinesSVG(data.targets, padL, W - padR, py, data.format));
 
   const xTickCount = width < 420 ? 2 : width < 700 ? 4 : 6;
   const first = Math.max(0, Math.ceil(g.lo - 1e-9)), last = Math.min(n - 1, Math.floor(g.hi + 1e-9));
@@ -642,6 +679,10 @@ function redrawChartHost(host) {
     if (legend) legend.remove();
     return;
   }
+  if (type === "progress") {
+    host.innerHTML = progressHTML(data);
+    return;
+  }
   if (type === "pie") {
     const rendered = pieChartSVG(data);
     host.innerHTML = rendered.svg;
@@ -887,6 +928,7 @@ function widgetBody(widget) {
     const rendered = pieChartSVG(data);
     return `<div class="pie-wrap"><div class="pie-chart">${rendered.svg}</div>${rendered.legend}</div>`;
   }
+  if (t === "progress") return progressHTML(data);
   if (t === "line") return `<div class="chart-host" data-chart-type="line" data-chart-data="${esc(JSON.stringify(data))}">${lineChartSVG(data)}</div>`;
   return `<div class="chart-host" data-chart-type="bar" data-chart-data="${esc(JSON.stringify(data))}">${barChartSVG(data)}</div>`;
 }
@@ -944,6 +986,15 @@ function ensureWidgetStyles() {
     .chart-hover-tip .chart-tip-name { flex: 1; color: var(--text-2); margin-right: 10px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .chart-hover-tip .chart-tip-total { border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; padding-left: 14px; }
     .pie-legend-val { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+    .chart-target-label { font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+    .progress-widget { display: flex; flex-direction: column; gap: 14px; padding: 2px 2px 4px; overflow-y: auto; max-height: 100%; }
+    .progress-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; margin-bottom: 6px; }
+    .progress-label { font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .progress-figures { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+    .progress-value { font-weight: 600; }
+    .progress-track { height: 8px; border-radius: 4px; background: var(--chart-grid); overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .progress-pct { font-size: 11.5px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
   `;
   document.head.appendChild(style);
 }

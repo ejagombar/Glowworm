@@ -13,6 +13,7 @@ import (
 
 	"glowworm/internal/core"
 	"glowworm/internal/core/accounts"
+	"glowworm/internal/core/ledger"
 	"glowworm/internal/core/audit"
 	"glowworm/internal/core/balances"
 	"glowworm/internal/core/periods"
@@ -711,7 +712,20 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
-// handleSavings is a placeholder until the savings page is built.
+// savingsCard is a savings account on the Savings page, with its details
+// and how up to date its balance is.
+type savingsCard struct {
+	*accountCard
+	Card        *accountCard // the same, for the balance panel template
+	Rate        string // "4.5%", or ""
+	Wrapper     string // "ISA", or ""
+	StatusText  string
+	Due         bool
+	NeverValued bool
+}
+
+// handleSavings is where savings are kept up to date and set up: each
+// savings account's balance, details and reminder, and the goals.
 func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "savings", "Savings")
 	if err != nil {
@@ -721,16 +735,69 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	saving := []*accountCard{}
+	book, err := a.book(r.Context())
+	if err != nil {
+		return err
+	}
+	saving := []*savingsCard{}
+	var allAccounts []*accountCard
+	for _, c := range cards {
+		if c.Type != core.AccountSavings {
+			continue
+		}
+		sc := &savingsCard{accountCard: c, Card: c}
+		if acc := book.Account(c.ID); acc != nil {
+			st := book.Status(acc)
+			if acc.InterestRate != nil {
+				sc.Rate = strconv.FormatFloat(*acc.InterestRate*100, 'f', -1, 64) + "%"
+			}
+			if acc.TaxWrapper != "" {
+				sc.Wrapper = accounts.TaxWrappers[acc.TaxWrapper]
+			}
+			sc.Due, sc.NeverValued = st.Due, st.DaysSince < 0
+			sc.StatusText = balanceAge(st)
+		}
+		saving = append(saving, sc)
+	}
+	// Goals can count any account, savings first.
 	for _, c := range cards {
 		if c.Type == core.AccountSavings {
-			saving = append(saving, c)
+			allAccounts = append(allAccounts, c)
 		}
+	}
+	for _, c := range cards {
+		if c.Type != core.AccountSavings {
+			allAccounts = append(allAccounts, c)
+		}
+	}
+	goalList, err := a.goalViews(r.Context())
+	if err != nil {
+		return err
 	}
 	return a.Render.Render(w, "savings", struct {
 		*viewBase
-		Accounts []*accountCard
-	}{base, saving})
+		Accounts     []*savingsCard
+		AllAccounts  []*accountCard
+		Goals        []goalView
+		ReminderDays int
+	}{base, saving, allAccounts, goalList, book.ReminderDays})
+}
+
+// balanceAge says how old an account's latest recorded balance is.
+func balanceAge(st ledger.Status) string {
+	switch {
+	case st.DaysSince < 0:
+		return "No balance recorded yet"
+	case st.DaysSince == 0:
+		return "Updated today"
+	case st.DaysSince == 1:
+		return "Updated yesterday"
+	case st.DaysSince < 60:
+		return fmt.Sprintf("Updated %d days ago", st.DaysSince)
+	case st.DaysSince < 730:
+		return fmt.Sprintf("Updated %d months ago", st.DaysSince/30)
+	}
+	return fmt.Sprintf("Updated %d years ago", st.DaysSince/365)
 }
 
 func (a *App) handleImport(w http.ResponseWriter, r *http.Request) error {

@@ -210,6 +210,7 @@
           <option value="pie">Pie chart</option>
           <option value="table">Table</option>
           <option value="number">Number</option>
+          <option value="progress">Progress</option>
           <option value="text">Text</option>
         </select>
       </div>
@@ -243,9 +244,14 @@
           </div>
         </div>
         <div class="field-row" data-proj-show="compound">
-          <label for="wProjRate">Yearly growth</label>
+          <label for="wProjRateFrom">Yearly growth</label>
+          <select class="field select" id="wProjRateFrom">
+            <option value="">A rate I set</option>
+          </select>
+        </div>
+        <div class="field-row" data-proj-show="compound" id="wProjRateRow">
           <div class="field-pair">
-            <input class="field" id="wProjRate" type="number" step="0.1" inputmode="decimal" placeholder="0" />
+            <input class="field" id="wProjRate" type="number" step="0.1" inputmode="decimal" placeholder="0" aria-label="Yearly growth rate" />
             <span class="field-suffix">%</span>
           </div>
         </div>
@@ -254,6 +260,17 @@
           <input class="field" id="wProjContrib" type="number" step="1" inputmode="decimal" placeholder="0" />
         </div>
         <p class="field-hint" id="wProjError" hidden></p>
+      </fieldset>
+      {{/* Shown by openDrawer for line and bar charts with a saved query. */}}
+      <fieldset class="drawer-section" id="wTargets" hidden>
+        <legend>Target lines</legend>
+        <div class="target-list" id="wTargetList"></div>
+        <div class="field-pair">
+          <button class="btn btn-ghost btn-xs" type="button" id="wTargetAdd">Add a line</button>
+          <select class="field select" id="wTargetGoal" aria-label="Add a goal's line">
+            <option value="">Add a goal…</option>
+          </select>
+        </div>
       </fieldset>
     </div>
     <div class="drawer-foot">

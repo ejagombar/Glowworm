@@ -38,6 +38,7 @@ type agentWidgetSpec struct {
 	Fill    string                `json:"fill"`
 	Stacked bool                  `json:"stacked"`
 	Project *SpecProjection       `json:"project"`
+	Targets []SpecTarget          `json:"targets"`
 	// A text widget: its words, and no query.
 	Body string `json:"body"`
 	// A group_rule widget: grouping rules drafted for the user to create.
@@ -92,6 +93,7 @@ func normalizeSpec(raw json.RawMessage) agentWidgetSpec {
 	_ = json.Unmarshal(m["columns"], &sp.Columns)
 	sp.Series, sp.Fill = rawStr(m["series"]), strings.ToLower(rawStr(m["fill"]))
 	_ = json.Unmarshal(m["stacked"], &sp.Stacked)
+	_ = json.Unmarshal(m["targets"], &sp.Targets)
 	if len(m["project"]) > 0 && string(m["project"]) != "null" {
 		var p SpecProjection
 		if json.Unmarshal(m["project"], &p) == nil {
@@ -169,7 +171,12 @@ DATABASE (SQLite). Tables you may query:
   COALESCE(NULLIF(merchant,''), description); when the user names a
   merchant/payee/shop, match that expression, never merchant alone.
 - categories(id, name)
-- accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date)
+- accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date,
+  interest_rate REAL [yearly ratio, 0.045 = 4.5%; NULL if unknown], tax_wrapper TEXT
+  ''|'isa'|'lisa'|'pension'|'other', balance_reminder_days, deleted_at)
+- goals(id, name, target_minor, target_date TEXT 'YYYY-MM-DD' or NULL, color, deleted_at) and
+  goal_accounts(goal_id, account_id): savings goals; a goal with no goal_accounts rows
+  covers every savings account. Prefer goal_progress (below) for how a goal is going.
 - group_rules(id, group_name, match TEXT 'is'|'contains', text, created_at, deleted_at)
 - valuations(id, account_id, date TEXT 'YYYY-MM-DD', value_minor, created_at, deleted_at):
   an account's balance on a date, recorded by the user (a savings account's
@@ -194,6 +201,20 @@ DATABASE (SQLite). Tables you may query:
   one such as 'month' or 'year'). Balances add up across accounts per
   period (SUM(closing_minor) GROUP BY period); flows add up over periods.
   Savings: paid in = deposits - withdrawals; returns = income + growth.
+  Filter dates with start_date/end_date (e.g. end_date >= :from AND
+  start_date <= :to), not period, so the filter is applied early.
+- account_status(account_id, account, account_type, currency, balance_minor,
+  last_valued, days_since, reminder_days, due, interest_rate, tax_wrapper):
+  worked out by the app. Each account's balance now, the date of its latest
+  recorded balance and how many days ago that was (NULL if never), the
+  reminder interval that applies (0 = none) and due = 1 when the balance is
+  older than that and needs updating.
+- goal_progress(goal_id, goal, color, target_minor, target_date,
+  current_minor, remaining_minor, progress [ratio, 1 = reached], pace_minor
+  [average change a month over the last 6 months], months_left,
+  monthly_needed_minor [to reach it by target_date], projected_month
+  [YYYY-MM it's reached at pace, NULL if never], on_track [1/0, NULL with no
+  date], accounts [names]): worked out by the app.
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
@@ -366,6 +387,20 @@ EXAMPLE FINAL (spending split by category over time — stacked bars):
     "sql":"SELECT CASE :grain WHEN 'day' THEN t.date WHEN 'week' THEN date(t.date, 'weekday 0', '-6 days') ELSE strftime('%Y-%m', t.date) END AS period, COALESCE(c.name, 'Uncategorised') AS category, SUM(-t.amount_minor) AS spend FROM transactions t LEFT JOIN categories c ON c.id = t.category_id WHERE t.deleted_at IS NULL AND t.type = 'expense' AND t.date BETWEEN :from AND :to GROUP BY 1, 2 ORDER BY 1, 3 DESC",
     "columns":{"period":{"format":"text"},"category":{"format":"text"},"spend":{"label":"Spend","format":"money"}},"caption":"Spend per period by category, refunds netted off"}]}
 
+PROGRESS WIDGET — {"type":"progress"}: one bar per row showing a value
+against a target. Rows: label, value, target, and optionally a colour
+('#rrggbb'). Use it for goals, budgets and limits. Format the value column
+(the target column shares it). Example: goals →
+  "sql":"SELECT goal, current_minor, target_minor, color FROM goal_progress",
+  "columns":{"current_minor":{"format":"money"},"target_minor":{"format":"money"}}
+
+TARGET LINES — a line or bar chart can draw reference lines across it:
+  "targets":[{"label":"House deposit","value":2500000},
+             {"sql":"SELECT name, target_minor FROM goals WHERE deleted_at IS NULL"}]
+A fixed "value" is in the chart's units (minor units for money); a "sql"
+target is re-run with the widget, its rows label, value (one line each), so
+use it for goals and anything else stored. At most 6 lines.
+
 PROJECTIONS — a line, bar or number widget can carry its series on into the
 future: add "project" to the widget. Use it whenever the user asks where
 something is heading, "at this rate", "by 2030", "in 5 years", forecasts or
@@ -381,6 +416,11 @@ first); the app adds the projected points, drawn dashed after the real ones.
 - until: a date or a span past the last point (+18m, +5y, +12w); else
   "periods" (default 12). basis: fit to the last N points only.
 - series: names of the series to project (default all).
+- rate_sql / contribution_sql: take the rate or the monthly contribution
+  from a query each time it runs, e.g. "rate_sql":"SELECT interest_rate
+  FROM accounts WHERE name = 'Cash ISA'", or the average paid in a month
+  over the last year from account_periods. Prefer these to fixed numbers
+  when the figure is stored or can be worked out.
 - number widget with "project": the rows are label, value (the series),
   and the number shown is the projected value at the end; caption WITHOUT
   dates (the app adds "projected to ...").
@@ -802,7 +842,8 @@ func (s *Service) buildWidgets(specs []agentWidgetSpec, win *TimeWindow) ([]*wid
 		}
 		spec := &Spec{V: SpecVersion, SQL: stripFences(sp.SQL), Columns: sp.Columns,
 			Caption: truncateChars(strings.TrimSpace(sp.Caption), 120),
-			Series:  sp.Series, Fill: sp.Fill, Stacked: sp.Stacked, Project: sp.Project}
+			Series:  sp.Series, Fill: sp.Fill, Stacked: sp.Stacked, Project: sp.Project,
+			Targets: sp.Targets}
 		w, res, err := s.runSpec(spec, typ, win)
 		if err == nil {
 			err = checkSpec(spec, typ, res)

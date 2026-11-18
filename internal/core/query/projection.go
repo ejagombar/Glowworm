@@ -34,6 +34,11 @@ type SpecProjection struct {
 	Basis        int     `json:"basis,omitempty"`
 	Rate         float64 `json:"rate,omitempty"`
 	Contribution float64 `json:"contribution,omitempty"`
+	// RateSQL and ContributionSQL, when set, take Rate and Contribution
+	// from a query each time the widget runs (its first row's first
+	// column), e.g. SELECT interest_rate FROM accounts WHERE name = 'ISA'.
+	RateSQL         string `json:"rate_sql,omitempty"`
+	ContributionSQL string `json:"contribution_sql,omitempty"`
 	// Series names the series to project; all of them when empty.
 	Series []string `json:"series,omitempty"`
 }

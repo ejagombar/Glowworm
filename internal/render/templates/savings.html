@@ -6,13 +6,19 @@
   {{if .Accounts}}
   <div class="savings-grid">
     {{range .Accounts}}
-    <article class="panel savings-card">
+    <article class="panel savings-card{{if .Due}} is-due{{end}}" data-savings-account="{{.ID}}">
       <div class="savings-card-head">
         <span class="account-dot" style="background:{{.Color}}"></span>
         <h3 class="savings-card-name">{{.Name}}</h3>
         {{if .RefLast4}}<span class="muted savings-card-ref">···· {{.RefLast4}}</span>{{end}}
+        <button class="btn btn-ghost btn-xs" type="button" data-account-form="{{.ID}}" title="Interest rate, tax wrapper and reminders">Details</button>
       </div>
-      {{template "balance-panel" dict "A" . "Currency" $.Currency "Symbol" (symbol $.Currency)}}
+      <div class="savings-meta">
+        {{if .Wrapper}}<span class="chip">{{.Wrapper}}</span>{{end}}
+        {{if .Rate}}<span class="chip">{{.Rate}} interest</span>{{end}}
+        <span class="savings-age{{if .Due}} due{{end}}">{{if .Due}}<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>{{end}}{{.StatusText}}{{if .Due}} · time to update{{end}}</span>
+      </div>
+      {{template "balance-panel" dict "A" .Card "Currency" $.Currency "Symbol" (symbol $.Currency)}}
     </article>
     {{end}}
   </div>
@@ -23,5 +29,86 @@
     <p class="muted">Add one in <a href="/settings">Settings</a>.</p>
   </div>
   {{end}}
+
+  <div class="section-head goals-head">
+    <h2>Goals</h2>
+    <button class="btn btn-ghost btn-xs" type="button" id="goalAddBtn"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add goal</button>
+  </div>
+  {{if .Goals}}
+  <div class="goals-grid">
+    {{range .Goals}}
+    <button class="panel goal-card" type="button" data-goal="{{json .Goal}}">
+      <div class="goal-card-head">
+        <span class="account-dot" style="background:{{.Color}}"></span>
+        <span class="goal-card-name">{{.Name}}</span>
+        <span class="goal-card-pct">{{pct .Progress}}</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:{{widthPct .Progress}};background:{{.Color}}"></div></div>
+      <div class="goal-card-figures"><strong>{{money .CurrentMinor $.Currency}}</strong> <span class="muted">of {{money .TargetMinor $.Currency}}{{if .TargetDate}} by {{monthYear .TargetDate}}{{end}}</span></div>
+      <div class="goal-card-note muted">
+        {{if eq .RemainingMin 0}}Reached.
+        {{else if eq .Track "on"}}On track{{if .Projected}}: there by {{monthYear .Projected}} at the current pace{{end}}.
+        {{else if eq .Track "behind"}}{{money .MonthlyNeeded $.Currency}} a month needed{{if .Projected}}; at the current pace, {{monthYear .Projected}}{{end}}.
+        {{else if .Projected}}At the current pace, reached by {{monthYear .Projected}}.
+        {{else}}No progress over the last six months.{{end}}
+      </div>
+      <div class="goal-card-accounts muted">{{if .AccountIDs}}{{range $i, $n := .AccountNames}}{{if $i}}, {{end}}{{$n}}{{end}}{{else}}All savings accounts{{end}}</div>
+    </button>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="muted goals-empty">A goal is a target amount, by a date if you like, over some of your accounts. Add one to see its progress here and in dashboard widgets.</p>
+  {{end}}
 </section>
+
+<div class="modal-backdrop" id="goalModal" hidden>
+  <div class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="goalModalTitle">
+    <button class="icon-btn modal-close" data-close-goal aria-label="Close"><svg class="icon"><use href="#i-close"/></svg></button>
+    <div class="modal-head"><div class="modal-head-text"><h3 id="goalModalTitle">Add goal</h3></div></div>
+    <form class="modal-body" id="goalForm" data-goal-id="">
+      <div class="field-row">
+        <label for="goalName">Name</label>
+        <input class="field" id="goalName" type="text" maxlength="80" placeholder="e.g. House deposit" />
+      </div>
+      <div class="field-cols">
+        <div class="field-row">
+          <label for="goalTarget">Target</label>
+          <div class="field-unit"><span class="field-unit-symbol">{{symbol .Currency}}</span>
+            <input class="field" id="goalTarget" type="text" inputmode="decimal" placeholder="25,000" /></div>
+        </div>
+        <div class="field-row">
+          <label for="goalDate">By (optional)</label>
+          <div class="date-field" data-date-field><input class="field" id="goalDate" type="date" /><span class="date-field-prompt" aria-hidden="true">Select date</span></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Counts</span>
+        <div class="goal-accounts" id="goalAccounts">
+          {{range .AllAccounts}}
+          <label class="check-row"><input type="checkbox" value="{{.ID}}" /> <span class="account-dot" style="background:{{.Color}}"></span> {{.Name}} <span class="muted">{{.TypeLabel}}</span></label>
+          {{end}}
+        </div>
+        <p class="field-hint">Leave them all unticked to count every savings account.</p>
+      </div>
+      <div class="field-cols">
+        <div class="field-row">
+          <label for="goalColor">Colour</label>
+          <input class="field" id="goalColor" type="color" value="#0e6f51" />
+        </div>
+      </div>
+      <div class="field-row">
+        <label for="goalNotes">Notes</label>
+        <textarea class="field" id="goalNotes" rows="2" maxlength="1000"></textarea>
+      </div>
+      <div class="account-danger" id="goalDanger" hidden>
+        <button class="btn btn-ghost btn-xs danger-text" type="button" id="goalDeleteBtn">Remove goal</button>
+      </div>
+    </form>
+    <div class="modal-foot account-modal-foot">
+      <button class="btn btn-ghost" type="button" data-close-goal>Cancel</button>
+      <button class="btn btn-primary" type="button" id="goalSaveBtn">Add goal</button>
+    </div>
+  </div>
+</div>
+{{template "account-modal" dict "CSRF" .CSRFToken "Currency" .Currency "Symbol" (symbol .Currency) "ReminderDays" .ReminderDays}}
 {{end}}

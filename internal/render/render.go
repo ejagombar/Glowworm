@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -94,6 +95,19 @@ func New() (*Renderer, error) {
 			return map[string]string{"Text": head, "Code": strings.TrimSpace(code)}
 		},
 		"pct": func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
+		// monthYear shows "2027-03" or "2027-03-31" as "Mar 2027".
+		"monthYear": func(s string) string {
+			if len(s) >= 7 {
+				if t, err := time.Parse("2006-01", s[:7]); err == nil {
+					return t.Format("Jan 2006")
+				}
+			}
+			return s
+		},
+		// widthPct is a 0..1 ratio as a CSS width, capped at 100%.
+		"widthPct": func(f float64) string {
+			return fmt.Sprintf("%.1f%%", math.Max(0, math.Min(f, 1))*100)
+		},
 		"sub": func(a, b int) int { return a - b },
 		"add": func(a, b int64) int64 { return a + b },
 		"json": func(v any) template.JS {

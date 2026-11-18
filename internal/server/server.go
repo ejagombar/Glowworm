@@ -22,6 +22,7 @@ import (
 	"glowworm/internal/core/categories"
 	"glowworm/internal/core/categoriser"
 	"glowworm/internal/core/changes"
+	"glowworm/internal/core/goals"
 	"glowworm/internal/core/grouping"
 	"glowworm/internal/core/imports"
 	"glowworm/internal/core/query"
@@ -61,6 +62,7 @@ type App struct {
 	Grouping     *grouping.Service
 	Changes      *changes.Service
 	Query        *query.Service
+	Goals        *goals.Service
 
 	AuditWriter  *audit.Writer
 	Exec         *auditexec.Executor
@@ -149,6 +151,7 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		DB: db, Provider: queryProvider, Clock: clk,
 		Repo: &query.ConvRepo{DB: db},
 	}
+	app.Goals = &goals.Service{DB: db, Audit: writer, Currency: func() string { return app.Settings.Get().Currency }}
 	app.startMidnightSummariser(log)
 	app.Exec = &auditexec.Executor{
 		DB: db, Accounts: rp.Accounts, Categories: rp.Categories, Txs: rp.Transactions,

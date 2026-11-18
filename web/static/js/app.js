@@ -585,6 +585,7 @@ const WIDGET_CONVERSIONS = {
   pie: ["pie", "table"],
   table: ["bar", "line", "pie", "table"],
   number: ["number"],
+  progress: ["progress", "table"],
   text: ["text"],
   transactions: ["transactions", "table"],
 };
@@ -612,7 +613,10 @@ function openDrawer(id) {
   sel.value = typ;
   state.editingPlan = card.dataset.widgetPlan ? JSON.parse(card.dataset.widgetPlan) : null;
   fillProjectionFields(state.editingPlan && state.editingPlan.project);
+  state.editingFormat = (() => { try { return JSON.parse(card.dataset.widgetData || "{}").format || "money"; } catch (e) { return "money"; } })();
+  fillTargetFields(state.editingPlan && state.editingPlan.targets);
   syncProjectionFields();
+  loadDrawerLists();
   drawer.hidden = false;
   document.getElementById("drawerBackdrop").hidden = false;
   requestAnimationFrame(() => {
@@ -654,6 +658,97 @@ function syncProjectionFields() {
   box.querySelectorAll("[data-proj-show]").forEach((row) => {
     row.hidden = !method || !row.dataset.projShow.split(" ").includes(method);
   });
+  const rateRow = document.getElementById("wProjRateRow");
+  if (rateRow && method === "compound") rateRow.hidden = !!document.getElementById("wProjRateFrom").value;
+  const targets = document.getElementById("wTargets");
+  if (targets) targets.hidden = !(state.editingPlan && TARGETABLE.includes(typ));
+}
+
+// ---- Target lines in the widget drawer: the "targets" part of a saved
+// query. A fixed line has a label and a value; a goal's line is a query, so
+// it follows the goal.
+const TARGETABLE = ["line", "bar"];
+const accountRateSQL = (id) => `SELECT interest_rate FROM accounts WHERE id = '${id.replace(/'/g, "''")}'`;
+const goalTargetSQL = (id) => `SELECT name, target_minor FROM goals WHERE id = '${id.replace(/'/g, "''")}' AND deleted_at IS NULL`;
+const quotedID = (sql, pattern) => { const m = pattern.exec(sql || ""); return m ? m[1].replace(/''/g, "'") : ""; };
+const RATE_SQL_RE = /^SELECT interest_rate FROM accounts WHERE id = '((?:[^']|'')*)'$/;
+const GOAL_SQL_RE = /^SELECT name, target_minor FROM goals WHERE id = '((?:[^']|'')*)' AND deleted_at IS NULL$/;
+
+function targetRowHTML(t) {
+  const money = state.editingFormat === "money";
+  if (t.sql) {
+    const goal = quotedID(t.sql, GOAL_SQL_RE);
+    const name = goal ? (state.goalNames?.[goal] || "a goal") : "a query";
+    return `<div class="target-row" data-target-sql="${esc(t.sql)}" data-target-label="${esc(t.label || "")}" data-target-color="${esc(t.color || "")}">`
+      + `<span class="target-from">Follows ${esc(name)}</span>`
+      + `<button class="icon-btn" type="button" data-target-remove aria-label="Remove line"><svg class="icon"><use href="#i-close"/></svg></button></div>`;
+  }
+  const v = t.value == null ? "" : money ? +(Number(t.value) / 100).toFixed(2) : Number(t.value);
+  return `<div class="target-row" data-target-color="${esc(t.color || "")}">`
+    + `<input class="field" data-target-label-input type="text" maxlength="40" placeholder="Label" value="${esc(t.label || "")}" aria-label="Line label" />`
+    + `<input class="field" data-target-value type="number" step="any" inputmode="decimal" placeholder="Value" value="${esc(String(v))}" aria-label="Line value" />`
+    + `<button class="icon-btn" type="button" data-target-remove aria-label="Remove line"><svg class="icon"><use href="#i-close"/></svg></button></div>`;
+}
+
+function fillTargetFields(targets) {
+  const list = document.getElementById("wTargetList");
+  if (!list) return;
+  list.innerHTML = (targets || []).map(targetRowHTML).join("");
+}
+
+// collectTargets reads the target rows back; a fixed line with no value is
+// left out.
+function collectTargets() {
+  const money = state.editingFormat === "money";
+  const out = [];
+  document.querySelectorAll("#wTargetList .target-row").forEach((row) => {
+    const color = row.dataset.targetColor || undefined;
+    if (row.dataset.targetSql) {
+      out.push({ sql: row.dataset.targetSql, label: row.dataset.targetLabel || undefined, color });
+      return;
+    }
+    const raw = row.querySelector("[data-target-value]").value;
+    if (raw === "" || !isFinite(Number(raw))) return;
+    const label = row.querySelector("[data-target-label-input]").value.trim();
+    out.push({ label: label || undefined, value: money ? Math.round(Number(raw) * 100) : Number(raw), color });
+  });
+  return out;
+}
+
+// The drawer's account and goal choices, fetched each time it opens.
+function loadDrawerLists() {
+  const rateSel = document.getElementById("wProjRateFrom");
+  const goalSel = document.getElementById("wTargetGoal");
+  if (!rateSel || !goalSel) return;
+  const editing = state.editingId;
+  const p = state.editingPlan && state.editingPlan.project;
+  const rateID = quotedID(p && p.rate_sql, RATE_SQL_RE);
+  fetch("/api/v1/accounts").then((r) => jsonOk(r)).then((out) => {
+    if (state.editingId !== editing) return;
+    const withRate = (out.items || []).filter((a) => a.interest_rate != null);
+    rateSel.innerHTML = `<option value="">A rate I set</option>` + withRate.map((a) =>
+      `<option value="${esc(a.id)}">${esc(a.name)}'s interest rate (${+(a.interest_rate * 100).toFixed(2)}%)</option>`).join("")
+      + (p && p.rate_sql && !rateID ? `<option value="__query">From its query</option>` : "");
+    rateSel.value = rateID && withRate.some((a) => a.id === rateID) ? rateID : p && p.rate_sql && !rateID ? "__query" : "";
+    syncProjectionFields();
+  }).catch(() => {});
+  fetch("/api/v1/goals").then((r) => jsonOk(r)).then((out) => {
+    if (state.editingId !== editing) return;
+    state.goalNames = {};
+    (out.items || []).forEach((g) => { state.goalNames[g.id] = g.name; });
+    goalSel.innerHTML = `<option value="">Add a goal…</option>` + (out.items || []).map((g) =>
+      `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("");
+    goalSel.hidden = !(out.items || []).length;
+    fillTargetFields(collectTargetsRaw());
+  }).catch(() => { goalSel.hidden = true; });
+}
+
+// collectTargetsRaw keeps half-typed rows too, for redrawing the list.
+function collectTargetsRaw() {
+  return [...document.querySelectorAll("#wTargetList .target-row")].map((row) => row.dataset.targetSql
+    ? { sql: row.dataset.targetSql, label: row.dataset.targetLabel, color: row.dataset.targetColor }
+    : { label: row.querySelector("[data-target-label-input]").value, color: row.dataset.targetColor,
+      value: (() => { const v = row.querySelector("[data-target-value]").value; return v === "" ? null : state.editingFormat === "money" ? Number(v) * 100 : Number(v); })() });
 }
 
 // withProjection is plan with the drawer's projection settings applied.
@@ -676,10 +771,14 @@ function withProjection(plan, type) {
   const basis = parseInt($("wProjBasis").value, 10);
   if (method !== "compound" && basis > 1) p.basis = basis;
   if (method === "compound") {
+    const from = $("wProjRateFrom") ? $("wProjRateFrom").value : "";
     const rate = parseFloat($("wProjRate").value);
     const contrib = parseFloat($("wProjContrib").value);
-    if (rate) p.rate = rate / 100;
+    if (from === "__query") p.rate_sql = old.rate_sql;
+    else if (from) p.rate_sql = accountRateSQL(from);
+    else if (rate) p.rate = rate / 100;
     if (contrib) p.contribution = Math.round(contrib * 100);
+    if (old.contribution_sql) p.contribution_sql = old.contribution_sql;
   }
   if (old.series) p.series = old.series;
   out.project = p;
@@ -698,6 +797,8 @@ const state = {
   editMode: false,
   editingId: null,
   editingPlan: null,
+  editingFormat: "money",
+  goalNames: {},
   projHorizonTouched: false,
   balanceView: "all",
   privacy: false,
@@ -1286,6 +1387,7 @@ function widgetBodyHTML(widget) {
     });
   }
   if (window.widgetIsEmpty && widgetIsEmpty(widget.type, data)) return widgetEmptyHTML();
+  if (widget.type === "progress" && window.progressHTML) return progressHTML(data);
   if (widget.type === "number") {
     return `<div class="num-widget"><div class="num-value">${esc(data.value)}</div>
       ${data.caption ? `<div class="num-caption">${esc(data.caption)}</div>` : ""}</div>`;
@@ -1399,6 +1501,21 @@ document.addEventListener("DOMContentLoaded", () => {
   const wApply = document.getElementById("wApply");
   if (wApply) {
     document.getElementById("wProjMethod")?.addEventListener("change", syncProjectionFields);
+    document.getElementById("wProjRateFrom")?.addEventListener("change", syncProjectionFields);
+    document.getElementById("wTargetAdd")?.addEventListener("click", () => {
+      document.getElementById("wTargetList").insertAdjacentHTML("beforeend", targetRowHTML({}));
+      document.querySelector("#wTargetList .target-row:last-child [data-target-label-input]")?.focus();
+    });
+    document.getElementById("wTargetGoal")?.addEventListener("change", (e) => {
+      const id = e.target.value;
+      if (!id) return;
+      document.getElementById("wTargetList").insertAdjacentHTML("beforeend", targetRowHTML({ sql: goalTargetSQL(id) }));
+      e.target.value = "";
+    });
+    document.getElementById("wTargetList")?.addEventListener("click", (e) => {
+      const rm = e.target.closest("[data-target-remove]");
+      if (rm) rm.closest(".target-row").remove();
+    });
     document.getElementById("wType")?.addEventListener("change", syncProjectionFields);
     ["wProjHorizon", "wProjUnit"].forEach((fid) => document.getElementById(fid)?.addEventListener("input", () => { state.projHorizonTouched = true; }));
     wApply.addEventListener("click", () => {
@@ -1446,6 +1563,9 @@ document.addEventListener("DOMContentLoaded", () => {
       // the card shows exactly what the dashboard will.
       if (plan) {
         plan = withProjection(plan, newType);
+        const targets = TARGETABLE.includes(newType) ? collectTargets() : [];
+        if (targets.length) plan.targets = targets;
+        else delete plan.targets;
         fetch("/api/v1/widgets/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
@@ -2522,11 +2642,22 @@ function accountPayload() {
     opening_balance_minor: isNaN(opening) ? 0 : Math.round(opening * 100),
     opening_balance_date: document.getElementById("accOpeningDate").value || "",
   };
+  // The savings details: sent when new, or when changed since loading.
+  const rateRaw = document.getElementById("accRate")?.value.trim();
+  const rate = rateRaw === "" || rateRaw == null ? null : Math.round(parseFloat(rateRaw) * 10000) / 1000000;
+  const remindRaw = document.getElementById("accReminder")?.value;
+  const remind = remindRaw === "" || remindRaw == null ? null : parseInt(remindRaw, 10);
+  const wrapper = document.getElementById("accWrapper")?.value || "";
   const editing = !!document.getElementById("accountForm").dataset.accountId;
   Object.entries(ACCOUNT_BANK_FIELDS).forEach(([key, el]) => {
     const value = document.getElementById(el).value.trim();
     if (!editing || (accountLoaded && value !== accountLoaded[key])) body[key] = value;
   });
+  if (document.getElementById("accRate")) {
+    if (!editing || rate !== accountLoaded.interest_rate) body.interest_rate = rate;
+    if (!editing || remind !== accountLoaded.balance_reminder_days) body.balance_reminder_days = remind;
+    if (!editing || wrapper !== accountLoaded.tax_wrapper) body.tax_wrapper = wrapper;
+  }
   return body;
 }
 
@@ -2550,6 +2681,7 @@ function openAccountForm(id) {
   document.getElementById("accDangerZone").hidden = !id;
   accountLoaded = null;
   ["accName", "accOpening", "accOpeningDate", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
+  ["accRate", "accWrapper", "accReminder"].forEach((x) => { const el = document.getElementById(x); if (el) el.value = ""; });
   syncDateField(document.getElementById("accOpeningDate"));
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
@@ -2564,6 +2696,20 @@ function openAccountForm(id) {
         accountLoaded[key] = a[key] || "";
         document.getElementById(el).value = accountLoaded[key];
       });
+      accountLoaded.interest_rate = a.interest_rate ?? null;
+      accountLoaded.balance_reminder_days = a.balance_reminder_days ?? null;
+      accountLoaded.tax_wrapper = a.tax_wrapper || "";
+      const rateEl = document.getElementById("accRate");
+      if (rateEl) {
+        rateEl.value = a.interest_rate == null ? "" : +(a.interest_rate * 100).toFixed(4);
+        document.getElementById("accWrapper").value = accountLoaded.tax_wrapper;
+        const rem = document.getElementById("accReminder");
+        const want = a.balance_reminder_days == null ? "" : String(a.balance_reminder_days);
+        if (want && ![...rem.options].some((o) => o.value === want)) {
+          rem.insertAdjacentHTML("beforeend", `<option value="${esc(want)}">After ${esc(want)} days</option>`);
+        }
+        rem.value = want;
+      }
     }).catch((e) => toast(e.message || "Could not load account"));
   } else {
     document.getElementById("accType").value = "debit";
@@ -4775,6 +4921,67 @@ document.addEventListener("DOMContentLoaded", () => {
         }).then((r) => jsonOk(r));
         reloadWithToast("Passkey removed");
       } catch (err) { toast(err.message); }
+    });
+  });
+});
+
+// ---- Savings: goals. A goal card opens its form; the form adds, changes or
+// removes the goal and reloads the page to show its progress.
+document.addEventListener("DOMContentLoaded", () => {
+  const modal = document.getElementById("goalModal");
+  if (!modal) return;
+  const $ = (id) => document.getElementById(id);
+  const open = (g) => {
+    $("goalForm").dataset.goalId = g ? g.id : "";
+    $("goalModalTitle").textContent = g ? "Edit goal" : "Add goal";
+    $("goalSaveBtn").textContent = g ? "Save changes" : "Add goal";
+    $("goalDanger").hidden = !g;
+    $("goalName").value = g ? g.name : "";
+    $("goalTarget").value = g ? (g.target_minor / 100).toLocaleString("en-GB", { maximumFractionDigits: 2 }) : "";
+    $("goalDate").value = g ? g.target_date || "" : "";
+    syncDateField($("goalDate"));
+    $("goalColor").value = g ? g.color : "#0e6f51";
+    $("goalNotes").value = g ? g.notes || "" : "";
+    const ids = new Set(g ? g.account_ids || [] : []);
+    $("goalAccounts").querySelectorAll("input[type=checkbox]").forEach((c) => { c.checked = ids.has(c.value); });
+    modal.hidden = false;
+    modal.scrollTop = 0;
+    if (!g && !window.matchMedia("(pointer: coarse)").matches) $("goalName").focus();
+  };
+  const send = (method, url, body) => fetch(url, {
+    method, headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => jsonOk(r));
+  $("goalAddBtn")?.addEventListener("click", () => open(null));
+  document.querySelectorAll("[data-goal]").forEach((card) => card.addEventListener("click", () => {
+    try { open(JSON.parse(card.dataset.goal)); } catch (e) { toast("Could not open that goal"); }
+  }));
+  modal.querySelectorAll("[data-close-goal]").forEach((b) => b.addEventListener("click", () => closeModal("goalModal")));
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal("goalModal"); });
+  $("goalSaveBtn").addEventListener("click", () => {
+    const id = $("goalForm").dataset.goalId;
+    const target = parseMoneyInput($("goalTarget").value);
+    if (target == null || target <= 0) { toast("Enter the target amount", "error"); return; }
+    const body = {
+      name: $("goalName").value.trim(),
+      target_minor: target,
+      target_date: $("goalDate").value || "",
+      color: $("goalColor").value,
+      notes: $("goalNotes").value.trim(),
+      account_ids: [...$("goalAccounts").querySelectorAll("input:checked")].map((c) => c.value),
+    };
+    send(id ? "PATCH" : "POST", id ? `/api/v1/goals/${id}` : "/api/v1/goals", body).then(() => {
+      try { sessionStorage.setItem("glowworm-toast", id ? "Goal saved" : "Goal added"); } catch (e) {}
+      location.reload();
+    }).catch((e) => toast(e.message || "Could not save the goal", "error"));
+  });
+  $("goalDeleteBtn").addEventListener("click", () => {
+    const id = $("goalForm").dataset.goalId;
+    showConfirm("Remove goal?", "Widgets that show it will stop including it.", "Remove", () => {
+      send("DELETE", `/api/v1/goals/${id}`).then(() => {
+        try { sessionStorage.setItem("glowworm-toast", "Goal removed"); } catch (e) {}
+        location.reload();
+      }).catch((e) => toast(e.message || "Could not remove the goal", "error"));
     });
   });
 });

@@ -47,6 +47,10 @@ type Spec struct {
 	// Project carries a line, bar or number widget's time series on into
 	// the future (see SpecProjection).
 	Project *SpecProjection `json:"project,omitempty"`
+	// Targets are reference lines across a line or bar chart.
+	Targets []SpecTarget `json:"targets,omitempty"`
+
+	extra *resolved // what Targets and the projection's queries said
 }
 
 // SpecLinks says what a table's first column names, so the dashboard can
@@ -193,11 +197,21 @@ func (s *Service) RunSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widge
 }
 
 func (s *Service) runSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widget, *QueryResult, error) {
-	res, err := runReadonlyQuery(s.DB, s.today(), sp.SQL, s.queryArgs(sp.SQL, win)...)
+	run := func(q string) (*QueryResult, error) {
+		return runReadonlyQuery(s.DB, s.today(), q, s.queryArgs(q, win)...)
+	}
+	res, err := run(sp.SQL)
 	if err != nil {
 		return nil, nil, err
 	}
-	w, err := shapeSpec(sp, typ, win, res, s.currency())
+	full, err := resolve(sp, run)
+	if err != nil {
+		return nil, nil, err
+	}
+	w, err := shapeSpec(full, typ, win, res, s.currency())
+	if w != nil {
+		w.Plan = sp
+	}
 	return w, res, err
 }
 
@@ -223,15 +237,28 @@ func (s *Service) Batch(win *TimeWindow) *SpecBatch {
 
 // Run is RunSpec for one widget of the batch.
 func (b *SpecBatch) Run(sp *Spec, typ string) (*widgets.Widget, error) {
-	r, ok := b.results[sp.SQL]
+	res, err := b.query(sp.SQL)
+	if err != nil {
+		return nil, err
+	}
+	full, err := resolve(sp, b.query)
+	if err != nil {
+		return nil, err
+	}
+	w, err := shapeSpec(full, typ, b.win, res, b.cur)
+	if w != nil {
+		w.Plan = sp
+	}
+	return w, err
+}
+
+func (b *SpecBatch) query(q string) (*QueryResult, error) {
+	r, ok := b.results[q]
 	if !ok {
-		r.res, r.err = runReadonlyQuery(b.s.DB, b.s.today(), sp.SQL, b.s.queryArgs(sp.SQL, b.win)...)
-		b.results[sp.SQL] = r
+		r.res, r.err = runReadonlyQuery(b.s.DB, b.s.today(), q, b.s.queryArgs(q, b.win)...)
+		b.results[q] = r
 	}
-	if r.err != nil {
-		return nil, r.err
-	}
-	return shapeSpec(sp, typ, b.win, r.res, b.cur)
+	return r.res, r.err
 }
 
 func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur string) (*widgets.Widget, error) {
@@ -241,6 +268,9 @@ func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur stri
 	}
 	if sp.Project != nil && typ != "number" && typ != "bar" && typ != "line" {
 		return nil, fmt.Errorf("only line, bar and number widgets can show a projection")
+	}
+	if len(sp.Targets) > 0 && typ != "bar" && typ != "line" {
+		return nil, fmt.Errorf("only line and bar charts can show target lines")
 	}
 	switch typ {
 	case "number":
@@ -267,10 +297,15 @@ func shapeSpec(sp *Spec, typ string, win *TimeWindow, res *QueryResult, cur stri
 			}
 		}
 		d := map[string]any{"labels": labels, "series": series, "format": format}
+		if sp.extra != nil && len(sp.extra.targets) > 0 {
+			d["targets"] = sp.extra.targets
+		}
 		if typ == "bar" && sp.Stacked && len(series) > 1 {
 			d["stacked"] = true
 		}
 		w.Data = d
+	case "progress":
+		return shapeProgress(w, sp, res, cur)
 	case "pie":
 		if len(res.Columns) < 2 {
 			return nil, fmt.Errorf("a pie chart needs a label column and a value column")
@@ -502,7 +537,7 @@ func checkSpec(sp *Spec, typ string, res *QueryResult) error {
 		return nil
 	}
 	first := 0
-	if typ == "bar" || typ == "line" || typ == "pie" || (typ == "number" && sp.Project != nil) {
+	if typ == "bar" || typ == "line" || typ == "pie" || typ == "progress" || (typ == "number" && sp.Project != nil) {
 		first = 1
 	}
 	var missing []string
