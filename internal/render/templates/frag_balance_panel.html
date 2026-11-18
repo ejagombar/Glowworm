@@ -1,0 +1,29 @@
+{{/* A dated balance for one account: what it's worth now, a quick update and
+the balances recorded before. Savings uses it to record a value; History
+uses it to record a statement balance for a current or credit account.
+Wired up by initBalancePanel in app.js. Takes dict "A" (accountCard),
+"Currency" and "Symbol". */}}
+{{define "balance-panel"}}{{$a := .A}}
+<section class="balance-panel" data-balance-panel data-account-id="{{$a.ID}}" data-account-type="{{$a.Type}}" data-currency="{{.Currency}}">
+  <div class="balance-panel-head">
+    <span class="balance-panel-label">Balance now</span>
+    <span class="balance-panel-now" data-bp-now>{{money $a.BalanceMinor .Currency}}</span>
+  </div>
+  <p class="field-hint" data-bp-asof></p>
+  <div class="balance-update">
+    <div class="field-unit">
+      <span class="field-unit-symbol">{{.Symbol}}</span>
+      <input class="field" data-bp-value type="text" inputmode="decimal" enterkeyhint="done"
+        placeholder="{{if eq $a.Type "credit"}}Amount owed{{else}}New balance{{end}}"
+        aria-label="{{if eq $a.Type "credit"}}Amount owed{{else}}New balance{{end}} for {{$a.Name}}" />
+    </div>
+    <input class="field" data-bp-date type="date" aria-label="Balance date for {{$a.Name}}" />
+    <button class="btn btn-primary" type="button" data-bp-record>{{if eq $a.Type "savings"}}Update{{else}}Record{{end}}</button>
+  </div>
+  <p class="field-hint">{{if eq $a.Type "savings"}}What the account is worth on that day, e.g. after interest.{{else if eq $a.Type "credit"}}What you owe at the end of that day, from your statement or app. It's checked against your transactions.{{else}}The balance your bank shows at the end of that day. It's checked against your transactions.{{end}} Undo it from History.</p>
+  <details class="valuation-history" data-bp-history hidden>
+    <summary>Earlier balances <span class="muted" data-bp-count></span></summary>
+    <ul class="valuation-list" data-bp-list></ul>
+  </details>
+</section>
+{{end}}

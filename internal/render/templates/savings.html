@@ -1,9 +1,27 @@
 {{define "content"}}
 <section class="view active" id="view-savings">
+  <div class="section-head">
+    <h2>Savings accounts</h2>
+  </div>
+  {{if .Accounts}}
+  <div class="savings-grid">
+    {{range .Accounts}}
+    <article class="panel savings-card">
+      <div class="savings-card-head">
+        <span class="account-dot" style="background:{{.Color}}"></span>
+        <h3 class="savings-card-name">{{.Name}}</h3>
+        {{if .RefLast4}}<span class="muted savings-card-ref">···· {{.RefLast4}}</span>{{end}}
+      </div>
+      {{template "balance-panel" dict "A" . "Currency" $.Currency "Symbol" (symbol $.Currency)}}
+    </article>
+    {{end}}
+  </div>
+  {{else}}
   <div class="panel page-placeholder">
     <svg class="icon" aria-hidden="true"><use href="#i-savings"/></svg>
-    <h2>Savings</h2>
-    <p class="muted">Coming soon: how much you pay into your savings each year, and how much they grow.</p>
+    <h2>No savings accounts yet</h2>
+    <p class="muted">Add an account with the type Savings in <a href="/settings">Settings</a>, then keep its balance up to date here.</p>
   </div>
+  {{end}}
 </section>
 {{end}}

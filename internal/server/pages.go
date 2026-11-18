@@ -717,7 +717,20 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return a.Render.Render(w, "savings", struct{ *viewBase }{base})
+	cards, err := a.accountCards(nil)
+	if err != nil {
+		return err
+	}
+	saving := []*accountCard{}
+	for _, c := range cards {
+		if c.Type == core.AccountSavings {
+			saving = append(saving, c)
+		}
+	}
+	return a.Render.Render(w, "savings", struct {
+		*viewBase
+		Accounts []*accountCard
+	}{base, saving})
 }
 
 func (a *App) handleImport(w http.ResponseWriter, r *http.Request) error {
@@ -902,7 +915,7 @@ func (a *App) historyData(base *viewBase, filter string, show int, timeline bool
 // what's left of its change since its last value is returns or money from
 // outside; that's reported, but it's not a divergence.
 func (a *App) reconcileSummary(date string) (string, string, string) {
-	const unverifiedHint = "Record a statement balance for a current or credit account in Settings."
+	const unverifiedHint = "Tap here to record a statement balance for a current or credit account."
 	rows, err := a.DB.Query(`SELECT v.id, v.account_id, v.value_minor, v.date, acc.name, acc.type, acc.currency,
 			COALESCE(acc.opening_balance_date, ''),
 			EXISTS (SELECT 1 FROM valuations e WHERE e.account_id = v.account_id AND e.deleted_at IS NULL
