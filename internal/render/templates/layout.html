@@ -281,7 +281,6 @@
 
   {{template "recurring-modal"}}
   <script nonce="{{$.Nonce}}">window.__CSRF__ = {{.CSRFToken}};</script>
-  <script src="{{asset "js/page.js"}}"></script>
   <script src="{{asset "js/widgets.js"}}"></script>
   <script src="{{asset "js/app.js"}}"></script>
   <script nonce="{{$.Nonce}}">
@@ -300,8 +299,6 @@
         var u = new URL(a.href, location.href);
         if (u.origin !== location.origin || /^\/(api|static)\//.test(u.pathname) || u.pathname === "/logout") return;
         if (u.pathname === location.pathname && u.search === location.search) return;
-        // Tabs the app swaps in place are fetched ahead by app.js instead.
-        if (window.glowwormPrefetchTab && window.glowwormPrefetchTab(a)) return;
         if (asked[u.href] && Date.now() - asked[u.href] < 5000) return;
         asked[u.href] = Date.now();
         sw.postMessage({ type: "prefetch", url: u.href });

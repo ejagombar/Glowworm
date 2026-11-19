@@ -58,8 +58,6 @@ function apiErrorFrom(r, b, fallback) {
 // while the server can't be reached (and checks until it can), says so when
 // the session has ended, and notes the data version each response carries.
 const nativeFetch = window.fetch.bind(window);
-// Moving between tabs without a page load (home screen app); set below.
-let softNav = null;
 const FETCH_TIMEOUT_MS = 30000;
 // These wait on the AI, a file or a long job, so they get no time limit.
 const SLOW_PATH_RE = /^\/api\/v1\/(query|imports|instance\/backup|settings\/ai|transfers\/detect|accounts\/archives)/;
@@ -83,7 +81,6 @@ window.fetch = function (input, init) {
     if (r.status === 401 && url.pathname.startsWith("/api/")) connection.signedOut();
     const v = r.headers.get("X-Glowworm-Version");
     if (v && method !== "GET" && method !== "HEAD") dataVersion.ownChange(v);
-    if (method !== "GET" && method !== "HEAD" && softNav) softNav.forget();
     return r;
   }, (err) => {
     dataVersion.finished();
@@ -213,27 +210,12 @@ const dataVersion = (() => {
     if (!stale || document.hidden || busy()) return;
     stale = false;
     try { sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ url: location.href, y: pageScroller().scrollTop })); } catch (e) {}
-    if (softNav) {
-      // Swapped in place; if something started meanwhile, try again later.
-      softNav.reload().then((done) => { if (!done) stale = true; });
-      return;
-    }
     // A replace, not reload(), so it gets the same crossfade as moving
     // between pages instead of a blank frame.
     location.replace(location.href);
   };
 
   const api = {
-    busy,
-    // A new page swapped in (softNav): it was built from version v, and
-    // nothing on it has been changed yet.
-    reset(v) {
-      known = v || known;
-      stale = false;
-      seen = 0;
-      holds = 0;
-      setTimeout(snapshot, 0);
-    },
     // A save made by this page: its new version isn't news. A check can see
     // it before the save's own response arrives; if this save accounts for
     // the change the check found, there's nothing to refresh for.
@@ -305,8 +287,7 @@ const replaceLink = (e, a) => {
   if (u.origin !== location.origin || /^\/(api|static)\//.test(u.pathname)) return;
   if (u.pathname === location.pathname && u.search === location.search && u.hash) return; // a jump within the page
   e.preventDefault();
-  if (softNav && a.matches(".tabnav-item, .brand")) softNav.go(u.href, null);
-  else location.replace(u.href);
+  location.replace(u.href);
 };
 document.addEventListener("click", (e) => replaceLink(e, e.target.closest && e.target.closest(".masthead a[href]")));
 // On window, so it runs after the page's own link handlers have had their say.
@@ -383,8 +364,7 @@ document.addEventListener("submit", (e) => {
     c.style.opacity = opacity !== undefined ? String(opacity) : dx ? String(Math.max(0.35, 1 - Math.abs(dx) / innerWidth)) : "";
   };
   const prefetch = (a) => {
-    if (a && softNav) softNav.prefetch(a.href);
-    else if (a && navigator.serviceWorker && navigator.serviceWorker.controller) {
+    if (a && navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: "prefetch", url: new URL(a.href, location.href).href });
     }
   };
@@ -446,151 +426,15 @@ document.addEventListener("submit", (e) => {
     const fast = Math.abs(dx) > 40 && Math.abs(dx) / Math.max(Date.now() - time, 1) > 0.4;
     if (!to || !(Math.abs(dx) > innerWidth * 0.25 || fast)) { reset(); return; }
     s = null;
+    try { sessionStorage.setItem("glowworm-swipe", dx < 0 ? "next" : "prev"); } catch (e) {}
     if (!reduced.matches) place(dx < 0 ? -innerWidth : innerWidth, true, 0);
     waiting(true);
-    if (softNav) { softNav.go(to.href, dx < 0 ? "next" : "prev"); return; }
-    try { sessionStorage.setItem("glowworm-swipe", dx < 0 ? "next" : "prev"); } catch (e) {}
     location.replace(to.href);
   };
   document.addEventListener("touchend", end, { passive: true });
   document.addEventListener("touchcancel", reset, { passive: true });
   // Coming back to a page kept in memory: put it straight.
   window.addEventListener("pageshow", () => { s = null; place(0, false); waiting(false); });
-})();
-
-// ---- Moving between the tabs in the home screen app: the next tab's page
-// is fetched and swapped into this one, rather than loaded as a new
-// document. Nothing reloads (styles, scripts, fonts, the masthead's
-// place), and a tab seen in the last few minutes shows at once: the page
-// then checks the data version as usual, and if anything has been saved
-// since, it swaps itself for a fresh copy. Anything that goes wrong falls
-// back to an ordinary page load.
-softNav = (() => {
-  if (!homeScreenApp || !window.DOMParser || !window.pageLife || !document.querySelector(".app.shell .tabnav")) return null;
-  const KEEP_MS = 5 * 60 * 1000; // a copy this recent shows at once
-  const AHEAD_MS = 10000; // a copy this recent isn't fetched again
-  const SLIDE_MS = 150; // the old page's slide out, when swiped
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const pages = new Map(); // url -> { text, at, pending }
-  const key = (href) => { const u = new URL(href, location.href); u.hash = ""; return u.href; };
-  // The body's elements that belong to the page (not scripts, nor things
-  // the scripts have added, such as the chart tooltip).
-  let pageNodes = [...document.body.children].filter((n) => n.tagName !== "SCRIPT");
-  let seq = 0;
-
-  const load = (url) => {
-    let p = pages.get(url);
-    if (!p) { p = { text: null, at: 0, pending: null }; pages.set(url, p); }
-    if (p.pending) return p.pending;
-    const req = nativeFetch(url, { credentials: "same-origin", cache: "no-store", headers: { Accept: "text/html" } })
-      .then((r) => (r.ok && !r.redirected && (r.headers.get("Content-Type") || "").startsWith("text/html") ? r.text() : null))
-      .catch(() => null)
-      .then((text) => {
-        if (p.pending === req) p.pending = null;
-        if (text && pages.get(url) === p) { p.text = text; p.at = Date.now(); }
-        return text;
-      });
-    p.pending = req;
-    return req;
-  };
-
-  const pageEvent = (type) => {
-    try { return new PageTransitionEvent(type, { persisted: false }); } catch (e) { return new Event(type); }
-  };
-  const render = (url, text, dir, keepScroll) => {
-    const doc = new DOMParser().parseFromString(text, "text/html");
-    if (!doc.querySelector(".app.shell .tabnav")) return false;
-    const y = keepScroll ? pageScroller().scrollTop : 0;
-    // The page going: its own pagehide work (saving scroll positions), then
-    // everything its setup left running.
-    dispatchEvent(pageEvent("pagehide"));
-    closeInfoPopover();
-    window.pageLife.stop();
-    state.editMode = false;
-    state.editingId = null;
-
-    document.title = doc.title;
-    const v = doc.querySelector('meta[name="glowworm-version"]');
-    const meta = document.querySelector('meta[name="glowworm-version"]');
-    if (v && meta) meta.content = v.content;
-    document.body.className = doc.body.className;
-    const csrf = /window\.__CSRF__ = ("(?:[^"\\]|\\.)*")/.exec(text);
-    if (csrf) { try { window.__CSRF__ = JSON.parse(csrf[1]); } catch (e) {} }
-    const html = document.documentElement;
-    html.classList.remove("swipe-in-next", "swipe-in-prev");
-    if (dir && !reduced.matches) html.classList.add("swipe-in-" + dir);
-
-    // Out with the old page's elements, in with the new; the new page's
-    // inline scripts are made again so they run (with this page's nonce).
-    const nonce = (document.querySelector("script[nonce]") || {}).nonce || "";
-    const anchor = [...document.body.children].find((n) => n.tagName === "SCRIPT") || null;
-    pageNodes.forEach((n) => n.remove());
-    pageNodes = [...doc.body.children].filter((n) => n.tagName !== "SCRIPT");
-    pageNodes.forEach((n) => document.body.insertBefore(document.adoptNode(n), anchor));
-    // (Only once in this document: made inside the parsed one, they'd count
-    // as already run.)
-    for (const n of pageNodes) {
-      n.querySelectorAll("script").forEach((old) => {
-        const sc = document.createElement("script");
-        if (nonce) sc.nonce = nonce;
-        sc.textContent = old.textContent;
-        old.replaceWith(sc);
-      });
-    }
-    history.replaceState(null, "", url);
-
-    window.pageLife.start();
-    dataVersion.reset(v && v.content);
-    dispatchEvent(pageEvent("pageshow"));
-    if (y) pageScroller().scrollTop = y;
-    return true;
-  };
-
-  const api = {
-    prefetch(href) {
-      const url = key(href);
-      const p = pages.get(url);
-      if (p && (p.pending || Date.now() - p.at < AHEAD_MS)) return;
-      load(url);
-    },
-    // Anything saved here: no copy can be trusted.
-    forget() { pages.clear(); },
-    async go(href, dir) {
-      const url = key(href);
-      const my = ++seq;
-      const p = pages.get(url);
-      const age = p && p.text ? Date.now() - p.at : Infinity;
-      const slide = dir && !reduced.matches ? new Promise((ok) => setTimeout(ok, SLIDE_MS)) : null;
-      const text = age < KEEP_MS ? p.text : await load(url);
-      if (slide) await slide;
-      if (my !== seq) return; // another tab was chosen meanwhile
-      let ok = false;
-      try { ok = !!text && render(url, text, dir, false); } catch (e) { console.error(e); }
-      if (!ok) { location.replace(href); return; }
-      // An older copy: has anything been saved since it was made?
-      if (age >= AHEAD_MS) dataVersion.check();
-    },
-    // The data changed: swap in a fresh copy of this page, where the person
-    // was. False when it couldn't (or something started meanwhile).
-    async reload() {
-      const url = key(location.href);
-      pages.delete(url);
-      const my = ++seq;
-      const text = await load(url);
-      if (my !== seq || key(location.href) !== url) return true;
-      if (!text) { location.replace(location.href); return true; }
-      if (dataVersion.busy()) return false;
-      try { if (render(url, text, null, true)) return true; } catch (e) { console.error(e); }
-      location.replace(location.href);
-      return true;
-    },
-  };
-  window.glowwormPrefetchTab = (a) => {
-    if (!a.matches(".tabnav-item, .brand")) return false;
-    api.prefetch(a.href);
-    return true;
-  };
-  return api;
 })();
 
 // Pop-ups: while one is open the page behind stays put. iOS ignores
@@ -705,7 +549,7 @@ document.addEventListener("scroll", placeInfoPopover, true);
 function pageScroller() {
   return document.querySelector(".app.shell .content") || document.scrollingElement || document.documentElement;
 }
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const box = document.querySelector(".app.shell .content");
   if (!box) return;
   // Space, Page Down and the arrow keys scroll whatever has focus.
@@ -1674,7 +1518,7 @@ function widgetBodyHTML(widget) {
   return "";
 }
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   try {
     const pending = sessionStorage.getItem("glowworm-toast");
@@ -2817,7 +2661,7 @@ document.addEventListener("click", (e) => {
     }, "danger");
   }
 });
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const box = document.getElementById("queryMessages");
   if (!box) return;
   hydrateRules(box);
@@ -3050,7 +2894,7 @@ function initBalancePanel(root, onChange) {
   load();
 }
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   // Savings tab: one panel per savings account.
   document.querySelectorAll("#view-savings [data-balance-panel]").forEach((p) => initBalancePanel(p));
   // History: the Reconciled card opens a statement balance for a current or
@@ -3096,7 +2940,7 @@ function saveAccount() {
   }).catch(() => toast("Could not save the account"));
 }
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("settingsAddAccountBtn")?.addEventListener("click", () => openAccountForm(null));
   document.querySelectorAll("[data-account-form]").forEach((card) =>
     card.addEventListener("click", () => openAccountForm(card.dataset.accountForm)));
@@ -3550,7 +3394,7 @@ onPage(() => {
 });
 
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const table = document.getElementById("transactionsTable");
   if (!table) return;
   let sentinel = document.getElementById("transactionsSentinel");
@@ -3617,7 +3461,7 @@ onPage(() => {
   }
 });
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const body = document.getElementById("transactionsBody");
   if (!body) return;
 
@@ -3878,7 +3722,7 @@ onPage(() => {
 });
 
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const dropzone = document.getElementById("dropzone");
   const fileInput = document.getElementById("fileInput");
   const flowBox = document.getElementById("importFlow");
@@ -4969,7 +4813,7 @@ function initHistoryTimeline() {
 
   render(Number(slider.value));
 }
-onPage(initHistoryTimeline);
+document.addEventListener("DOMContentLoaded", initHistoryTimeline);
 
 function tickDateLabel(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return shortMonthLabel(iso);
@@ -5012,7 +4856,7 @@ const auditFilter = {
     });
   },
 };
-onPage(() => auditFilter.pointTab());
+document.addEventListener("DOMContentLoaded", () => auditFilter.pointTab());
 
 // The audit log's filter chips reload just the log, not the timeline above it.
 function loadHistoryPane(url, push) {
@@ -5050,7 +4894,7 @@ function loadHistoryPane(url, push) {
   else if (push) history.replaceState(history.state, "", u.href);
 }
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const view = document.getElementById("view-history");
   if (!view) return;
   // Reached by a link that names no filter (one in a page, a shortcut):
@@ -5077,7 +4921,7 @@ onPage(() => {
 });
 
 // ---- Signing in with a passkey, and the Passkeys settings.
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const loginBox = document.getElementById("loginPasskey");
   if (loginBox && passkeys.supported()) {
     loginBox.hidden = false;
@@ -5227,11 +5071,11 @@ const push = (() => {
   };
 })();
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => push.sync().catch(() => {}), 3000);
 });
 
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   const root = document.getElementById("notifySettings");
   if (!root) return;
   const $ = (id) => document.getElementById(id);
@@ -5399,7 +5243,7 @@ onPage(() => {
 // ---- The Savings tab's count of out-of-date balances (see savings_dot.go).
 // An installed HTTPS web app shows the same number on its icon where the
 // platform badges web apps; it goes as balances are updated.
-onPage(() => {
+document.addEventListener("DOMContentLoaded", () => {
   if (!("setAppBadge" in navigator) || !window.isSecureContext) return;
   const n = Number(document.querySelector("[data-balances-due]")?.dataset.balancesDue || 0);
   (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
