@@ -49,3 +49,26 @@ func TestTargetsProgressAndRateSQL(t *testing.T) {
 		t.Error("a pie chart took target lines")
 	}
 }
+
+// A widget's query isn't cut short at the AI's 200 rows: a year of daily
+// points draws whole. The AI's own lookups stay capped.
+func TestWidgetQueriesReturnMoreThanTheAIsCap(t *testing.T) {
+	svc := seedPeriodsData(t)
+	const days = `WITH RECURSIVE d(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM d WHERE n < 365)
+		SELECT date('2024-01-01', '+' || n || ' days') AS day, n AS value FROM d`
+	w, err := svc.RunSpec(&Spec{V: 1, SQL: days}, "line", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(w.Data)
+	if !strings.Contains(string(b), `"2024-12-31"`) {
+		t.Errorf("the line stops short of its 365th day: %.200s…", b)
+	}
+	res, err := svc.runQuery(days)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rows) != MaxRows || !res.Truncated {
+		t.Errorf("AI query: %d rows, truncated %v", len(res.Rows), res.Truncated)
+	}
+}

@@ -13,11 +13,15 @@ import (
 )
 
 const (
-	MaxRows      = 200
-	wrapLimit    = MaxRows + 1
-	MaxCellLen   = 200
-	QueryTimeout = 10 * time.Second
-	MaxSQLLen    = 4000
+	// MaxRows caps what a query run for the AI returns: its rows go back
+	// into the model's context. A widget's own query is drawn, not read,
+	// so it may return up to WidgetMaxRows (a year of daily balances for
+	// several accounts, say) before being cut short.
+	MaxRows       = 200
+	WidgetMaxRows = 10000
+	MaxCellLen    = 200
+	QueryTimeout  = 10 * time.Second
+	MaxSQLLen     = 4000
 )
 
 type QueryResult struct {
@@ -147,7 +151,7 @@ func truncateCell(s string) string {
 	return s
 }
 
-// Wrapping as SELECT * FROM (<query>) LIMIT 201 caps rows regardless of any
+// Wrapping as SELECT * FROM (<query>) LIMIT n caps rows regardless of any
 // inner LIMIT; SQLite accepts WITH inside the subquery. args bind the query's
 // parameters, such as a widget's :from and :to.
 func RunReadonlyQuery(db *store.DB, sql string, args ...any) (res *QueryResult, err error) {
@@ -157,8 +161,13 @@ func RunReadonlyQuery(db *store.DB, sql string, args ...any) (res *QueryResult, 
 // runReadonlyQuery is RunReadonlyQuery with derived tables (see derived.go)
 // built up to today.
 func runReadonlyQuery(db *store.DB, today, sql string, args ...any) (res *QueryResult, err error) {
-	err = withReadonlyRows(db, today, sql, wrapLimit, args, func(rows *gosql.Rows) error {
-		res, err = scanResult(rows)
+	return runReadonlyQueryMax(db, today, sql, MaxRows, args...)
+}
+
+// runReadonlyQueryMax is runReadonlyQuery returning up to max rows.
+func runReadonlyQueryMax(db *store.DB, today, sql string, max int, args ...any) (res *QueryResult, err error) {
+	err = withReadonlyRows(db, today, sql, max+1, args, func(rows *gosql.Rows) error {
+		res, err = scanResult(rows, max)
 		return err
 	})
 	return res, err
@@ -220,7 +229,7 @@ func withReadonlyRows(db *store.DB, today, sql string, limit int, args []any, fn
 	return rows.Err()
 }
 
-func scanResult(rows *gosql.Rows) (*QueryResult, error) {
+func scanResult(rows *gosql.Rows, max int) (*QueryResult, error) {
 	cols, err := rows.Columns()
 	if err != nil {
 		return nil, err
@@ -230,7 +239,7 @@ func scanResult(rows *gosql.Rows) (*QueryResult, error) {
 		res.Columns[i] = truncateCell(c)
 	}
 	for rows.Next() {
-		if len(res.Rows) >= wrapLimit {
+		if len(res.Rows) > max {
 			res.Truncated = true
 			break
 		}
@@ -260,8 +269,8 @@ func scanResult(rows *gosql.Rows) (*QueryResult, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(res.Rows) > MaxRows {
-		res.Rows = res.Rows[:MaxRows]
+	if len(res.Rows) > max {
+		res.Rows = res.Rows[:max]
 		res.Truncated = true
 	}
 	res.RowCount = len(res.Rows)

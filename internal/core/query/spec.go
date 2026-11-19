@@ -198,7 +198,7 @@ func (s *Service) RunSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widge
 
 func (s *Service) runSpec(sp *Spec, typ string, win *TimeWindow) (*widgets.Widget, *QueryResult, error) {
 	run := func(q string) (*QueryResult, error) {
-		return runReadonlyQuery(s.DB, s.today(), q, s.queryArgs(q, win)...)
+		return runReadonlyQueryMax(s.DB, s.today(), q, WidgetMaxRows, s.queryArgs(q, win)...)
 	}
 	res, err := run(sp.SQL)
 	if err != nil {
@@ -255,7 +255,7 @@ func (b *SpecBatch) Run(sp *Spec, typ string) (*widgets.Widget, error) {
 func (b *SpecBatch) query(q string) (*QueryResult, error) {
 	r, ok := b.results[q]
 	if !ok {
-		r.res, r.err = runReadonlyQuery(b.s.DB, b.s.today(), q, b.s.queryArgs(q, b.win)...)
+		r.res, r.err = runReadonlyQueryMax(b.s.DB, b.s.today(), q, WidgetMaxRows, b.s.queryArgs(q, b.win)...)
 		b.results[q] = r
 	}
 	return r.res, r.err
