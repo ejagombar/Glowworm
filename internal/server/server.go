@@ -23,7 +23,6 @@ import (
 	"github.com/ejagombar/Glowworm/internal/core/categories"
 	"github.com/ejagombar/Glowworm/internal/core/categoriser"
 	"github.com/ejagombar/Glowworm/internal/core/changes"
-	"github.com/ejagombar/Glowworm/internal/core/goals"
 	"github.com/ejagombar/Glowworm/internal/core/grouping"
 	"github.com/ejagombar/Glowworm/internal/core/imports"
 	"github.com/ejagombar/Glowworm/internal/core/notify"
@@ -65,7 +64,6 @@ type App struct {
 	Grouping     *grouping.Service
 	Changes      *changes.Service
 	Query        *query.Service
-	Goals        *goals.Service
 	Notify       *notify.Service
 	Reminders    *notify.Reminders
 
@@ -162,7 +160,6 @@ func New(cfg config.Config, db *store.DB, secret *crypto.Secret, log *slog.Logge
 		DB: db, Provider: queryProvider, Clock: clk,
 		Repo: &query.ConvRepo{DB: db},
 	}
-	app.Goals = &goals.Service{DB: db, Audit: writer, Currency: func() string { return app.Settings.Get().Currency }}
 	app.Notify = &notify.Service{DB: db, Secret: secret}
 	app.Reminders = &notify.Reminders{
 		DB: db, Notify: app.Notify, Book: app.book, Now: clk.TodayTime,

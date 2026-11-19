@@ -64,7 +64,6 @@ func BenchmarkAccountPeriods(b *testing.B) {
 		"yearly-flows":  `SELECT period, SUM(deposits_minor), SUM(growth_minor) FROM account_periods WHERE grain = 'year' GROUP BY period`,
 		"daily-90d":     `SELECT period, SUM(closing_minor) FROM account_periods WHERE grain = 'day' AND end_date >= '2026-08-20' GROUP BY period`,
 		"daily-all":     `SELECT COUNT(*) FROM account_periods WHERE grain = 'day'`,
-		"goals":         `SELECT * FROM goal_progress`,
 	}
 	b.Run("monthly-total-cold", func(b *testing.B) {
 		for b.Loop() {

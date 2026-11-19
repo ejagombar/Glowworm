@@ -44,10 +44,8 @@ func TestBalancesRecordedOnSavingsAndHistory(t *testing.T) {
 	}
 }
 
-// Goals are added, changed and removed through the API, which reports
-// their progress, and the Savings tab shows them with each account's
-// balance age.
-func TestGoalsAndBalanceAge(t *testing.T) {
+// The Savings tab shows each account's balance age, and no goals.
+func TestSavingsBalanceAge(t *testing.T) {
 	a, c := newLockTestApp(t)
 	insertAccount(t, a.DB, "ISA", 0, "")
 	if _, err := a.DB.Exec(`UPDATE accounts SET type = 'savings' WHERE id = 'ISA'`); err != nil {
@@ -58,39 +56,21 @@ func TestGoalsAndBalanceAge(t *testing.T) {
 		VALUES ('v1', 'ISA', 500000, ?, 'manual', ?, ?)`, old, old, old); err != nil {
 		t.Fatal(err)
 	}
-	rec := c.do("POST", "/api/v1/goals", "application/json", `{"name":"House","target_minor":1000000,"target_date":"2030-01-01","account_ids":["ISA"]}`)
-	if rec.Code != 200 {
-		t.Fatalf("create: %d %s", rec.Code, rec.Body)
-	}
-	id := strings.Split(strings.Split(rec.Body.String(), `"id":"`)[1], `"`)[0]
-	if rec = c.do("POST", "/api/v1/goals", "application/json", `{"name":"","target_minor":5}`); rec.Code != 400 {
-		t.Errorf("a goal with no name: %d", rec.Code)
-	}
-	list := c.do("GET", "/api/v1/goals", "", "").Body.String()
-	if !strings.Contains(list, `"current_minor":500000`) || !strings.Contains(list, `"progress":0.5`) || !strings.Contains(list, `"account_names":["ISA"]`) {
-		t.Errorf("list: %s", list)
-	}
 	page := c.do("GET", "/savings", "", "").Body.String()
-	for _, want := range []string{"House", "50%", "years ago", "is-due"} {
+	for _, want := range []string{"years ago", "is-due"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Savings page lacks %q", want)
 		}
+	}
+	if strings.Contains(page, "goal") {
+		t.Error("Savings page still mentions goals")
 	}
 	// Accounts are edited in Settings only.
 	if strings.Contains(page, "data-account-form") {
 		t.Error("Savings page has a way to edit the account")
 	}
-	if rec = c.do("PATCH", "/api/v1/goals/"+id, "application/json", `{"name":"Flat","target_minor":500000}`); rec.Code != 200 {
-		t.Fatalf("update: %d %s", rec.Code, rec.Body)
-	}
-	if list = c.do("GET", "/api/v1/goals", "", "").Body.String(); !strings.Contains(list, `"name":"Flat"`) || !strings.Contains(list, `"account_ids":[]`) {
-		t.Errorf("after update: %s", list)
-	}
-	if rec = c.do("DELETE", "/api/v1/goals/"+id, "", ""); rec.Code != 200 {
-		t.Fatalf("delete: %d", rec.Code)
-	}
-	if list = c.do("GET", "/api/v1/goals", "", "").Body.String(); strings.Contains(list, "Flat") {
-		t.Errorf("deleted goal still listed: %s", list)
+	if rec := c.do("GET", "/api/v1/goals", "", ""); rec.Code != 404 {
+		t.Errorf("/api/v1/goals: %d", rec.Code)
 	}
 }
 

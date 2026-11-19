@@ -180,7 +180,7 @@ func TestAccountPeriodsPushdownMatches(t *testing.T) {
 	}
 }
 
-func TestAccountStatusAndGoals(t *testing.T) {
+func TestAccountStatus(t *testing.T) {
 	svc := seedPeriodsData(t)
 	must := func(q string, args ...any) {
 		t.Helper()
@@ -189,9 +189,6 @@ func TestAccountStatusAndGoals(t *testing.T) {
 		}
 	}
 	ts := "2024-01-01T00:00:00Z"
-	must(`INSERT INTO goals (id, name, target_minor, target_date, created_at, updated_at) VALUES
-		('g1', 'House', 200000, '2025-12-31', ?, ?), ('g2', 'Rainy day', 100000, NULL, ?, ?)`, ts, ts, ts, ts)
-	must(`INSERT INTO goal_accounts (goal_id, account_id) VALUES ('g1', 'sav'), ('g1', 'cur')`)
 
 	res, err := svc.runQuery(`SELECT account, balance_minor, last_valued, days_since, reminder_days, due
 		FROM account_status ORDER BY account`)
@@ -212,20 +209,6 @@ func TestAccountStatusAndGoals(t *testing.T) {
 	res, _ = svc.runQuery(`SELECT due FROM account_status WHERE account = 'ISA'`)
 	if cellText(res.Rows[0][0]) != "1" {
 		t.Error("a 7-day default doesn't make a 14-day-old balance due")
-	}
-
-	res, err = svc.runQuery(`SELECT goal, current_minor, remaining_minor, round(progress, 4), months_left, monthly_needed_minor,
-		projected_month, on_track, accounts FROM goal_progress ORDER BY goal`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got = got[:0]
-	for _, r := range res.Rows {
-		got = append(got, strings.Join(cellsText(r), " "))
-	}
-	if len(got) != 2 || !strings.HasPrefix(got[0], "House 348000 0 1.74 22 0 2024-03 1 Current, ISA") ||
-		!strings.HasPrefix(got[1], "Rainy day 121000 0 1.21") {
-		t.Fatalf("goals:\n%s", strings.Join(got, "\n"))
 	}
 }
 

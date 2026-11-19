@@ -8,19 +8,11 @@ import (
 
 func TestTargetsProgressAndRateSQL(t *testing.T) {
 	svc := seedPeriodsData(t)
-	ts := "2024-01-01T00:00:00Z"
-	for _, q := range []string{
-		`INSERT INTO goals (id, name, target_minor, created_at, updated_at) VALUES ('g1', 'House', 300000, '` + ts + `', '` + ts + `')`,
-	} {
-		if _, err := svc.DB.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
 	ten := 100000.0
 	sp := &Spec{V: 1,
 		SQL:     `SELECT period, closing_minor FROM account_periods WHERE grain = 'month' AND account_id = 'sav' ORDER BY period`,
 		Columns: map[string]SpecColumn{"closing_minor": {Label: "ISA", Format: "money"}},
-		Targets: []SpecTarget{{Label: "Floor", Value: &ten}, {SQL: `SELECT name, target_minor FROM goals WHERE deleted_at IS NULL`}},
+		Targets: []SpecTarget{{Label: "Floor", Value: &ten}, {SQL: `SELECT 'House', 300000`}},
 		Project: &SpecProjection{Method: "compound", Periods: 12, RateSQL: `SELECT 0.12`},
 	}
 	w, err := svc.RunSpec(sp, "line", nil)
@@ -39,7 +31,7 @@ func TestTargetsProgressAndRateSQL(t *testing.T) {
 		t.Errorf("the saved plan gained the looked-up rate: %s", p)
 	}
 
-	w, err = svc.RunSpec(&Spec{V: 1, SQL: `SELECT goal, current_minor, target_minor FROM goal_progress`,
+	w, err = svc.RunSpec(&Spec{V: 1, SQL: `SELECT 'House' AS goal, SUM(balance_minor) AS current_minor, 300000 AS target_minor FROM account_status WHERE account_type = 'savings'`,
 		Columns: map[string]SpecColumn{"current_minor": {Format: "money"}, "target_minor": {Format: "money"}}}, "progress", nil)
 	if err != nil {
 		t.Fatal(err)

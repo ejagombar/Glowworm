@@ -1,5 +1,5 @@
 // Package ledger works out accounts' balances over time, and what follows
-// from them (goals' progress, balances due an update), from the stored
+// from them (balances due an update), from the stored
 // opening balances, valuations and transactions. It reads a compact
 // summary (one row per account per day that had transactions, plus the
 // valuations) and computes everything else on demand, so the cost follows
@@ -39,7 +39,6 @@ type Book struct {
 	Today        string
 	ReminderDays int
 	Accounts     []*Account
-	Goals        []*Goal
 	byID         map[string]*Account
 }
 
@@ -94,14 +93,6 @@ type Period struct {
 	Growth                   int64
 }
 
-// Goal is a target over some accounts (all savings accounts when it names
-// none).
-type Goal struct {
-	ID, Name, Color, TargetDate string
-	TargetMinor                 int64
-	AccountIDs                  []string
-}
-
 // Load reads the book as of today.
 func Load(ctx context.Context, q Querier, today string) (*Book, error) {
 	b := &Book{Today: today, ReminderDays: DefaultReminderDays, byID: map[string]*Account{}}
@@ -112,9 +103,6 @@ func Load(ctx context.Context, q Querier, today string) (*Book, error) {
 		return nil, err
 	}
 	if err := b.loadValues(ctx, q); err != nil {
-		return nil, err
-	}
-	if err := b.loadGoals(ctx, q); err != nil {
 		return nil, err
 	}
 	if err := b.loadSettings(ctx, q); err != nil {
@@ -220,30 +208,6 @@ func (b *Book) loadValues(ctx context.Context, q Querier) error {
 		if date > a.lastValue {
 			a.lastValue = date
 		}
-	}
-	return rows.Err()
-}
-
-func (b *Book) loadGoals(ctx context.Context, q Querier) error {
-	rows, err := q.QueryContext(ctx, `SELECT g.id, g.name, g.color, COALESCE(g.target_date, ''), g.target_minor,
-		COALESCE((SELECT group_concat(ga.account_id) FROM goal_accounts ga
-			JOIN accounts a ON a.id = ga.account_id AND a.deleted_at IS NULL WHERE ga.goal_id = g.id), '')
-		FROM goals g WHERE g.deleted_at IS NULL ORDER BY g.created_at, g.id`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		g := &Goal{}
-		var ids string
-		if err := rows.Scan(&g.ID, &g.Name, &g.Color, &g.TargetDate, &g.TargetMinor, &ids); err != nil {
-			return err
-		}
-		if ids != "" {
-			g.AccountIDs = strings.Split(ids, ",")
-			sort.Strings(g.AccountIDs)
-		}
-		b.Goals = append(b.Goals, g)
 	}
 	return rows.Err()
 }
@@ -443,14 +407,6 @@ func nextDay(d string) string {
 		return "9999-12-31\x00"
 	}
 	return t.AddDate(0, 0, 1).Format("2006-01-02")
-}
-
-func addMonths(d string, n int) string {
-	t, err := time.Parse("2006-01-02", d)
-	if err != nil {
-		return d
-	}
-	return t.AddDate(0, n, 0).Format("2006-01-02")
 }
 
 // daysBetween is whole days from a to b.

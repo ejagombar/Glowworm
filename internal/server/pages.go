@@ -727,7 +727,7 @@ type savingsCard struct {
 }
 
 // handleSavings is where savings are kept up to date and set up: each
-// savings account's balance, details and reminder, and the goals.
+// savings account's balance and how old it is.
 func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 	base, err := a.base(w, r, "savings", "Savings")
 	if err != nil {
@@ -742,7 +742,6 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	saving := []*savingsCard{}
-	var allAccounts []*accountCard
 	for _, c := range cards {
 		if c.Type != core.AccountSavings {
 			continue
@@ -755,27 +754,10 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 		}
 		saving = append(saving, sc)
 	}
-	// Goals can count any account, savings first.
-	for _, c := range cards {
-		if c.Type == core.AccountSavings {
-			allAccounts = append(allAccounts, c)
-		}
-	}
-	for _, c := range cards {
-		if c.Type != core.AccountSavings {
-			allAccounts = append(allAccounts, c)
-		}
-	}
-	goalList, err := a.goalViews(r.Context())
-	if err != nil {
-		return err
-	}
 	return a.Render.Render(w, "savings", struct {
 		*viewBase
-		Accounts    []*savingsCard
-		AllAccounts []*accountCard
-		Goals       []goalView
-	}{base, saving, allAccounts, goalList})
+		Accounts []*savingsCard
+	}{base, saving})
 }
 
 // balanceAge says how old an account's latest recorded balance is.

@@ -24,7 +24,7 @@ var (
 
 // Cached is Load, kept between calls while nothing it reads has changed:
 // triggers bump ledger_version on every change to transactions,
-// valuations, accounts, goals and the reminder setting, whoever makes it.
+// valuations, accounts and the reminder setting, whoever makes it.
 // The version and the data are read in one read transaction, so a book is
 // never filed under a version newer than its data. key names the database
 // (its *sql.DB), since several can be open at once.

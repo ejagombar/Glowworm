@@ -38,7 +38,6 @@ type derivedTable struct {
 var derivedTables = map[string]*derivedTable{
 	"account_periods": accountPeriods,
 	"account_status":  accountStatus,
-	"goal_progress":   goalProgress,
 }
 
 // filters are the constraints SQLite passed down: col -> op -> value. SQLite
@@ -293,36 +292,6 @@ var accountStatus = &derivedTable{
 			}
 			out = append(out, []vtab.Value{a.ID, a.Name, a.Type, a.Currency, s.Balance, last, since,
 				int64(s.ReminderDays), boolInt(s.Due)})
-		}
-		return out
-	},
-}
-
-// goal_progress: each goal's progress and pace.
-var goalProgress = &derivedTable{
-	columns: []string{"goal_id TEXT", "goal TEXT", "color TEXT", "target_minor INTEGER", "target_date TEXT",
-		"current_minor INTEGER", "remaining_minor INTEGER", "progress REAL", "pace_minor INTEGER",
-		"months_left INTEGER", "monthly_needed_minor INTEGER", "projected_month TEXT", "on_track INTEGER", "accounts TEXT"},
-	rows: func(b *ledger.Book, _ filters) [][]vtab.Value {
-		var out [][]vtab.Value
-		for _, p := range b.Progress() {
-			g := p.Goal
-			var date, months, needed, projected, onTrack vtab.Value
-			if g.TargetDate != "" {
-				date, months, needed = g.TargetDate, int64(p.MonthsLeft), p.MonthlyNeeded
-			}
-			if p.Projected != "" {
-				projected = p.Projected
-			}
-			if p.OnTrack != nil {
-				onTrack = boolInt(*p.OnTrack)
-			}
-			names := make([]string, len(p.Accounts))
-			for i, a := range p.Accounts {
-				names[i] = a.Name
-			}
-			out = append(out, []vtab.Value{g.ID, g.Name, g.Color, g.TargetMinor, date, p.Current, p.Remaining,
-				p.Progress, int64(p.Pace), months, needed, projected, onTrack, strings.Join(names, ", ")})
 		}
 		return out
 	},

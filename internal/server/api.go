@@ -19,7 +19,6 @@ import (
 	"github.com/ejagombar/Glowworm/internal/core/audit"
 	"github.com/ejagombar/Glowworm/internal/core/categories"
 	"github.com/ejagombar/Glowworm/internal/core/changes"
-	"github.com/ejagombar/Glowworm/internal/core/goals"
 	"github.com/ejagombar/Glowworm/internal/core/grouping"
 	"github.com/ejagombar/Glowworm/internal/core/imports"
 	"github.com/ejagombar/Glowworm/internal/core/notify"
@@ -114,18 +113,9 @@ func serviceError(w http.ResponseWriter, err error) bool {
 		apiError(w, http.StatusBadRequest, "validation_failed", ie.Message)
 		return true
 	}
-	var gve *goals.ValidationError
-	if errors.As(err, &gve) {
-		apiError(w, http.StatusBadRequest, "validation_failed", gve.Message)
-		return true
-	}
 	var nve *notify.ValidationError
 	if errors.As(err, &nve) {
 		apiError(w, http.StatusBadRequest, "validation_failed", nve.Message)
-		return true
-	}
-	if errors.Is(err, goals.ErrNotFound) {
-		apiError(w, http.StatusNotFound, "not_found", "That goal no longer exists. Reload to see the latest.")
 		return true
 	}
 	var br *badRequest
@@ -245,10 +235,6 @@ func (a *App) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v1/widgets/pinned/{id}", j(a.apiWidgetPatch))
 	mux.HandleFunc("DELETE /api/v1/widgets/pinned/{id}", j(a.apiWidgetUnpin))
 	mux.HandleFunc("POST /api/v1/widgets/preview", j(a.apiWidgetPreview))
-	mux.HandleFunc("GET /api/v1/goals", j(a.apiGoalsList))
-	mux.HandleFunc("POST /api/v1/goals", j(a.apiGoalCreate))
-	mux.HandleFunc("PATCH /api/v1/goals/{id}", j(a.apiGoalUpdate))
-	mux.HandleFunc("DELETE /api/v1/goals/{id}", j(a.apiGoalDelete))
 	mux.HandleFunc("GET /api/v1/notifications", j(a.apiNotifications))
 	mux.HandleFunc("PUT /api/v1/notifications/settings", j(a.apiNotifySettings))
 	mux.HandleFunc("POST /api/v1/notifications/subscribe", j(a.apiNotifySubscribe))

@@ -31,8 +31,8 @@
 - **Sorts your spending.** Transactions are put into categories by rules you
   can teach. It spots transfers between your own accounts and regular bills.
 - **Tracks your savings.** Keep the balance of each savings or investment
-  account up to date, set goals like a house deposit, and see whether you're
-  on track. It can remind you on your phone when a balance needs updating.
+  account up to date, chart its growth or progress towards a target like a
+  house deposit, and get a reminder on your phone when a balance needs updating.
 - **Answers questions.** Ask "where did my money go this year?" and get an
   answer with a chart. Pin the charts you like to the dashboard.
 - **Stays yours.** It runs on your own computer or server, with your data in
@@ -45,8 +45,8 @@
 
 | | |
 |---|---|
-| ![Transactions: account balances and the list of transactions](docs/screenshots/transactions.png) | ![Savings: account balances to update, and progress towards goals](docs/screenshots/savings.png) |
-| **Transactions** from every account, searchable and filterable | **Savings** balances and goals, with a warning when one is out of date |
+| ![Transactions: account balances and the list of transactions](docs/screenshots/transactions.png) | ![Savings: account balances to update, and how old each one is](docs/screenshots/savings.png) |
+| **Transactions** from every account, searchable and filterable | **Savings** balances, with a warning when one is out of date |
 | ![Queries: a question answered with a chart of spending by category](docs/screenshots/queries.png) | ![Import: matching a statement's columns](docs/screenshots/import.png) |
 | **Queries** in plain English, answered with charts | **Import** any bank's statement; match its columns once |
 
@@ -241,7 +241,7 @@ Once you're signed in:
 3. **Check the categories** on the Transactions page. Change any that are wrong,
    and Glowworm offers to do the same for similar transactions.
 4. **Add your savings.** On the Savings page, type in each account's balance
-   whenever you check it, and add goals. The Savings tab shows a number when a
+   whenever you check it. The Savings tab shows a number when a
    balance is out of date.
 5. **Optionally, add an AI provider** in Settings: OpenAI, Anthropic, Google
    Gemini, a local model with Ollama, or anything OpenAI-compatible. It reads

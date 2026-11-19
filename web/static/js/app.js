@@ -616,7 +616,6 @@ function openDrawer(id) {
   state.editingFormat = (() => { try { return JSON.parse(card.dataset.widgetData || "{}").format || "money"; } catch (e) { return "money"; } })();
   fillTargetFields(state.editingPlan && state.editingPlan.targets);
   syncProjectionFields();
-  loadDrawerLists();
   drawer.hidden = false;
   document.getElementById("drawerBackdrop").hidden = false;
   requestAnimationFrame(() => {
@@ -665,18 +664,14 @@ function syncProjectionFields() {
 }
 
 // ---- Target lines in the widget drawer: the "targets" part of a saved
-// query. A fixed line has a label and a value; a goal's line is a query, so
-// it follows the goal.
+// query. A fixed line has a label and a value; a line from a query (written
+// by the AI) is kept as it is.
 const TARGETABLE = ["line", "bar"];
-const goalTargetSQL = (id) => `SELECT name, target_minor FROM goals WHERE id = '${id.replace(/'/g, "''")}' AND deleted_at IS NULL`;
-const quotedID = (sql, pattern) => { const m = pattern.exec(sql || ""); return m ? m[1].replace(/''/g, "'") : ""; };
-const GOAL_SQL_RE = /^SELECT name, target_minor FROM goals WHERE id = '((?:[^']|'')*)' AND deleted_at IS NULL$/;
 
 function targetRowHTML(t) {
   const money = state.editingFormat === "money";
   if (t.sql) {
-    const goal = quotedID(t.sql, GOAL_SQL_RE);
-    const name = goal ? (state.goalNames?.[goal] || "a goal") : "a query";
+    const name = t.label || "a query";
     return `<div class="target-row" data-target-sql="${esc(t.sql)}" data-target-label="${esc(t.label || "")}" data-target-color="${esc(t.color || "")}">`
       + `<span class="target-from">Follows ${esc(name)}</span>`
       + `<button class="icon-btn" type="button" data-target-remove aria-label="Remove line"><svg class="icon"><use href="#i-close"/></svg></button></div>`;
@@ -711,30 +706,6 @@ function collectTargets() {
     out.push({ label: label || undefined, value: money ? Math.round(Number(raw) * 100) : Number(raw), color });
   });
   return out;
-}
-
-// The drawer's goal choices, fetched each time it opens.
-function loadDrawerLists() {
-  const goalSel = document.getElementById("wTargetGoal");
-  if (!goalSel) return;
-  const editing = state.editingId;
-  fetch("/api/v1/goals").then((r) => jsonOk(r)).then((out) => {
-    if (state.editingId !== editing) return;
-    state.goalNames = {};
-    (out.items || []).forEach((g) => { state.goalNames[g.id] = g.name; });
-    goalSel.innerHTML = `<option value="">Add a goal…</option>` + (out.items || []).map((g) =>
-      `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("");
-    goalSel.hidden = !(out.items || []).length;
-    fillTargetFields(collectTargetsRaw());
-  }).catch(() => { goalSel.hidden = true; });
-}
-
-// collectTargetsRaw keeps half-typed rows too, for redrawing the list.
-function collectTargetsRaw() {
-  return [...document.querySelectorAll("#wTargetList .target-row")].map((row) => row.dataset.targetSql
-    ? { sql: row.dataset.targetSql, label: row.dataset.targetLabel, color: row.dataset.targetColor }
-    : { label: row.querySelector("[data-target-label-input]").value, color: row.dataset.targetColor,
-      value: (() => { const v = row.querySelector("[data-target-value]").value; return v === "" ? null : state.editingFormat === "money" ? Number(v) * 100 : Number(v); })() });
 }
 
 // withProjection is plan with the drawer's projection settings applied.
@@ -782,7 +753,6 @@ const state = {
   editingId: null,
   editingPlan: null,
   editingFormat: "money",
-  goalNames: {},
   projHorizonTouched: false,
   balanceView: "all",
   privacy: false,
@@ -1488,12 +1458,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("wTargetAdd")?.addEventListener("click", () => {
       document.getElementById("wTargetList").insertAdjacentHTML("beforeend", targetRowHTML({}));
       document.querySelector("#wTargetList .target-row:last-child [data-target-label-input]")?.focus();
-    });
-    document.getElementById("wTargetGoal")?.addEventListener("change", (e) => {
-      const id = e.target.value;
-      if (!id) return;
-      document.getElementById("wTargetList").insertAdjacentHTML("beforeend", targetRowHTML({ sql: goalTargetSQL(id) }));
-      e.target.value = "";
     });
     document.getElementById("wTargetList")?.addEventListener("click", (e) => {
       const rm = e.target.closest("[data-target-remove]");
@@ -4880,67 +4844,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }).then((r) => jsonOk(r));
         reloadWithToast("Passkey removed");
       } catch (err) { toast(err.message); }
-    });
-  });
-});
-
-// ---- Savings: goals. A goal card opens its form; the form adds, changes or
-// removes the goal and reloads the page to show its progress.
-document.addEventListener("DOMContentLoaded", () => {
-  const modal = document.getElementById("goalModal");
-  if (!modal) return;
-  const $ = (id) => document.getElementById(id);
-  const open = (g) => {
-    $("goalForm").dataset.goalId = g ? g.id : "";
-    $("goalModalTitle").textContent = g ? "Edit goal" : "Add goal";
-    $("goalSaveBtn").textContent = g ? "Save changes" : "Add goal";
-    $("goalDanger").hidden = !g;
-    $("goalName").value = g ? g.name : "";
-    $("goalTarget").value = g ? (g.target_minor / 100).toLocaleString("en-GB", { maximumFractionDigits: 2 }) : "";
-    $("goalDate").value = g ? g.target_date || "" : "";
-    syncDateField($("goalDate"));
-    $("goalColor").value = g ? g.color : "#0e6f51";
-    $("goalNotes").value = g ? g.notes || "" : "";
-    const ids = new Set(g ? g.account_ids || [] : []);
-    $("goalAccounts").querySelectorAll("input[type=checkbox]").forEach((c) => { c.checked = ids.has(c.value); });
-    modal.hidden = false;
-    modal.scrollTop = 0;
-    if (!g && !window.matchMedia("(pointer: coarse)").matches) $("goalName").focus();
-  };
-  const send = (method, url, body) => fetch(url, {
-    method, headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-    body: body ? JSON.stringify(body) : undefined,
-  }).then((r) => jsonOk(r));
-  $("goalAddBtn")?.addEventListener("click", () => open(null));
-  document.querySelectorAll("[data-goal]").forEach((card) => card.addEventListener("click", () => {
-    try { open(JSON.parse(card.dataset.goal)); } catch (e) { toast("Could not open that goal"); }
-  }));
-  modal.querySelectorAll("[data-close-goal]").forEach((b) => b.addEventListener("click", () => closeModal("goalModal")));
-  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal("goalModal"); });
-  $("goalSaveBtn").addEventListener("click", () => {
-    const id = $("goalForm").dataset.goalId;
-    const target = parseMoneyInput($("goalTarget").value);
-    if (target == null || target <= 0) { toast("Enter the target amount", "error"); return; }
-    const body = {
-      name: $("goalName").value.trim(),
-      target_minor: target,
-      target_date: $("goalDate").value || "",
-      color: $("goalColor").value,
-      notes: $("goalNotes").value.trim(),
-      account_ids: [...$("goalAccounts").querySelectorAll("input:checked")].map((c) => c.value),
-    };
-    send(id ? "PATCH" : "POST", id ? `/api/v1/goals/${id}` : "/api/v1/goals", body).then(() => {
-      try { sessionStorage.setItem("glowworm-toast", id ? "Goal saved" : "Goal added"); } catch (e) {}
-      location.reload();
-    }).catch((e) => toast(e.message || "Could not save the goal", "error"));
-  });
-  $("goalDeleteBtn").addEventListener("click", () => {
-    const id = $("goalForm").dataset.goalId;
-    showConfirm("Remove goal?", "Widgets that show it will stop including it.", "Remove", () => {
-      send("DELETE", `/api/v1/goals/${id}`).then(() => {
-        try { sessionStorage.setItem("glowworm-toast", "Goal removed"); } catch (e) {}
-        location.reload();
-      }).catch((e) => toast(e.message || "Could not remove the goal", "error"));
     });
   });
 });

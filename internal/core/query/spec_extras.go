@@ -7,11 +7,11 @@ import (
 	"github.com/ejagombar/Glowworm/internal/core/widgets"
 )
 
-// SpecTarget is a reference line drawn across a line or bar chart: a goal,
-// a budget, a limit. It is either a fixed Value, in the chart's own units
+// SpecTarget is a reference line drawn across a line or bar chart: a
+// savings target, a budget, a limit. It is either a fixed Value, in the chart's own units
 // (minor units for money), or a SQL query whose rows are label, value (or
 // just value), one line each, re-run with the widget so it stays current
-// (e.g. SELECT name, target_minor FROM goals WHERE deleted_at IS NULL).
+// (e.g. SELECT 'Highest', MAX(balance_minor) FROM account_status).
 type SpecTarget struct {
 	Label string   `json:"label,omitempty"`
 	Value *float64 `json:"value,omitempty"`

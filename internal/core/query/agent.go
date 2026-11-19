@@ -172,9 +172,6 @@ DATABASE (SQLite). Tables you may query:
   merchant/payee/shop, match that expression, never merchant alone.
 - categories(id, name)
 - accounts(id, name, type TEXT 'debit'|'credit'|'savings', opening_balance_minor, opening_balance_date, deleted_at)
-- goals(id, name, target_minor, target_date TEXT 'YYYY-MM-DD' or NULL, color, deleted_at) and
-  goal_accounts(goal_id, account_id): savings goals; a goal with no goal_accounts rows
-  covers every savings account. Prefer goal_progress (below) for how a goal is going.
 - group_rules(id, group_name, match TEXT 'is'|'contains', text, created_at, deleted_at)
 - valuations(id, account_id, date TEXT 'YYYY-MM-DD', value_minor, created_at, deleted_at):
   an account's balance on a date, recorded by the user (a savings account's
@@ -207,12 +204,6 @@ DATABASE (SQLite). Tables you may query:
   recorded balance and how many days ago that was (NULL if never), the
   reminder interval that applies (0 = none) and due = 1 when the balance is
   older than that and needs updating.
-- goal_progress(goal_id, goal, color, target_minor, target_date,
-  current_minor, remaining_minor, progress [ratio, 1 = reached], pace_minor
-  [average change a month over the last 6 months], months_left,
-  monthly_needed_minor [to reach it by target_date], projected_month
-  [YYYY-MM it's reached at pace, NULL if never], on_track [1/0, NULL with no
-  date], accounts [names]): worked out by the app.
 Rules: ignore rows with deleted_at NOT NULL. "Spend" = SUM(-amount_minor) over type='expense'
 (transfers are never spend or income). Leave type='transfer' rows (moves between the
 user's own accounts) out of every figure, list and chart unless the question explicitly
@@ -387,17 +378,18 @@ EXAMPLE FINAL (spending split by category over time — stacked bars):
 
 PROGRESS WIDGET — {"type":"progress"}: one bar per row showing a value
 against a target. Rows: label, value, target, and optionally a colour
-('#rrggbb'). Use it for goals, budgets and limits. Format the value column
-(the target column shares it). Example: goals →
-  "sql":"SELECT goal, current_minor, target_minor, color FROM goal_progress",
+('#rrggbb'). Use it for savings targets, budgets and limits; the target
+can be a number the user gave. Format the value column (the target column
+shares it). Example: a £25,000 house deposit from all savings →
+  "sql":"SELECT 'House deposit' AS goal, SUM(balance_minor) AS current_minor, 2500000 AS target_minor FROM account_status WHERE account_type = 'savings'",
   "columns":{"current_minor":{"format":"money"},"target_minor":{"format":"money"}}
 
 TARGET LINES — a line or bar chart can draw reference lines across it:
   "targets":[{"label":"House deposit","value":2500000},
-             {"sql":"SELECT name, target_minor FROM goals WHERE deleted_at IS NULL"}]
+             {"sql":"SELECT 'Highest balance', MAX(balance_minor) FROM account_status WHERE account_type = 'savings'"}]
 A fixed "value" is in the chart's units (minor units for money); a "sql"
 target is re-run with the widget, its rows label, value (one line each), so
-use it for goals and anything else stored. At most 6 lines.
+use it for a level worked out from the data. At most 6 lines.
 
 PROJECTIONS — a line, bar or number widget can carry its series on into the
 future: add "project" to the widget. Use it whenever the user asks where
