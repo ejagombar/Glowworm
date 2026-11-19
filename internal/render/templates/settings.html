@@ -212,18 +212,6 @@
                     <button class="btn btn-danger" id="instanceDeleteBtn" type="button">Delete Glowworm account…</button>
                 </div>
             </div>
-
-            <div class="panel setting-block" id="aboutSettings">
-                <h2>Glowworm</h2>
-                <p class="muted">Version {{.About.Version}}{{if and .About.Checked (not .About.Latest)}} · up to date{{end}}</p>
-                {{with .About.Latest}}
-                <div class="update-note">
-                    <p><strong>{{.Tag}} is out.</strong> <a href="{{.URL}}" target="_blank" rel="noopener">What's new</a></p>
-                    <p><code>{{$.About.HowCmd}}</code></p>
-                    <p class="muted">{{$.About.HowNote}}</p>
-                </div>
-                {{end}}
-            </div>
         </div>
 
         <div class="panel setting-block">
@@ -261,9 +249,9 @@
              when reminders go out. */}}
         <div class="panel setting-block notify-settings" id="notifySettings">
             <h2>Reminders</h2>
-            <p class="muted">A notification when a balance on the Savings page hasn't been updated for a while.</p>
+            <p class="muted">A notification when a savings balance is out of date.</p>
             <div class="notify-device">
-                <p class="notify-status" id="notifyStatus" aria-live="polite">Checking this device…</p>
+                <p class="notify-status" id="notifyStatus" aria-live="polite" hidden></p>
                 <div class="account-actions">
                     <button class="btn btn-primary" id="notifyToggle" type="button" hidden>Turn on for this device</button>
                     <button class="btn btn-ghost" id="notifyTest" type="button" hidden>Send a test notification</button>
@@ -273,13 +261,13 @@
             <form class="notify-form" id="notifyForm" hidden>
                 <div class="field-row">
                     <label class="switch-label" for="notifyEnabled">
-                        <span>Send balance reminders</span>
+                        <span>Send reminders</span>
                         <input type="checkbox" id="notifyEnabled" />
                         <span class="switch" aria-hidden="true"></span>
                     </label>
                 </div>
                 <div class="field-row">
-                    <label for="notifyDays">A savings balance needs updating after</label>
+                    <label for="notifyDays">Out of date after</label>
                     <select class="field select" id="notifyDays">
                         <option value="7">A week</option>
                         <option value="14">Two weeks</option>
@@ -289,15 +277,14 @@
                         <option value="182">Six months</option>
                         <option value="365">A year</option>
                     </select>
-                    <span class="field-hint">The same for every savings account. The Savings tab shows how many are out of date.</span>
                 </div>
                 <div class="field-cols">
                     <div class="field-row">
-                        <label for="notifyHour">Send reminders at about</label>
+                        <label for="notifyHour">Time</label>
                         <select class="field select" id="notifyHour"></select>
                     </div>
                     <div class="field-row">
-                        <label for="notifyRepeat">Remind again until updated</label>
+                        <label for="notifyRepeat">Repeat until updated</label>
                         <select class="field select" id="notifyRepeat">
                             <option value="1">Every day</option>
                             <option value="3">Every 3 days</option>
@@ -308,11 +295,22 @@
                         </select>
                     </div>
                 </div>
-                <div class="field-row account-actions">
+                <div class="field-row">
                     <button class="btn btn-primary" id="notifySave" type="submit">Save reminders</button>
-                    <button class="btn btn-ghost" id="notifyTryReminder" type="button">Send today's reminder now</button>
                 </div>
             </form>
+        </div>
+
+        <div class="panel setting-block" id="aboutSettings">
+            <h2>Glowworm</h2>
+            <p class="muted">Version {{.About.Version}}{{if and .About.Checked (not .About.Latest)}} · up to date{{end}}</p>
+            {{with .About.Latest}}
+            <div class="update-note">
+                <p><strong>{{.Tag}} is out.</strong> <a href="{{.URL}}" target="_blank" rel="noopener">What's new</a></p>
+                <p><code>{{$.About.HowCmd}}</code></p>
+                <p class="muted">{{$.About.HowNote}}</p>
+            </div>
+            {{end}}
         </div>
     </div>
 </section>

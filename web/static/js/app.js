@@ -879,7 +879,10 @@ function setEditMode(on) {
       ? '<svg class="icon"><use href="#i-check"/></svg> Done'
       : '<svg class="icon"><use href="#i-settings"/></svg> Edit';
   }
-  if (hint) hint.textContent = on ? "Drag onto another widget to swap · drag the edges to resize" : "Saved from your questions";
+  if (hint) {
+    hint.textContent = on ? "Drag onto another widget to swap · drag the edges to resize" : "";
+    hint.hidden = !on;
+  }
 }
 
 function persistWidgets(order) {
@@ -5047,13 +5050,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (![...sel.options].some((o) => o.value === v)) sel.insertAdjacentHTML("beforeend", `<option value="${esc(v)}">${esc(label(v))}</option>`);
     sel.value = v;
   };
-  const serviceName = (host) => {
-    if (/apple\.com$/.test(host)) return "Apple";
-    if (/googleapis\.com$/.test(host)) return "Google";
-    if (/mozilla\.(com|org)$/.test(host)) return "Mozilla";
-    if (/windows\.com$/.test(host)) return "Microsoft";
-    return host;
-  };
   const day = (s) => (s ? new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
 
   // What this device can do, as a sentence; null when it can have them.
@@ -5071,11 +5067,11 @@ document.addEventListener("DOMContentLoaded", () => {
     list.hidden = !devices.length;
     list.innerHTML = devices.map((d) => {
       const mine = sub && d.this_device;
-      const bits = [`via ${esc(serviceName(d.service))}`, `added ${esc(day(d.created_at))}`];
-      if (d.last_sent_at) bits.push(`last sent ${esc(day(d.last_sent_at))}`);
+      const bits = [mine ? "This device" : "", d.last_sent_at ? `last sent ${esc(day(d.last_sent_at))}` : `added ${esc(day(d.created_at))}`].filter(Boolean);
+      bits[0] = bits[0][0].toUpperCase() + bits[0].slice(1);
       return `<li class="passkey-item">
         <div>
-          <strong>${esc(d.label || "A device")}</strong>${mine ? ` <span class="badge badge-soft">This device</span>` : ""}
+          <strong>${esc(d.label || "A device")}</strong>
           <span class="muted">${bits.join(" · ")}</span>
           ${d.last_error ? `<span class="notify-error">${esc(d.last_error)}</span>` : ""}
         </div>
@@ -5087,11 +5083,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const render = () => {
     const why = blocker();
     const devices = (info && info.devices) || [];
+    // Only a reason it can't be done is spelled out; the button says the rest.
+    status.textContent = why || "";
+    status.hidden = !why;
     if (why) {
-      status.textContent = why;
       toggle.hidden = true;
     } else {
-      status.textContent = sub ? "Notifications are on for this device." : "Notifications are off for this device.";
       toggle.hidden = false;
       toggle.textContent = sub ? "Turn off for this device" : "Turn on for this device";
       toggle.className = sub ? "btn btn-ghost" : "btn btn-primary";
@@ -5164,8 +5161,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
   test.addEventListener("click", () => runTest(test, sub ? { endpoint: sub.endpoint } : {}, "Could not send the test"));
-  $("notifyTryReminder").addEventListener("click", (e) =>
-    runTest(e.currentTarget, { reminder: true, endpoint: sub ? sub.endpoint : "" }, "Could not send the reminder"));
 
   $("notifyDevices").addEventListener("click", (e) => {
     const b = e.target.closest("[data-notify-remove]");

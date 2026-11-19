@@ -88,10 +88,6 @@ func TestNotificationsAPI(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"sent":1`) || got.Load() != 1 {
 		t.Fatalf("test: %d %s (push service got %d)", rec.Code, rec.Body, got.Load())
 	}
-	// Nothing out of date, so no reminder to try.
-	if rec := c.do("POST", "/api/v1/notifications/test", "application/json", `{"reminder":true}`); rec.Code != 400 {
-		t.Errorf("reminder with nothing due: %d %s", rec.Code, rec.Body)
-	}
 
 	if rec := c.do("PUT", "/api/v1/notifications/settings", "application/json", `{"hour":25}`); rec.Code != 400 {
 		t.Errorf("hour 25: %d", rec.Code)

@@ -110,12 +110,10 @@ func (a *App) apiNotifyRemove(w http.ResponseWriter, r *http.Request) error {
 }
 
 // apiNotifyTest sends a test notification to one device (by endpoint) or to
-// all of them. With "reminder": true it sends the reminder today's
-// out-of-date balances would get, without counting it as sent.
+// all of them.
 func (a *App) apiNotifyTest(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Endpoint string `json:"endpoint"`
-		Reminder bool   `json:"reminder"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
@@ -124,22 +122,6 @@ func (a *App) apiNotifyTest(w http.ResponseWriter, r *http.Request) error {
 		Title: "Glowworm notifications are on",
 		Body:  "This is a test. Reminders to update your balances will look like this.",
 		URL:   "/settings#notifications", Tag: "test",
-	}
-	if in.Reminder {
-		b, err := a.book(r.Context())
-		if err != nil {
-			return err
-		}
-		var due []ledger.Status
-		for _, st := range b.Statuses() {
-			if st.Due {
-				due = append(due, st)
-			}
-		}
-		if len(due) == 0 {
-			return &notify.ValidationError{Message: "No balances are out of date right now, so there's nothing to remind you about."}
-		}
-		m = notify.ReminderMessage(due)
 	}
 	var results []notify.Result
 	if in.Endpoint != "" {
