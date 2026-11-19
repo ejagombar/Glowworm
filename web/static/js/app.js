@@ -1997,11 +1997,13 @@ document.addEventListener("DOMContentLoaded", () => {
       location.replace("/queries");
       return;
     }
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[0-5]$/.test(e.key)) {
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[0-9]$/.test(e.key)) {
       const editable = e.target && e.target.closest ? e.target.closest("input, textarea, select, [contenteditable]") : null;
       if (!editable) {
-        const views = { "1": "/", "2": "/queries", "3": "/transactions", "4": "/import", "5": "/history", "0": "/settings" };
-        location.replace(views[e.key]);
+        // The keys follow the tabs' own numbers (01 Dashboard … 06 History);
+        // 0 is Settings.
+        const tab = e.key === "0" ? { href: "/settings" } : document.querySelectorAll(".tabnav .tabnav-item")[Number(e.key) - 1];
+        if (tab) location.replace(tab.href);
       }
     }
     if (e.key === "Escape") {
