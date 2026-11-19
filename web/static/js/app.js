@@ -298,6 +298,7 @@ const replaceLink = (e, a) => {
   if (u.origin !== location.origin || /^\/(api|static)\//.test(u.pathname)) return;
   if (u.pathname === location.pathname && u.search === location.search && u.hash) return; // a jump within the page
   e.preventDefault();
+  if (a.matches(".tabnav-item")) { markTabSwitch(); location.replace(tabHref(u.href)); return; }
   location.replace(u.href);
 };
 document.addEventListener("click", (e) => replaceLink(e, e.target.closest && e.target.closest(".masthead a[href]")));
@@ -357,7 +358,10 @@ document.addEventListener("submit", (e) => {
   const SNAP = "glowworm-snap:", SNAP_MAX = 1500000; // characters
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   let s = null;
-  const tabs = () => [...document.querySelectorAll(".tabnav .tabnav-item")].filter((a) => a.getClientRects().length);
+  // Each tab as { href } to go to (see tabHref).
+  const tabs = () => [...document.querySelectorAll(".tabnav .tabnav-item")]
+    .filter((a) => a.getClientRects().length)
+    .map((a) => ({ href: tabHref(a.href), active: a.classList.contains("active") }));
   const leftAlone = (el) => {
     if (document.documentElement.classList.contains("scroll-locked")) return true;
     if (document.querySelector(".modal-backdrop:not([hidden]), .drawer.show, .chat-panel.floating.open")) return true;
@@ -410,6 +414,20 @@ document.addEventListener("submit", (e) => {
     if (html) el.innerHTML = html;
     c.after(el);
     peek = { el, side, href: to.href, width: r.width };
+    if (html) peekScroll();
+  };
+  // The tab coming in scrolled to where its page will open (see
+  // restoreScroll and initQueriesScroll).
+  const peekScroll = () => {
+    if (!peek) return;
+    peek.el.scrollTop = savedScroll(peek.href);
+    const q = peek.el.querySelector("#queryMessages");
+    if (q) {
+      const conv = (peek.el.querySelector(".queries-main") || { dataset: {} }).dataset.conversationId;
+      let pos = null;
+      try { pos = conv ? sessionStorage.getItem("glowworm-qpos-" + conv) : null; } catch (e) {}
+      q.scrollTop = pos !== null && pos !== "bottom" ? Number(pos) || 0 : q.scrollHeight;
+    }
   };
   const hidePeek = () => { if (peek) { peek.el.remove(); peek = null; } };
 
@@ -449,7 +467,7 @@ document.addEventListener("submit", (e) => {
         const c = new DOMParser().parseFromString(html, "text/html").getElementById("content");
         if (!c) return;
         try { if (!sessionStorage.getItem(pageKey(a.href))) sessionStorage.setItem(pageKey(a.href), c.innerHTML); } catch (e) {}
-        if (peek && peek.href === a.href && !peek.el.childElementCount) peek.el.innerHTML = c.innerHTML;
+        if (peek && peek.href === a.href && !peek.el.childElementCount) { peek.el.innerHTML = c.innerHTML; peekScroll(); }
       })
       .catch(() => {})
       .finally(() => fetching.delete(a.href));
@@ -486,7 +504,7 @@ document.addEventListener("submit", (e) => {
     const t = e.touches[0];
     if (t.clientX < EDGE || t.clientX > innerWidth - EDGE || leftAlone(e.target)) return;
     const list = tabs();
-    const at = list.findIndex((a) => a.classList.contains("active"));
+    const at = list.findIndex((a) => a.active);
     if (at < 0) return;
     s = { x: t.clientX, y: t.clientY, time: Date.now(), dx: 0, locked: null, list, at, to: null };
     ahead(list[at - 1]);
@@ -519,6 +537,7 @@ document.addEventListener("submit", (e) => {
     if (!to || !(Math.abs(dx) > innerWidth * 0.2 || fast)) { reset(); return; }
     s = null;
     snapshot();
+    markTabSwitch();
     waiting(true);
     if (reduced.matches || !peek) { location.replace(to.href); return; }
     // The next tab slides the rest of the way in, then its page loads in
@@ -644,23 +663,62 @@ document.addEventListener("scroll", placeInfoPopover, true);
 function pageScroller() {
   return document.querySelector(".app.shell .content") || document.scrollingElement || document.documentElement;
 }
+// Scroll positions: each page's is kept as it's left, and put back on Back
+// and when moving between the tabs (a swipe, a tab, a number key), so a
+// long page is where it was. Within this session only.
+const SCROLL_PREFIX = "glowworm-scroll:";
+const TAB_SWITCH = "glowworm-tab-switch";
+const scrollKey = (href) => { const u = new URL(href, location.href); return SCROLL_PREFIX + u.pathname + u.search; };
+const savedScroll = (href) => { try { return Number(sessionStorage.getItem(scrollKey(href))) || 0; } catch (e) { return 0; } };
+// Called just before going to another tab.
+function markTabSwitch() {
+  try { sessionStorage.setItem(TAB_SWITCH, "1"); } catch (e) {}
+}
+// The tab link to follow: Queries goes straight to the conversation last
+// open, which it would otherwise load only to redirect to.
+function tabHref(href) {
+  const u = new URL(href, location.href);
+  if (u.pathname === "/queries" && !u.searchParams.has("c")) {
+    try {
+      const conv = sessionStorage.getItem("glowworm-queries-conv");
+      if (conv) u.searchParams.set("c", conv);
+    } catch (e) {}
+  }
+  return u.href;
+}
+// Puts box back at y, and keeps doing so for a moment while the page is
+// still growing (charts drawn, more rows loaded) unless the person scrolls.
+function restoreScroll(box, y) {
+  const until = Date.now() + 3000;
+  let stop = false;
+  const quit = () => { stop = true; };
+  for (const t of ["touchstart", "wheel", "keydown", "pointerdown"]) addEventListener(t, quit, { once: true, passive: true, capture: true });
+  const step = () => {
+    if (stop) return;
+    box.scrollTop = y;
+    if (Math.abs(box.scrollTop - y) > 2 && Date.now() < until) requestAnimationFrame(step);
+  };
+  step();
+}
 document.addEventListener("DOMContentLoaded", () => {
   const box = document.querySelector(".app.shell .content");
   if (!box) return;
   // Space, Page Down and the arrow keys scroll whatever has focus.
   box.tabIndex = -1;
   if (document.activeElement === document.body) box.focus({ preventScroll: true });
-  // The browser only puts the window back where it was on Back; do the
-  // same for the content.
-  const key = "glowworm-scroll:" + location.pathname + location.search;
+  const key = scrollKey(location.href);
   addEventListener("pagehide", () => {
     try { sessionStorage.setItem(key, String(box.scrollTop)); } catch (e) {}
   });
+  let tabSwitch = false;
   try {
-    const nav = performance.getEntriesByType("navigation")[0];
-    const y = Number(sessionStorage.getItem(key));
-    if (nav && nav.type === "back_forward" && y > 0) box.scrollTop = y;
+    tabSwitch = sessionStorage.getItem(TAB_SWITCH) === "1";
+    sessionStorage.removeItem(TAB_SWITCH);
   } catch (e) {}
+  let back = false;
+  try { back = performance.getEntriesByType("navigation")[0].type === "back_forward"; } catch (e) {}
+  const y = savedScroll(location.href);
+  if ((tabSwitch || back) && y > 0) restoreScroll(box, y);
 });
 
 // The keyboard: while it's up iOS lets the page scroll further, and in a
@@ -1173,11 +1231,13 @@ function initQueriesScroll() {
   }
   const key = "glowworm-qpos-" + queriesConvID();
   const saved = sessionStorage.getItem(key);
-  requestAnimationFrame(() => {
-    if (saved === "bottom") scrollQueriesToBottom();
-    else if (saved !== null) box.scrollTop = Number(saved) || 0;
+  // Now, before the page is first drawn, and again once it has settled.
+  const seek = () => {
+    if (saved !== null && saved !== "bottom") box.scrollTop = Number(saved) || 0;
     else scrollQueriesToBottom();
-  });
+  };
+  seek();
+  requestAnimationFrame(seek);
   let saveTimer;
   box.addEventListener("scroll", () => {
     clearTimeout(saveTimer);
@@ -2141,7 +2201,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // The keys follow the tabs' own numbers (01 Dashboard … 06 History);
         // 0 is Settings.
         const tab = e.key === "0" ? { href: "/settings" } : document.querySelectorAll(".tabnav .tabnav-item")[Number(e.key) - 1];
-        if (tab) location.replace(tab.href);
+        if (tab) { markTabSwitch(); location.replace(tabHref(tab.href)); }
       }
     }
     if (e.key === "Escape") {
@@ -2986,7 +3046,8 @@ function initBalancePanel(root, onChange) {
   };
   btn.addEventListener("click", record);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); record(); } });
-  load();
+  // The Savings page sends its balances with the page.
+  if (!root.hasAttribute("data-bp-loaded")) load();
 }
 
 document.addEventListener("DOMContentLoaded", () => {

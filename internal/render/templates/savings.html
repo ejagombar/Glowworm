@@ -15,7 +15,7 @@
       <div class="savings-meta">
         <span class="savings-age{{if .Due}} due{{end}}">{{if .Due}}<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>{{end}}{{.StatusText}}</span>
       </div>
-      {{template "balance-panel" dict "A" .Card "Currency" $.Currency "Symbol" (symbol $.Currency)}}
+      {{template "balance-panel" dict "A" .Card "Currency" $.Currency "Symbol" (symbol $.Currency) "Vals" .Vals "Loaded" true}}
     </article>
     {{end}}
   </div>

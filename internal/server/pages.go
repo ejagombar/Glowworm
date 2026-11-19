@@ -720,7 +720,8 @@ func (a *App) handleTransactionsRows(w http.ResponseWriter, r *http.Request) err
 // and how up to date its balance is.
 type savingsCard struct {
 	*accountCard
-	Card        *accountCard // the same, for the balance panel template
+	Card        *accountCard      // the same, for the balance panel template
+	Vals        []*core.Valuation // its recorded balances, newest first
 	StatusText  string
 	Due         bool
 	NeverValued bool
@@ -747,6 +748,16 @@ func (a *App) handleSavings(w http.ResponseWriter, r *http.Request) error {
 			continue
 		}
 		sc := &savingsCard{accountCard: c, Card: c}
+		// Sent with the page so the panel shows them as it opens, rather
+		// than growing once they've been fetched.
+		vals, err := a.Accounts.Valuations(c.ID)
+		if err != nil {
+			return err
+		}
+		sort.SliceStable(vals, func(i, j int) bool {
+			return vals[i].Date+vals[i].CreatedAt > vals[j].Date+vals[j].CreatedAt
+		})
+		sc.Vals = vals
 		if acc := book.Account(c.ID); acc != nil {
 			st := book.Status(acc)
 			sc.Due, sc.NeverValued = st.Due, st.DaysSince < 0

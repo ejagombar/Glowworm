@@ -2,14 +2,16 @@
 the balances recorded before. Savings uses it to record a value; History
 uses it to record a statement balance for a current or credit account.
 Wired up by initBalancePanel in app.js. Takes dict "A" (accountCard),
-"Currency" and "Symbol". */}}
+"Currency" and "Symbol", and optionally "Vals" (the recorded balances,
+newest first) with "Loaded" true; without them the panel fetches them. */}}
 {{define "balance-panel"}}{{$a := .A}}
-<section class="balance-panel" data-balance-panel data-account-id="{{$a.ID}}" data-account-type="{{$a.Type}}" data-currency="{{.Currency}}">
+{{$vals := .Vals}}{{$cc := .Currency}}
+<section class="balance-panel" data-balance-panel data-account-id="{{$a.ID}}" data-account-type="{{$a.Type}}" data-currency="{{.Currency}}"{{if .Loaded}} data-bp-loaded{{end}}>
   <div class="balance-panel-head">
     <span class="balance-panel-label">Balance now</span>
     <span class="balance-panel-now" data-bp-now>{{money $a.BalanceMinor .Currency}}</span>
   </div>
-  <p class="field-hint" data-bp-asof hidden></p>
+  <p class="field-hint" data-bp-asof{{if not $vals}} hidden{{end}}>{{with $vals}}Last set {{dayMonthYear (index . 0).Date}}{{end}}</p>
   <div class="balance-update">
     <div class="field-unit">
       <span class="field-unit-symbol">{{.Symbol}}</span>
@@ -20,9 +22,15 @@ Wired up by initBalancePanel in app.js. Takes dict "A" (accountCard),
     <input class="field" data-bp-date type="date" aria-label="Balance date for {{$a.Name}}" />
     <button class="btn btn-primary" type="button" data-bp-record>{{if eq $a.Type "savings"}}Update{{else}}Record{{end}}</button>
   </div>
-  <details class="valuation-history" data-bp-history hidden>
-    <summary>Earlier balances <span class="muted" data-bp-count></span></summary>
-    <ul class="valuation-list" data-bp-list></ul>
+  <details class="valuation-history" data-bp-history{{if not $vals}} hidden{{end}}>
+    <summary>Earlier balances <span class="muted" data-bp-count>{{with $vals}}({{len .}}){{end}}</span></summary>
+    <ul class="valuation-list" data-bp-list>{{range $vals}}
+      <li data-valuation-id="{{.ID}}">
+        <span class="valuation-date">{{dayMonthYear .Date}}</span>
+        <span class="valuation-value">{{money .ValueMinor $cc}}</span>
+        <button type="button" class="widget-btn" data-valuation-delete title="Delete" aria-label="Delete"><svg class="icon"><use href="#i-close"/></svg></button>
+      </li>{{end}}
+    </ul>
   </details>
 </section>
 {{end}}

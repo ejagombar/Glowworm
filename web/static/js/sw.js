@@ -194,7 +194,9 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(recentCopy(req.url).then((copy) => {
       if (!copy) return fetched();
       const early = takePrefetched(req.url);
-      e.waitUntil(early || fetchAhead(req.url));
+      // Not fetched again when the copy is only seconds old.
+      const fresh = Date.now() - Number(copy.headers.get("X-Copy-At")) < PREFETCH_TTL_MS;
+      if (early || !fresh) e.waitUntil(early || fetchAhead(req.url));
       return copy;
     }));
     return;
