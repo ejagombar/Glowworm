@@ -475,6 +475,14 @@ html.swipe-in-prev .content { animation: swipe-in-prev 0.2s cubic-bezier(0.2, 0.
 @media (prefers-reduced-motion: reduce) {
   html.swipe-in-next .content, html.swipe-in-prev .content { animation: none; }
 }
+/* While the swiped-to page is still loading (slow connection). */
+.swipe-wait {
+  position: fixed; left: 50%; top: 50%; z-index: 50; pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: swipe-wait-in 0.2s ease-out 0.3s both;
+}
+.swipe-wait .spinner { width: 26px; height: 26px; border-width: 3px; }
+@keyframes swipe-wait-in { from { opacity: 0; } }
 /* Phone browsers (Safari especially) flicker the sticky masthead's tabs
    during the swap; they already hold the old page until the new one paints. */
 @media (prefers-reduced-motion: reduce), (max-width: 760px) {

@@ -332,6 +332,12 @@ document.addEventListener("submit", (e) => {
 // something are left alone: a text box, a line chart (it pans), anything
 // that scrolls sideways, an open pop-up, and the screen's edges (the
 // system's own gestures). The next page slides in from the side it came.
+//
+// On a slow connection the next page can take a while: the swipe still
+// finishes at once (the old page slides all the way out) and a spinner
+// shows until the new page arrives. Both neighbouring tabs are fetched ahead
+// as soon as a finger lands on the page, so by the time a swipe ends the
+// page is often already here.
 (() => {
   if (!homeScreenApp || !window.matchMedia("(pointer: coarse)").matches) return;
   const EDGE = 24, LOCK = 10;
@@ -350,12 +356,31 @@ document.addEventListener("submit", (e) => {
     return !!(sel && !sel.isCollapsed);
   };
   const content = () => document.getElementById("content");
-  const place = (dx, animate) => {
+  const place = (dx, animate, opacity) => {
     const c = content();
     if (!c) return;
     c.style.transition = animate ? "transform 0.18s ease-out, opacity 0.18s ease-out" : "none";
     c.style.transform = dx ? `translateX(${dx}px)` : "";
-    c.style.opacity = dx ? String(Math.max(0.35, 1 - Math.abs(dx) / innerWidth)) : "";
+    c.style.opacity = opacity !== undefined ? String(opacity) : dx ? String(Math.max(0.35, 1 - Math.abs(dx) / innerWidth)) : "";
+  };
+  const prefetch = (a) => {
+    if (a && navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: "prefetch", url: new URL(a.href, location.href).href });
+    }
+  };
+  // Shown while the next page is on its way; it fades in only after a
+  // moment (CSS), so a quick load never flashes it.
+  const waiting = (on) => {
+    let w = document.getElementById("swipeWait");
+    if (!on) { if (w) w.remove(); return; }
+    if (w) return;
+    w = document.createElement("div");
+    w.id = "swipeWait";
+    w.className = "swipe-wait";
+    w.setAttribute("role", "status");
+    w.setAttribute("aria-label", "Loading");
+    w.innerHTML = '<div class="spinner"></div>';
+    document.body.appendChild(w);
   };
   const reset = () => {
     if (s && s.locked === "x") {
@@ -373,6 +398,8 @@ document.addEventListener("submit", (e) => {
     const at = list.findIndex((a) => a.classList.contains("active"));
     if (at < 0) return;
     s = { x: t.clientX, y: t.clientY, time: Date.now(), dx: 0, locked: null, list, at, to: null };
+    prefetch(list[at - 1]);
+    prefetch(list[at + 1]);
   }, { passive: true });
   document.addEventListener("touchmove", (e) => {
     if (!s) return;
@@ -385,10 +412,6 @@ document.addEventListener("submit", (e) => {
       // held: once iOS has started scrolling it can't be.
       if (Math.abs(dx) < Math.abs(dy) * 1.5 || !e.cancelable) { s = null; return; }
       s.locked = "x";
-      s.to = s.list[s.at + (dx < 0 ? 1 : -1)] || null;
-      if (s.to && navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: "prefetch", url: new URL(s.to.href, location.href).href });
-      }
     }
     e.preventDefault();
     // Past the first or last tab the page only gives a little.
@@ -404,13 +427,14 @@ document.addEventListener("submit", (e) => {
     if (!to || !(Math.abs(dx) > innerWidth * 0.25 || fast)) { reset(); return; }
     s = null;
     try { sessionStorage.setItem("glowworm-swipe", dx < 0 ? "next" : "prev"); } catch (e) {}
-    if (!reduced.matches) place(dx < 0 ? -innerWidth * 0.5 : innerWidth * 0.5, true);
+    if (!reduced.matches) place(dx < 0 ? -innerWidth : innerWidth, true, 0);
+    waiting(true);
     location.replace(to.href);
   };
   document.addEventListener("touchend", end, { passive: true });
   document.addEventListener("touchcancel", reset, { passive: true });
   // Coming back to a page kept in memory: put it straight.
-  window.addEventListener("pageshow", () => { s = null; place(0, false); });
+  window.addEventListener("pageshow", () => { s = null; place(0, false); waiting(false); });
 })();
 
 // Pop-ups: while one is open the page behind stays put. iOS ignores
