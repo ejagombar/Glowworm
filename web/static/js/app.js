@@ -1255,6 +1255,7 @@ function sendChat(text) {
           }
           else if (ev.event === "error") {
             out.text = ev.message || "Query failed.";
+            out.detail = ev.detail || "";
             out.isError = true;
             out.steps = [];
           }
@@ -1358,11 +1359,13 @@ function fmtAssistantText(text) {
 
 function finishAssistant(pending, out) {
   out = out || {};
-  const { text = "", steps = [], widgets = [], isError = false } = out;
+  const { text = "", detail = "", steps = [], widgets = [], isError = false } = out;
   const loader = pending.querySelector(".glowworm-loader");
   const reveal = () => {
     let content = "";
     if (text) content += `<div class="msg-text${isError ? " msg-error" : ""}">${fmtAssistantText(text)}</div>`;
+    // A provider's own words about an error, quieter, as in Settings.
+    if (isError && detail) content += `<div class="msg-error-detail">${esc(detail)}</div>`;
     if (!isError && steps && steps.length) content += msgReasonHTML(steps);
     if (!isError && widgets) {
       for (const w of widgets) content += widgetCardHTML(w);

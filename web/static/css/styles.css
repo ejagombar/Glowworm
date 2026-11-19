@@ -2035,6 +2035,7 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
 .overview-chart .chart-host { height: 240px; }
 .queries-messages .chart-host { height: 260px; }
 .msg-error .msg-text, .msg-text.msg-error { color: var(--danger); }
+.msg-error-detail { color: var(--muted); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
 #timelineChart { height: 240px; }
 
 .queries-messages .widget-body { flex: none; min-height: 0; overflow: visible; }

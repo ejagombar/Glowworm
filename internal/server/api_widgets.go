@@ -3,10 +3,12 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/ejagombar/Glowworm/internal/ai"
 	"github.com/ejagombar/Glowworm/internal/core"
 	"github.com/ejagombar/Glowworm/internal/core/audit"
 	"github.com/ejagombar/Glowworm/internal/core/periods"
@@ -92,6 +94,28 @@ func marshalAny(v any) string {
 	return string(b)
 }
 
+// queryError is a failed question as the Queries page shows it. A provider's
+// error is explained the way Settings explains it: what went wrong, under
+// the provider's name, and the provider's own words beneath ("detail"),
+// instead of the raw reply.
+func (a *App) queryError(err error) map[string]any {
+	var unavailable *ai.ErrUnavailable
+	var bad *ai.ErrBadReply
+	if !errors.As(err, &unavailable) && !errors.As(err, &bad) {
+		return map[string]any{"message": err.Error()}
+	}
+	e := ai.Explain(err)
+	label := "The AI provider"
+	if set, lerr := loadAISetup(a.Repos.AIConfig); lerr == nil {
+		if p, _ := set.forRole(modelRoleQueries); p != "" {
+			if spec, ok := ai.Spec(p); ok && spec.Short != "" {
+				label = spec.Short
+			}
+		}
+	}
+	return map[string]any{"message": label + ": " + e.Summary, "detail": e.Detail}
+}
+
 func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 	var in queryRequest
 	if err := decodeBody(r, &in); err != nil {
@@ -117,7 +141,7 @@ func (a *App) apiQueryStream(w http.ResponseWriter, r *http.Request) error {
 		send("steps", map[string]any{"items": []string{step}})
 	})
 	if err != nil {
-		send("error", map[string]any{"message": err.Error()})
+		send("error", a.queryError(err))
 		send("done", map[string]any{"conversation_id": convID})
 		return nil
 	}
