@@ -466,14 +466,10 @@ body:not(:has(> #pageEnd)) > .app { display: none; }
 .masthead { view-transition-name: masthead; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.12s; }
 ::view-transition-group(masthead), ::view-transition-old(masthead), ::view-transition-new(masthead) { animation-duration: 0s; }
-/* After swiping between tabs (app.js) the new page slides in from the side
-   the swipe came from; the masthead stays put. */
-@keyframes swipe-in-next { from { transform: translateX(30%); opacity: 0; } }
-@keyframes swipe-in-prev { from { transform: translateX(-30%); opacity: 0; } }
-html.swipe-in-next .content { animation: swipe-in-next 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
-html.swipe-in-prev .content { animation: swipe-in-prev 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
-@media (prefers-reduced-motion: reduce) {
-  html.swipe-in-next .content, html.swipe-in-prev .content { animation: none; }
+/* Swiping between tabs (app.js): the tab coming in, as it last looked,
+   alongside the page. */
+.app.shell .swipe-peek {
+  position: fixed; z-index: 1; overflow: hidden; pointer-events: none;
 }
 /* While the swiped-to page is still loading (slow connection). */
 .swipe-wait {

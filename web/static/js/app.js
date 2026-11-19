@@ -339,19 +339,21 @@ document.addEventListener("submit", (e) => {
 
 // Swiping between tabs, in the home screen app on a phone: a sideways
 // swipe across the page goes to the tab beside this one, the page following
-// the finger. Swipes that start where a sideways drag already means
-// something are left alone: a text box, a line chart (it pans), anything
-// that scrolls sideways, an open pop-up, and the screen's edges (the
-// system's own gestures). The next page slides in from the side it came.
+// the finger with the next tab right beside it. Swipes that start where a
+// sideways drag already means something are left alone: a text box, a line
+// chart (it pans), anything that scrolls sideways, an open pop-up, and the
+// screen's edges (the system's own gestures).
 //
-// On a slow connection the next page can take a while: the swipe still
-// finishes at once (the old page slides all the way out) and a spinner
-// shows until the new page arrives. Both neighbouring tabs are fetched ahead
-// as soon as a finger lands on the page, so by the time a swipe ends the
-// page is often already here.
+// The tab coming in is shown as it looked when it was last left (kept in
+// sessionStorage), or as an empty page the first time; once the swipe ends
+// the real page loads in its place. On a slow connection a spinner shows
+// until it arrives. Both neighbouring tabs are fetched ahead as soon as a
+// finger lands on the page, so by the time a swipe ends the page is often
+// already here (and the service worker keeps recent ones).
 (() => {
   if (!homeScreenApp || !window.matchMedia("(pointer: coarse)").matches) return;
-  const EDGE = 24, LOCK = 10;
+  const EDGE = 24, LOCK = 10, SLIDE_MS = 180;
+  const SNAP = "glowworm-snap:", SNAP_MAX = 1500000; // characters
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   let s = null;
   const tabs = () => [...document.querySelectorAll(".tabnav .tabnav-item")].filter((a) => a.getClientRects().length);
@@ -367,12 +369,60 @@ document.addEventListener("submit", (e) => {
     return !!(sel && !sel.isCollapsed);
   };
   const content = () => document.getElementById("content");
-  const place = (dx, animate, opacity) => {
+  const pageKey = (href) => { const u = new URL(href, location.href); return SNAP + u.pathname + u.search; };
+
+  // This page as it looks now, for the next time it's swiped in.
+  const snapshot = () => {
     const c = content();
     if (!c) return;
-    c.style.transition = animate ? "transform 0.18s ease-out, opacity 0.18s ease-out" : "none";
+    const html = c.innerHTML;
+    if (html.length > SNAP_MAX) return;
+    const key = pageKey(location.href);
+    try {
+      sessionStorage.setItem(key, html);
+    } catch (e) {
+      // Out of room: keep only this one.
+      try {
+        Object.keys(sessionStorage).filter((k) => k.startsWith(SNAP)).forEach((k) => sessionStorage.removeItem(k));
+        sessionStorage.setItem(key, html);
+      } catch (e2) {}
+    }
+  };
+  addEventListener("pagehide", snapshot);
+
+  // The tab coming in, beside this one: a still copy over the content's
+  // area, after it in the page so its ids never shadow the real ones.
+  let peek = null; // { el, side, href }
+  const showPeek = (to, side) => {
+    if (peek && peek.href === to.href && peek.side === side) return;
+    hidePeek();
+    const c = content();
+    if (!c) return;
+    const r = c.getBoundingClientRect();
+    const el = document.createElement("div");
+    el.className = "content swipe-peek";
+    el.inert = true;
+    el.setAttribute("aria-hidden", "true");
+    Object.assign(el.style, { top: r.top + "px", left: r.left + "px", width: r.width + "px", height: r.height + "px" });
+    let html = null;
+    try { html = sessionStorage.getItem(pageKey(to.href)); } catch (e) {}
+    if (html) el.innerHTML = html;
+    c.after(el);
+    peek = { el, side, href: to.href, width: r.width };
+  };
+  const hidePeek = () => { if (peek) { peek.el.remove(); peek = null; } };
+
+  // dx: how far the page has moved; the tab beside it keeps alongside.
+  const place = (dx, animate) => {
+    const c = content();
+    if (!c) return;
+    const t = animate ? `transform ${SLIDE_MS}ms ease-out` : "none";
+    c.style.transition = t;
     c.style.transform = dx ? `translateX(${dx}px)` : "";
-    c.style.opacity = opacity !== undefined ? String(opacity) : dx ? String(Math.max(0.35, 1 - Math.abs(dx) / innerWidth)) : "";
+    if (peek) {
+      peek.el.style.transition = t;
+      peek.el.style.transform = `translateX(${dx + peek.side * peek.width}px)`;
+    }
   };
   const prefetch = (a) => {
     if (a && navigator.serviceWorker && navigator.serviceWorker.controller) {
@@ -396,7 +446,12 @@ document.addEventListener("submit", (e) => {
   const reset = () => {
     if (s && s.locked === "x") {
       place(0, true);
-      setTimeout(() => { const c = content(); if (c && !s) { c.style.transition = ""; } }, 200);
+      setTimeout(() => {
+        if (s) return;
+        hidePeek();
+        const c = content();
+        if (c) c.style.transition = "";
+      }, SLIDE_MS + 20);
     }
     s = null;
   };
@@ -425,27 +480,31 @@ document.addEventListener("submit", (e) => {
       s.locked = "x";
     }
     e.preventDefault();
-    // Past the first or last tab the page only gives a little.
     const to = s.list[s.at + (dx < 0 ? 1 : -1)] || null;
     s.to = to;
     s.dx = dx;
+    if (to) showPeek(to, dx < 0 ? 1 : -1); else hidePeek();
+    // Past the first or last tab the page only gives a little.
     place(to ? dx : dx / 5, false);
   }, { passive: false });
   const end = () => {
     if (!s || s.locked !== "x") { s = null; return; }
     const { dx, to, time } = s;
-    const fast = Math.abs(dx) > 40 && Math.abs(dx) / Math.max(Date.now() - time, 1) > 0.4;
-    if (!to || !(Math.abs(dx) > innerWidth * 0.25 || fast)) { reset(); return; }
+    const fast = Math.abs(dx) > 30 && Math.abs(dx) / Math.max(Date.now() - time, 1) > 0.3;
+    if (!to || !(Math.abs(dx) > innerWidth * 0.2 || fast)) { reset(); return; }
     s = null;
-    try { sessionStorage.setItem("glowworm-swipe", dx < 0 ? "next" : "prev"); } catch (e) {}
-    if (!reduced.matches) place(dx < 0 ? -innerWidth : innerWidth, true, 0);
+    snapshot();
     waiting(true);
-    location.replace(to.href);
+    if (reduced.matches || !peek) { location.replace(to.href); return; }
+    // The next tab slides the rest of the way in, then its page loads in
+    // the same place.
+    place(dx < 0 ? -peek.width : peek.width, true);
+    setTimeout(() => location.replace(to.href), SLIDE_MS);
   };
   document.addEventListener("touchend", end, { passive: true });
   document.addEventListener("touchcancel", reset, { passive: true });
   // Coming back to a page kept in memory: put it straight.
-  window.addEventListener("pageshow", () => { s = null; place(0, false); waiting(false); });
+  window.addEventListener("pageshow", () => { s = null; hidePeek(); place(0, false); waiting(false); });
 })();
 
 // Pop-ups: while one is open the page behind stays put. iOS ignores

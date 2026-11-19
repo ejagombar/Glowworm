@@ -32,12 +32,6 @@
         document.documentElement.dataset.theme = dark ? "dark" : "light";
         document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.content = dark ? "#14181d" : "#ffffff"; });
       } catch (e) {}
-      // Arrived by swiping between tabs: slide in from that side.
-      try {
-        var swipe = sessionStorage.getItem("glowworm-swipe");
-        sessionStorage.removeItem("glowworm-swipe");
-        if (swipe === "next" || swipe === "prev") document.documentElement.classList.add("swipe-in-" + swipe);
-      } catch (e) {}
     })();
   </script>
 </head>
