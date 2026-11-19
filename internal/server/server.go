@@ -288,6 +288,7 @@ func (a *App) Router() http.Handler {
 	if a.Cfg.AuthMode == "password" {
 		handler = a.withAuth(handler)
 	}
+	handler = gzipHTML(handler)
 	handler = securityHeaders(handler)
 	handler = withLogging(a.Log, handler)
 	return handler
