@@ -274,19 +274,38 @@ const dataVersion = (() => {
 // nothing to swipe back to (least of all the sign-in page). Going into
 // something from a page, such as a dashboard link to filtered
 // transactions, still adds to it, so swiping back returns from it.
-document.addEventListener("click", (e) => {
-  const a = e.target.closest && e.target.closest(".masthead a[href]");
+//
+// In the home screen app nothing adds to history at all: there's no back
+// button, and swiping in from the edge would fight with swiping between the
+// tabs (below). Every link and filter replaces the page, so the app always
+// has just the one page and an edge swipe has nothing to go back to.
+const homeScreenApp = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const replaceLink = (e, a) => {
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   if (a.target || a.hasAttribute("download")) return;
   const u = new URL(a.href, location.href);
-  if (u.origin !== location.origin) return;
+  if (u.origin !== location.origin || /^\/(api|static)\//.test(u.pathname)) return;
+  if (u.pathname === location.pathname && u.search === location.search && u.hash) return; // a jump within the page
   e.preventDefault();
+  location.replace(u.href);
+};
+document.addEventListener("click", (e) => replaceLink(e, e.target.closest && e.target.closest(".masthead a[href]")));
+// On window, so it runs after the page's own link handlers have had their say.
+if (homeScreenApp) window.addEventListener("click", (e) => replaceLink(e, e.target.closest && e.target.closest("a[href]")));
+document.addEventListener("submit", (e) => {
+  const form = e.target;
+  if (!homeScreenApp || e.defaultPrevented || !form.matches || !form.matches("form") || (form.method || "get").toLowerCase() !== "get") return;
+  e.preventDefault();
+  const u = new URL(form.action || location.href, location.href);
+  u.search = new URLSearchParams(new FormData(form)).toString();
   location.replace(u.href);
 });
 // A select marked data-autosubmit applies as soon as something is chosen.
 document.addEventListener("change", (e) => {
   const el = e.target;
-  if (el && el.matches && el.matches("select[data-autosubmit]") && el.form) el.form.submit();
+  if (el && el.matches && el.matches("select[data-autosubmit]") && el.form) {
+    if (el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit();
+  }
 });
 // Forms marked data-replace post in the background and then replace the
 // page with wherever the server sent them.
@@ -306,6 +325,93 @@ document.addEventListener("submit", (e) => {
       HTMLFormElement.prototype.submit.call(form); // the ordinary way
     });
 });
+
+// Swiping between tabs, in the home screen app on a phone: a sideways
+// swipe across the page goes to the tab beside this one, the page following
+// the finger. Swipes that start where a sideways drag already means
+// something are left alone: a text box, a line chart (it pans), anything
+// that scrolls sideways, an open pop-up, and the screen's edges (the
+// system's own gestures). The next page slides in from the side it came.
+(() => {
+  if (!homeScreenApp || !window.matchMedia("(pointer: coarse)").matches) return;
+  const EDGE = 24, LOCK = 10;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let s = null;
+  const tabs = () => [...document.querySelectorAll(".tabnav .tabnav-item")].filter((a) => a.getClientRects().length);
+  const leftAlone = (el) => {
+    if (document.documentElement.classList.contains("scroll-locked")) return true;
+    if (document.querySelector(".modal-backdrop:not([hidden]), .drawer.show, .chat-panel.floating.open")) return true;
+    if (!el.closest || el.closest('input, textarea, select, [contenteditable], .chart-host[data-chart-type="line"], .widgets-grid.editing, [data-no-swipe]')) return true;
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      const ox = getComputedStyle(n).overflowX;
+      if ((ox === "auto" || ox === "scroll") && n.scrollWidth > n.clientWidth + 1) return true;
+    }
+    const sel = window.getSelection && window.getSelection();
+    return !!(sel && !sel.isCollapsed);
+  };
+  const content = () => document.getElementById("content");
+  const place = (dx, animate) => {
+    const c = content();
+    if (!c) return;
+    c.style.transition = animate ? "transform 0.18s ease-out, opacity 0.18s ease-out" : "none";
+    c.style.transform = dx ? `translateX(${dx}px)` : "";
+    c.style.opacity = dx ? String(Math.max(0.35, 1 - Math.abs(dx) / innerWidth)) : "";
+  };
+  const reset = () => {
+    if (s && s.locked === "x") {
+      place(0, true);
+      setTimeout(() => { const c = content(); if (c && !s) { c.style.transition = ""; } }, 200);
+    }
+    s = null;
+  };
+  document.addEventListener("touchstart", (e) => {
+    s = null;
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (t.clientX < EDGE || t.clientX > innerWidth - EDGE || leftAlone(e.target)) return;
+    const list = tabs();
+    const at = list.findIndex((a) => a.classList.contains("active"));
+    if (at < 0) return;
+    s = { x: t.clientX, y: t.clientY, time: Date.now(), dx: 0, locked: null, list, at, to: null };
+  }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (!s) return;
+    if (e.touches.length !== 1) { reset(); return; }
+    const t = e.touches[0];
+    const dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (!s.locked) {
+      if (Math.abs(dx) < LOCK && Math.abs(dy) < LOCK) return;
+      // Sideways only when clearly so, and only while the page can still be
+      // held: once iOS has started scrolling it can't be.
+      if (Math.abs(dx) < Math.abs(dy) * 1.5 || !e.cancelable) { s = null; return; }
+      s.locked = "x";
+      s.to = s.list[s.at + (dx < 0 ? 1 : -1)] || null;
+      if (s.to && navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "prefetch", url: new URL(s.to.href, location.href).href });
+      }
+    }
+    e.preventDefault();
+    // Past the first or last tab the page only gives a little.
+    const to = s.list[s.at + (dx < 0 ? 1 : -1)] || null;
+    s.to = to;
+    s.dx = dx;
+    place(to ? dx : dx / 5, false);
+  }, { passive: false });
+  const end = () => {
+    if (!s || s.locked !== "x") { s = null; return; }
+    const { dx, to, time } = s;
+    const fast = Math.abs(dx) > 40 && Math.abs(dx) / Math.max(Date.now() - time, 1) > 0.4;
+    if (!to || !(Math.abs(dx) > innerWidth * 0.25 || fast)) { reset(); return; }
+    s = null;
+    try { sessionStorage.setItem("glowworm-swipe", dx < 0 ? "next" : "prev"); } catch (e) {}
+    if (!reduced.matches) place(dx < 0 ? -innerWidth * 0.5 : innerWidth * 0.5, true);
+    location.replace(to.href);
+  };
+  document.addEventListener("touchend", end, { passive: true });
+  document.addEventListener("touchcancel", reset, { passive: true });
+  // Coming back to a page kept in memory: put it straight.
+  window.addEventListener("pageshow", () => { s = null; place(0, false); });
+})();
 
 // Pop-ups: while one is open the page behind stays put. iOS ignores
 // overflow: hidden for touch scrolling, so a drag, wherever it starts
@@ -4739,7 +4845,8 @@ function loadHistoryPane(url, push) {
       if (window.wireAuditActions) window.wireAuditActions(host);
     })
     .catch(() => { location.href = u.href; });
-  if (push) history.pushState({}, "", u.href);
+  if (push && !homeScreenApp) history.pushState({}, "", u.href);
+  else if (push) history.replaceState(history.state, "", u.href);
 }
 
 document.addEventListener("DOMContentLoaded", () => {

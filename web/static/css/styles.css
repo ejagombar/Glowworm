@@ -188,7 +188,7 @@ html:has(.app.shell), html:has(.app.shell) body { overflow: hidden; }
   height: var(--app-h); min-height: 0;
   display: flex; flex-direction: column;
 }
-.app.shell > .main { flex: 1; min-height: 0; }
+.app.shell > .main { flex: 1; min-height: 0; overflow-x: clip; } /* a page swiped sideways stays inside it */
 .app.shell .masthead, .app.shell > .conn-banner { flex: none; }
 .app.shell .content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: none; }
 .app.shell .content:focus { outline: none; }
@@ -466,6 +466,15 @@ body:not(:has(> #pageEnd)) > .app { display: none; }
 .masthead { view-transition-name: masthead; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.12s; }
 ::view-transition-group(masthead), ::view-transition-old(masthead), ::view-transition-new(masthead) { animation-duration: 0s; }
+/* After swiping between tabs (app.js) the new page slides in from the side
+   the swipe came from; the masthead stays put. */
+@keyframes swipe-in-next { from { transform: translateX(30%); opacity: 0; } }
+@keyframes swipe-in-prev { from { transform: translateX(-30%); opacity: 0; } }
+html.swipe-in-next .content { animation: swipe-in-next 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+html.swipe-in-prev .content { animation: swipe-in-prev 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) {
+  html.swipe-in-next .content, html.swipe-in-prev .content { animation: none; }
+}
 /* Phone browsers (Safari especially) flicker the sticky masthead's tabs
    during the swap; they already hold the old page until the new one paints. */
 @media (prefers-reduced-motion: reduce), (max-width: 760px) {
