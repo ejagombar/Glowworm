@@ -212,7 +212,15 @@ const dataVersion = (() => {
     try { sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ url: location.href, y: pageScroller().scrollTop })); } catch (e) {}
     // A replace, not reload(), so it gets the same crossfade as moving
     // between pages instead of a blank frame.
-    location.replace(location.href);
+    const reload = () => location.replace(location.href);
+    // The service worker's kept copies of the tabs are out of date too:
+    // have them dropped first, or the reload would get this one again.
+    const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!sw || !window.MessageChannel) { reload(); return; }
+    const ch = new MessageChannel();
+    const t = setTimeout(reload, 1000);
+    ch.port1.onmessage = () => { clearTimeout(t); reload(); };
+    sw.postMessage({ type: "drop-copies" }, [ch.port2]);
   };
 
   const api = {
@@ -258,6 +266,9 @@ const dataVersion = (() => {
       if (saved && saved.url === location.href) pageScroller().scrollTop = saved.y;
     } catch (e) {}
     setTimeout(snapshot, 0); // after the page's own setup has filled its fields
+    // A copy of the page the service worker kept: has anything been saved
+    // since it was made?
+    if (document.querySelector('meta[name="glowworm-copy"]')) setTimeout(api.check, 0);
   });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) api.check(); });
   window.addEventListener("pageshow", (e) => { if (e.persisted) api.check(); });

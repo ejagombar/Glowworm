@@ -1,8 +1,10 @@
-// Glowworm's service worker does one thing: when a page can't be loaded
-// because the server is down (or the proxy in front of it answers 502–504),
-// it shows the cached "Can't connect" page instead of a blank screen. App
-// pages and data are never cached. __VERSION__ is filled in by the server,
-// so a change to the offline page or its styles re-caches them.
+// Glowworm's service worker: when a page can't be loaded because the server
+// is down (or the proxy in front of it answers 502–504), it shows the cached
+// "Can't connect" page instead of a blank screen. It also keeps the tab
+// pages seen in the last few minutes, so going back to one shows it at once
+// (see COPIES below). Data from the API is never cached. __VERSION__ is
+// filled in by the server, so a change to the offline page or its styles
+// re-caches them.
 const CACHE = "glowworm-offline-__VERSION__";
 const OFFLINE = "/static/offline.html";
 // The offline page asks for its stylesheet as styles.css?offline, which only
@@ -18,18 +20,70 @@ const ASSETS = [OFFLINE, STYLES, ...FONTS];
 const PREFETCH_TTL_MS = 10000;
 const prefetched = new Map(); // url -> { at, res: Promise<Response|null> }
 
+// Copies of the tab pages (the dashboard, Queries, Transactions, Savings,
+// Import, History), kept for a few minutes. Going back to a tab shows its
+// copy at once while a fresh one is fetched for next time. The copy is
+// marked, so the page checks the data version straight away and reloads
+// itself if anything was saved since it was made (app.js, dataVersion).
+// Anything saved from this device, signing out included (every POST),
+// drops them all, as does a page that finds its copy out of date.
+const COPIES = "glowworm-pages";
+const COPY_MS = 5 * 60 * 1000;
+const TAB_PATH = /^\/(queries|transactions|savings|import|history)?$/;
+const isTab = (url) => url.origin === self.location.origin && TAB_PATH.test(url.pathname);
+const dropCopies = () => caches.delete(COPIES).catch(() => {});
+
+// A fetched tab page is kept, marked as a copy and with when it was made.
+async function keepCopy(url, res) {
+  if (!res || !res.ok || res.redirected || !(res.headers.get("Content-Type") || "").startsWith("text/html")) return;
+  const html = (await res.text()).replace('<meta name="glowworm-version"', '<meta name="glowworm-copy" content="1" />\n  <meta name="glowworm-version"');
+  // The page's own headers go with it: its security policy (whose nonce
+  // matches this HTML) applies to the copy just as to the original.
+  const headers = new Headers(res.headers);
+  ["Content-Length", "Content-Encoding", "Vary"].forEach((h) => headers.delete(h));
+  headers.set("X-Copy-At", String(Date.now()));
+  const c = await caches.open(COPIES);
+  await c.put(url, new Response(html, { headers }));
+  // Forget copies too old to show.
+  for (const req of await c.keys()) {
+    const r = await c.match(req);
+    if (!r || Date.now() - Number(r.headers.get("X-Copy-At")) > COPY_MS) await c.delete(req);
+  }
+}
+async function recentCopy(url) {
+  const r = await caches.open(COPIES).then((c) => c.match(url)).catch(() => null);
+  return r && Date.now() - Number(r.headers.get("X-Copy-At")) < COPY_MS ? r : null;
+}
+
 self.addEventListener("message", (e) => {
   const d = e.data || {};
+  if (d.type === "drop-copies") {
+    // The page waits for the answer before reloading, so the reload can't
+    // be given the copy it found out of date.
+    prefetched.clear();
+    const done = dropCopies().then(() => { if (e.ports[0]) e.ports[0].postMessage("dropped"); });
+    e.waitUntil(done);
+    return;
+  }
   if (d.type !== "prefetch" || typeof d.url !== "string") return;
   const url = new URL(d.url);
   if (url.origin !== self.location.origin || prefetched.has(url.href)) return;
-  const res = fetchWithTimeout(new Request(url.href, { credentials: "same-origin" }), PREFETCH_TTL_MS)
-    .then((r) => (r.ok && !r.redirected ? r : null))
-    .catch(() => null);
+  const res = fetchAhead(url.href);
   prefetched.set(url.href, { at: Date.now(), res });
   setTimeout(() => prefetched.delete(url.href), PREFETCH_TTL_MS);
   e.waitUntil(res);
 });
+
+// Fetches a page in the background; a tab page is kept as a copy. Resolves
+// to a response the caller may use, or null.
+function fetchAhead(url) {
+  return fetchWithTimeout(new Request(url, { credentials: "same-origin" }), PREFETCH_TTL_MS)
+    .then((r) => {
+      if (!r.ok || r.redirected) return null;
+      return isTab(new URL(url)) ? keepCopy(url, r.clone()).then(() => r, () => r) : r;
+    })
+    .catch(() => null);
+}
 
 function takePrefetched(url) {
   const hit = prefetched.get(url);
@@ -74,7 +128,7 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k.startsWith("glowworm-offline-") && k !== CACHE).map((k) => caches.delete(k))))
+    .then((keys) => Promise.all(keys.filter((k) => (k.startsWith("glowworm-offline-") && k !== CACHE) || k === COPIES).map((k) => caches.delete(k))))
     .then(() => swLog("activated"))
     .then(() => self.clients.claim()));
 });
@@ -98,11 +152,15 @@ function fetchWithTimeout(req, ms) {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") {
-    prefetched.clear(); // something is being saved: pages fetched ahead may be stale
+    // Something is being saved (or the person is signing out): pages
+    // fetched ahead and kept copies may be out of date.
+    prefetched.clear();
+    e.waitUntil(dropCopies());
     return;
   }
   if (req.mode === "navigate") {
     const t0 = Date.now(), path = new URL(req.url).pathname;
+    const tab = isTab(new URL(req.url));
     const showOffline = (why) => {
       e.waitUntil(swLog(`load ${path}: offline page (${why}) after ${Date.now() - t0}ms`));
       return offline().then((r) => {
@@ -110,19 +168,35 @@ self.addEventListener("fetch", (e) => {
         return r || Response.error();
       });
     };
-    const early = takePrefetched(req.url);
-    const first = early ? early.then((r) => r || fetchWithTimeout(req, NAV_TIMEOUT_MS)) : fetchWithTimeout(req, NAV_TIMEOUT_MS);
     const retry = () => new Promise((ok) => setTimeout(ok, NAV_RETRY_MS)).then(() => fetchWithTimeout(req, NAV_TIMEOUT_MS));
-    const load = first.then(
+    const load = (first) => first.then(
       (r) => (r.status >= 502 && r.status <= 504 ? retry() : r),
-      (err) => (err && err.name === "AbortError" ? Promise.reject(err) : retry()));
-    e.respondWith(load
+      (err) => (err && err.name === "AbortError" ? Promise.reject(err) : retry()))
       .then((r) => {
         if (r.status >= 502 && r.status <= 504) return showOffline("status " + r.status);
         e.waitUntil(flushLog());
+        // A tab page loaded the ordinary way is kept too.
+        if (tab && r.ok && !r.redirected) e.waitUntil(keepCopy(req.url, r.clone()).catch(() => {}));
         return r;
       })
-      .catch((err) => showOffline(err && err.name === "AbortError" ? "timed out" : "network error")));
+      .catch((err) => showOffline(err && err.name === "AbortError" ? "timed out" : "network error"));
+    // A page fetched ahead (still on its way, perhaps), or else a fresh load.
+    const fetched = () => {
+      const early = takePrefetched(req.url);
+      return load(early ? early.then((r) => r || fetchWithTimeout(req, NAV_TIMEOUT_MS)) : fetchWithTimeout(req, NAV_TIMEOUT_MS));
+    };
+    if (!tab) {
+      e.respondWith(fetched());
+      return;
+    }
+    // A tab seen in the last few minutes shows its copy at once, and a
+    // fresh one is fetched for next time (unless that's already under way).
+    e.respondWith(recentCopy(req.url).then((copy) => {
+      if (!copy) return fetched();
+      const early = takePrefetched(req.url);
+      e.waitUntil(early || fetchAhead(req.url));
+      return copy;
+    }));
     return;
   }
   // The offline page's stylesheet and the fonts come straight from the cache:
