@@ -352,16 +352,25 @@ document.addEventListener("submit", (e) => {
 // until it arrives. Both neighbouring tabs are fetched ahead as soon as a
 // finger lands on the page, so by the time a swipe ends the page is often
 // already here (and the service worker keeps recent ones).
+//
+// Swiping again before that page has arrived carries on from the tab now
+// showing: its load is paused (so it can't land mid-swipe), and whichever
+// tab the swipes end on is the one loaded.
 (() => {
   if (!homeScreenApp || !window.matchMedia("(pointer: coarse)").matches) return;
   const EDGE = 24, LOCK = 10, SLIDE_MS = 180;
   const SNAP = "glowworm-snap:", SNAP_MAX = 1500000; // characters
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   let s = null;
-  // Each tab as { href } to go to (see tabHref).
+  // Each tab as { href, link, active } (href: see tabHref).
   const tabs = () => [...document.querySelectorAll(".tabnav .tabnav-item")]
     .filter((a) => a.getClientRects().length)
-    .map((a) => ({ href: tabHref(a.href), active: a.classList.contains("active") }));
+    .map((a) => ({ href: tabHref(a.href), link: a, active: a.classList.contains("active") }));
+  // The tab bar shows the tab swiped to straight away.
+  const markActive = (tab) => {
+    document.querySelectorAll(".tabnav .tabnav-item.active").forEach((a) => a.classList.remove("active"));
+    tab.link.classList.add("active");
+  };
   const leftAlone = (el) => {
     if (document.documentElement.classList.contains("scroll-locked")) return true;
     if (document.querySelector(".modal-backdrop:not([hidden]), .drawer.show, .chat-panel.floating.open")) return true;
@@ -402,8 +411,8 @@ document.addEventListener("submit", (e) => {
     if (peek && peek.href === to.href && peek.side === side) return;
     hidePeek();
     const c = content();
-    if (!c) return;
-    const r = c.getBoundingClientRect();
+    if (!c || !s) return;
+    const r = s.frame;
     const el = document.createElement("div");
     el.className = "content swipe-peek";
     el.inert = true;
@@ -412,7 +421,7 @@ document.addEventListener("submit", (e) => {
     let html = null;
     try { html = sessionStorage.getItem(pageKey(to.href)); } catch (e) {}
     if (html) el.innerHTML = html;
-    c.after(el);
+    (going ? going.el : c).after(el);
     peek = { el, side, href: to.href, width: r.width };
     if (html) peekScroll();
   };
@@ -431,9 +440,18 @@ document.addEventListener("submit", (e) => {
   };
   const hidePeek = () => { if (peek) { peek.el.remove(); peek = null; } };
 
-  // dx: how far the page has moved; the tab beside it keeps alongside.
+  // After a swipe, until its page loads: the tab now showing in the page's
+  // place, and where it's going. { href, list, at, frame, el, timer, loading }
+  let going = null;
+  const go = () => {
+    if (!going) return;
+    going.loading = true;
+    location.replace(going.href);
+  };
+  // dx: how far the page (or the tab in its place) has moved; the tab
+  // beside it keeps alongside.
   const place = (dx, animate) => {
-    const c = content();
+    const c = going ? going.el : content();
     if (!c) return;
     const t = animate ? `transform ${SLIDE_MS}ms ease-out` : "none";
     c.style.transition = t;
@@ -493,8 +511,11 @@ document.addEventListener("submit", (e) => {
         if (s) return;
         hidePeek();
         const c = content();
-        if (c) c.style.transition = "";
+        if (c && !going) c.style.transition = "";
+        if (going && !going.loading) go();
       }, SLIDE_MS + 20);
+    } else if (going && !going.loading) {
+      go();
     }
     s = null;
   };
@@ -502,11 +523,23 @@ document.addEventListener("submit", (e) => {
     s = null;
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
-    if (t.clientX < EDGE || t.clientX > innerWidth - EDGE || leftAlone(e.target)) return;
-    const list = tabs();
-    const at = list.findIndex((a) => a.active);
-    if (at < 0) return;
-    s = { x: t.clientX, y: t.clientY, time: Date.now(), dx: 0, locked: null, list, at, to: null };
+    let list, at, frame;
+    if (going) {
+      // A swipe is still on its way: hold its page until this touch is done.
+      clearTimeout(going.timer);
+      if (going.loading) { going.loading = false; window.stop(); }
+      ({ list, at, frame } = going);
+      if (t.clientX < EDGE || t.clientX > innerWidth - EDGE) return;
+    } else {
+      if (t.clientX < EDGE || t.clientX > innerWidth - EDGE || leftAlone(e.target)) return;
+      list = tabs();
+      at = list.findIndex((a) => a.active);
+      const c = content();
+      if (at < 0 || !c) return;
+      const r = c.getBoundingClientRect();
+      frame = { top: r.top, left: r.left, width: r.width, height: r.height };
+    }
+    s = { x: t.clientX, y: t.clientY, time: Date.now(), dx: 0, locked: null, list, at, frame, to: null };
     ahead(list[at - 1]);
     ahead(list[at + 1]);
   }, { passive: true });
@@ -519,7 +552,7 @@ document.addEventListener("submit", (e) => {
       if (Math.abs(dx) < LOCK && Math.abs(dy) < LOCK) return;
       // Sideways only when clearly so, and only while the page can still be
       // held: once iOS has started scrolling it can't be.
-      if (Math.abs(dx) < Math.abs(dy) * 1.5 || !e.cancelable) { s = null; return; }
+      if (Math.abs(dx) < Math.abs(dy) * 1.5 || !e.cancelable) { s = null; if (going && !going.loading) go(); return; }
       s.locked = "x";
     }
     e.preventDefault();
@@ -531,24 +564,46 @@ document.addEventListener("submit", (e) => {
     place(to ? dx : dx / 5, false);
   }, { passive: false });
   const end = () => {
-    if (!s || s.locked !== "x") { s = null; return; }
-    const { dx, to, time } = s;
+    if (!s || s.locked !== "x") {
+      s = null;
+      if (going && !going.loading) go();
+      return;
+    }
+    const { dx, to, time, list, frame } = s;
     const fast = Math.abs(dx) > 30 && Math.abs(dx) / Math.max(Date.now() - time, 1) > 0.3;
     if (!to || !(Math.abs(dx) > innerWidth * 0.2 || fast)) { reset(); return; }
+    const toAt = s.at + (dx < 0 ? 1 : -1);
     s = null;
-    snapshot();
+    if (!going) snapshot();
     markTabSwitch();
+    markActive(to);
     waiting(true);
-    if (reduced.matches || !peek) { location.replace(to.href); return; }
+    if (reduced.matches || !peek) {
+      going = { href: to.href, list, at: toAt, frame, el: going ? going.el : content(), timer: null, loading: false };
+      go();
+      return;
+    }
     // The next tab slides the rest of the way in, then its page loads in
     // the same place.
     place(dx < 0 ? -peek.width : peek.width, true);
-    setTimeout(() => location.replace(to.href), SLIDE_MS);
+    const before = going && going.el;
+    going = { href: to.href, list, at: toAt, frame, el: peek.el, timer: null, loading: false };
+    peek = null;
+    going.timer = setTimeout(() => {
+      if (before) before.remove();
+      go();
+    }, SLIDE_MS);
   };
   document.addEventListener("touchend", end, { passive: true });
   document.addEventListener("touchcancel", reset, { passive: true });
   // Coming back to a page kept in memory: put it straight.
-  window.addEventListener("pageshow", () => { s = null; hidePeek(); place(0, false); waiting(false); });
+  window.addEventListener("pageshow", () => {
+    s = null;
+    if (going) { clearTimeout(going.timer); if (going.el !== content()) going.el.remove(); going = null; }
+    hidePeek();
+    place(0, false);
+    waiting(false);
+  });
 })();
 
 // Pop-ups: while one is open the page behind stays put. iOS ignores
