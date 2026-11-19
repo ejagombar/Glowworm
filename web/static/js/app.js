@@ -1901,6 +1901,19 @@ document.addEventListener("DOMContentLoaded", () => {
       queryInput.style.height = "auto";
     };
     queryBtn?.addEventListener("click", submit);
+    // With the keyboard up, a tap on Send would first take focus from the
+    // text box: the keyboard drops, the page grows back under the finger
+    // and the tap misses the button, so it only hid the keyboard. Instead
+    // the text box keeps its focus (and the keyboard stays up, as in a
+    // messaging app) and the tap sends there and then.
+    queryBtn?.addEventListener("touchend", (e) => {
+      if (document.activeElement !== queryInput || !e.cancelable) return;
+      e.preventDefault(); // no blur, and no click to follow
+      submit();
+    }, { passive: false });
+    queryBtn?.addEventListener("mousedown", (e) => {
+      if (document.activeElement === queryInput) e.preventDefault(); // keep the caret
+    });
     queryInput.addEventListener("input", () => {
       queryInput.style.height = "auto";
       queryInput.style.height = Math.min(queryInput.scrollHeight, 140) + "px";
