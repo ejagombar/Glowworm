@@ -398,13 +398,13 @@ body.privacy .pie-total { display: none; }
 }
 .tabnav-item:hover { color: var(--text); }
 /* How many savings balances are out of date, in the glowworm's own green
-   with its glow. */
+   with a soft glow (no ring around it). */
 .tab-dot {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: #27b268; color: #fff;
   font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
-  box-shadow: 0 0 0 2px rgba(125, 255, 184, 0.3), 0 0 6px rgba(44, 197, 122, 0.6);
+  box-shadow: 0 0 6px rgba(44, 197, 122, 0.6);
 }
 .tabnav-item.active {
   color: var(--text);
