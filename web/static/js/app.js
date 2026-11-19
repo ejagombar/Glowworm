@@ -345,8 +345,9 @@ document.addEventListener("submit", (e) => {
 // screen's edges (the system's own gestures).
 //
 // The tab coming in is shown as it looked when it was last left (kept in
-// sessionStorage), or as an empty page the first time; once the swipe ends
-// the real page loads in its place. On a slow connection a spinner shows
+// sessionStorage); a tab not seen yet is fetched when the finger lands and
+// shown from that (without its charts, which scripts draw). Once the swipe
+// ends the real page loads in its place. On a slow connection a spinner shows
 // until it arrives. Both neighbouring tabs are fetched ahead as soon as a
 // finger lands on the page, so by the time a swipe ends the page is often
 // already here (and the service worker keeps recent ones).
@@ -429,6 +430,30 @@ document.addEventListener("submit", (e) => {
       navigator.serviceWorker.controller.postMessage({ type: "prefetch", url: new URL(a.href, location.href).href });
     }
   };
+  // A neighbouring tab, fetched ahead. One with no picture yet is fetched
+  // here, marked so the service worker answers from its kept copy or keeps
+  // the response for the page load that follows; its content becomes the
+  // picture.
+  const fetching = new Set();
+  const ahead = (a) => {
+    if (!a) return;
+    let snap = null;
+    try { snap = sessionStorage.getItem(pageKey(a.href)); } catch (e) {}
+    if (snap) { prefetch(a); return; }
+    if (fetching.has(a.href)) return;
+    fetching.add(a.href);
+    nativeFetch(a.href, { credentials: "same-origin", headers: { "X-Glowworm-Peek": "1" } })
+      .then((r) => (r.ok && !r.redirected ? r.text() : null))
+      .then((html) => {
+        if (!html) return;
+        const c = new DOMParser().parseFromString(html, "text/html").getElementById("content");
+        if (!c) return;
+        try { if (!sessionStorage.getItem(pageKey(a.href))) sessionStorage.setItem(pageKey(a.href), c.innerHTML); } catch (e) {}
+        if (peek && peek.href === a.href && !peek.el.childElementCount) peek.el.innerHTML = c.innerHTML;
+      })
+      .catch(() => {})
+      .finally(() => fetching.delete(a.href));
+  };
   // Shown while the next page is on its way; it fades in only after a
   // moment (CSS), so a quick load never flashes it.
   const waiting = (on) => {
@@ -464,8 +489,8 @@ document.addEventListener("submit", (e) => {
     const at = list.findIndex((a) => a.classList.contains("active"));
     if (at < 0) return;
     s = { x: t.clientX, y: t.clientY, time: Date.now(), dx: 0, locked: null, list, at, to: null };
-    prefetch(list[at - 1]);
-    prefetch(list[at + 1]);
+    ahead(list[at - 1]);
+    ahead(list[at + 1]);
   }, { passive: true });
   document.addEventListener("touchmove", (e) => {
     if (!s) return;

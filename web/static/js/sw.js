@@ -199,6 +199,25 @@ self.addEventListener("fetch", (e) => {
     }));
     return;
   }
+  // A tab fetched by the page to show beside it while swiping (app.js): the
+  // kept copy if there is one, or else fetched and held for the page load
+  // that usually follows.
+  if (req.headers.get("X-Glowworm-Peek") && isTab(new URL(req.url))) {
+    const url = new URL(req.url);
+    url.hash = "";
+    e.respondWith(recentCopy(url.href).then((copy) => {
+      if (copy) return copy;
+      let hit = prefetched.get(url.href);
+      if (!hit) {
+        hit = { at: Date.now(), res: fetchAhead(url.href) };
+        prefetched.set(url.href, hit);
+        setTimeout(() => prefetched.delete(url.href), PREFETCH_TTL_MS);
+      }
+      // A copy for this answer; the held response stays whole for the page load.
+      return hit.res.then((r) => (r ? r.clone() : Response.error()));
+    }));
+    return;
+  }
   // The offline page's stylesheet and the fonts come straight from the cache:
   // waiting on a server that isn't answering would hold the page blank.
   const url = new URL(req.url);
