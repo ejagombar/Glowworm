@@ -347,12 +347,6 @@ body.privacy .chart-hover-tip .chart-tip-value:not(.no-blur):not(:empty)::after 
   text-decoration: line-through; text-decoration-thickness: 0.62em; text-decoration-color: var(--line-2);
   text-decoration-skip-ink: none;
 }
-body.privacy #accOpening,
-body.privacy [data-bp-value] { -webkit-text-security: disc; }
-@supports not (-webkit-text-security: disc) {
-  body.privacy #accOpening,
-  body.privacy [data-bp-value] { color: transparent; }
-}
 /* Svg text can't take ::after, so charts draw a bar beside the real text. */
 .privacy-mask { display: none; }
 body.privacy .privacy-mask { display: inline; }

@@ -15,7 +15,7 @@ newest first) with "Loaded" true; without them the panel fetches them. */}}
   <div class="balance-update">
     <div class="field-unit">
       <span class="field-unit-symbol">{{.Symbol}}</span>
-      <input class="field" data-bp-value type="text" inputmode="decimal" enterkeyhint="done"
+      <input class="field" data-bp-value type="text" autocomplete="off" inputmode="decimal" enterkeyhint="done"
         placeholder="{{if eq $a.Type "credit"}}Amount owed{{else}}New balance{{end}}"
         aria-label="{{if eq $a.Type "credit"}}Amount owed{{else}}New balance{{end}} for {{$a.Name}}" />
     </div>

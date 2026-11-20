@@ -13,8 +13,8 @@
     </div>
     <form class="modal-body" id="accountForm" data-account-id="">
       <div class="field-row">
-        <label>Name</label>
-        <input class="field" id="accName" type="text" placeholder="e.g. Joint account" />
+        <label for="accTitle">Account name</label>
+        <input class="field" id="accTitle" type="text" autocomplete="off" placeholder="e.g. Joint account" />
       </div>
       <div class="field-row">
         <label>Type</label>
@@ -28,7 +28,7 @@
         <label>Opening balance</label>
         <div class="field-unit">
           <span class="field-unit-symbol">{{.Symbol}}</span>
-          <input class="field" id="accOpening" type="number" step="0.01" placeholder="0.00" />
+          <input class="field" id="accOpening" autocomplete="off" type="number" step="0.01" placeholder="0.00" />
         </div>
       </div>
       <div class="field-row">
@@ -38,21 +38,21 @@
       <div class="field-cols">
         <div class="field-row">
           <label>Account number</label>
-          <input class="field" id="accNumber" type="text" inputmode="numeric" placeholder="e.g. 10424211" />
+          <input class="field" id="accNumber" autocomplete="off" type="text" inputmode="numeric" placeholder="e.g. 10424211" />
         </div>
         <div class="field-row">
           <label>Sort code</label>
-          <input class="field" id="accSortCode" type="text" inputmode="numeric" placeholder="e.g. 04-00-04" />
+          <input class="field" id="accSortCode" autocomplete="off" type="text" inputmode="numeric" placeholder="e.g. 04-00-04" />
         </div>
       </div>
       <div class="field-cols">
         <div class="field-row">
           <label>IBAN</label>
-          <input class="field" id="accIban" type="text" placeholder="GB29 NWBK 0400 0410 4242 11" />
+          <input class="field" id="accIban" autocomplete="off" type="text" placeholder="GB29 NWBK 0400 0410 4242 11" />
         </div>
         <div class="field-row">
           <label>BIC</label>
-          <input class="field" id="accBic" type="text" placeholder="NWBKGB2L" />
+          <input class="field" id="accBic" autocomplete="off" type="text" placeholder="NWBKGB2L" />
         </div>
       </div>
       <div class="account-danger" id="accDangerZone" hidden>

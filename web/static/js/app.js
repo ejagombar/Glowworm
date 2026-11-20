@@ -2960,7 +2960,7 @@ let accountLoaded = null;
 function accountPayload() {
   const opening = parseFloat(document.getElementById("accOpening").value);
   const body = {
-    name: document.getElementById("accName").value.trim(),
+    name: document.getElementById("accTitle").value.trim(),
     type: document.getElementById("accType").value,
     opening_balance_minor: isNaN(opening) ? 0 : Math.round(opening * 100),
     opening_balance_date: document.getElementById("accOpeningDate").value || "",
@@ -2992,12 +2992,12 @@ function openAccountForm(id) {
   document.getElementById("accountModalSub").textContent = id ? "Edit this account's details." : "Add a new account to Glowworm.";
   document.getElementById("accDangerZone").hidden = !id;
   accountLoaded = null;
-  ["accName", "accOpening", "accOpeningDate", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
+  ["accTitle", "accOpening", "accOpeningDate", ...Object.values(ACCOUNT_BANK_FIELDS)].forEach((x) => (document.getElementById(x).value = ""));
   syncDateField(document.getElementById("accOpeningDate"));
   if (id) {
     fetch(`/api/v1/accounts/${id}`).then((r) => jsonOk(r)).then((a) => {
       if (form.dataset.accountId !== id) return;
-      document.getElementById("accName").value = a.name || "";
+      document.getElementById("accTitle").value = a.name || "";
       document.getElementById("accType").value = a.type || "debit";
       document.getElementById("accOpening").value = a.opening_balance_minor != null ? (a.opening_balance_minor / 100).toFixed(2) : "";
       document.getElementById("accOpeningDate").value = a.opening_balance_date || "";
@@ -3015,7 +3015,7 @@ function openAccountForm(id) {
   modal.scrollTop = 0;
   // Only a new account starts in the Name box, and not on a touch screen,
   // where focus throws up the keyboard before anything is tapped.
-  if (!id && !window.matchMedia("(pointer: coarse)").matches) document.getElementById("accName").focus();
+  if (!id && !window.matchMedia("(pointer: coarse)").matches) document.getElementById("accTitle").focus();
 }
 
 function localISODate(d) {
@@ -3180,7 +3180,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("accountForm");
     const id = form.dataset.accountId;
     if (!id) return;
-    const name = document.getElementById("accName").value.trim() || "this account";
+    const name = document.getElementById("accTitle").value.trim() || "this account";
     showConfirm(`Delete “${name}”?`,
       "Its transactions, valuations and transfer links are removed everywhere. A copy is kept under Deleted accounts in Settings, so you can restore it later.",
       "Delete account", () => {
