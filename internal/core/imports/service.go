@@ -1314,10 +1314,6 @@ func (s *Service) Cancel(batchID string) error {
 	})
 }
 
-func (s *Service) SaveSchema(name, bankHint string, m *importer.Mapping, sampleHeader []string, confidence float64) (*core.ImportSchema, error) {
-	return s.saveSchema(name, bankHint, m, sampleHeader, confidence, nil)
-}
-
 func (s *Service) saveSchema(name, bankHint string, m *importer.Mapping, sampleHeader []string, confidence float64, accountID *string) (*core.ImportSchema, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, &ValidationError{Message: "Schema name is required"}

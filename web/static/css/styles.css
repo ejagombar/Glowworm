@@ -1209,23 +1209,6 @@ textarea.field { display: block; resize: vertical; min-height: 64px; line-height
 .dropzone .icon.big { color: var(--muted-2); margin-bottom: 8px; }
 .dropzone.small { padding: 22px 16px; margin-bottom: 0; }
 .two-col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
-.schema-list {
-  display: flex; flex-direction: column;
-  gap: 1px; background: var(--line); border: 1px solid var(--line);
-}
-.schema-card {
-  background: var(--surface); padding: 12px 14px;
-  display: flex; align-items: center; gap: 12px;
-}
-.schema-card .schema-logo {
-  width: 30px; height: 30px; border-radius: 3px; flex: none;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 600; color: #fff; font-size: 12px;
-}
-.schema-card .schema-main { flex: 1; min-width: 0; }
-.schema-card .schema-name { font-weight: 500; font-size: 13px; }
-.schema-card .schema-cols { color: var(--muted); font-size: 11.5px; font-family: var(--mono); }
-.schema-card .schema-conf { font-size: 11.5px; color: var(--income); font-weight: 500; }
 .steps-list { list-style: none; padding: 4px 2px; display: flex; flex-direction: column; gap: 13px; }
 .steps-list li { display: flex; align-items: center; gap: 11px; font-size: 13px; }
 .step-num {
@@ -2060,11 +2043,6 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
 }
 
 #view-import.import-active .import-idle { display: none; }
-.schema-card .schema-account {
-  flex: none; font-size: 11.5px; font-weight: 500; color: var(--text-2);
-  background: var(--surface-3); border-radius: var(--r-xs); padding: 2px 7px;
-  max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 .ai-review-banner {
   border: 1px solid var(--line); border-left: 3px solid var(--transfer);
   background: var(--transfer-soft); border-radius: var(--r);
@@ -2109,7 +2087,6 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
 
 .import-review { padding: 16px 18px; }
 .import-review-head { margin-bottom: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.review-schema-badge { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .import-review-head .category-form-title { margin-bottom: 8px; font-size: 16px; }
 .review-into { min-width: 0; }
 .review-file { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2224,7 +2201,6 @@ html:has(.login-shell), html:has(.login-shell) body { overscroll-behavior: none;
   margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
 }
 .review-footer .field-row { margin: 0; min-width: 200px; }
-.review-footer .review-schema-name { min-width: 240px; }
 .review-footer .spacer { flex: 1; }
 /* On wide screens the review fills the viewport exactly and only the two
    transaction lists scroll. */

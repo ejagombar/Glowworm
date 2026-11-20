@@ -657,8 +657,6 @@ func (a *App) apiImportApplySchema(w http.ResponseWriter, r *http.Request) error
 	batchID := r.PathValue("id")
 	var in struct {
 		Mapping json.RawMessage `json:"mapping"`
-		Save    bool            `json:"save_schema"`
-		Name    string          `json:"name"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		return err
@@ -681,23 +679,6 @@ func (a *App) apiImportApplySchema(w http.ResponseWriter, r *http.Request) error
 			return nil
 		}
 		return err
-	}
-	if in.Save {
-		var header []string
-		if b.Detection != nil && len(b.Detection.Sample) > 0 {
-			header = b.Detection.Sample[0]
-		}
-		name := in.Name
-		if name == "" && b.Detection != nil {
-			name = b.Detection.ProposedName
-		}
-		bank := ""
-		if b.Detection != nil {
-			bank = b.Detection.BankHint
-		}
-		if _, err := a.Imports.SaveSchema(name, bank, &m, header, m.Confidence); err != nil {
-			return err
-		}
 	}
 	writeJSON(w, b)
 	return nil

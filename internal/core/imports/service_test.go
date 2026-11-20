@@ -353,6 +353,28 @@ func TestCategoriseGroupsReviewAndRememberSchema(t *testing.T) {
 	if b3.Status != "awaiting_review" || b3.SchemaName != "My Bank CSV" {
 		t.Fatalf("schema not matched with a byte-order mark: status=%q schema=%q", b3.Status, b3.SchemaName)
 	}
+
+	// Changing the columns from the review of a matched import updates that
+	// saved format, keeping its name, rather than adding a second one.
+	changed := userMapping()
+	changed.Columns = append(changed.Columns[:2:2], changed.Columns[3]) // drop Payee
+	if _, err := s.ApplySchemaPublic(b2.ID, changed, []byte(next)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Confirm(b2.ID, "acc-main", ""); err != nil {
+		t.Fatal(err)
+	}
+	schemas, err = s.ListSchemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schemas) != 1 || schemas[0].Name != "My Bank CSV" || schemas[0].UseCount != 2 {
+		t.Fatalf("re-mapped import should update the saved format: %+v", schemas)
+	}
+	_ = s.DB.QueryRow(`SELECT mapping FROM import_schemas`).Scan(&mapping)
+	if strings.Contains(mapping, `"destination"`) {
+		t.Fatalf("saved format should hold the changed mapping: %s", mapping)
+	}
 }
 
 func TestForcedDuplicateJoinsItsGroup(t *testing.T) {

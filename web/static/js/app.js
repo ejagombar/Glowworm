@@ -4256,7 +4256,9 @@ document.addEventListener("DOMContentLoaded", () => {
     sync();
   }
 
-  const renderBatch = (b, prev) => {
+  // back, when set, is where Cancel on the Columns step returns: the review
+  // it was opened from.
+  const renderBatch = (b, prev, back) => {
     if (b.status === "failed") {
       const why = b.parse_error || "The file could not be read.";
       openFlow(`
@@ -4268,7 +4270,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>`);
       return;
     }
-    if (b.status === "awaiting_review") {
+    if (b.status === "awaiting_review" && !back) {
       openReview(b.id, true);
       return;
     }
@@ -4313,7 +4315,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="section-head"><h2>Sample Import</h2></div>
         <div style="overflow-x:auto"><table class="tx-table"><thead><tr>${headerHTML}</tr></thead><tbody>${sample}</tbody></table></div>
         <div class="category-form-actions">
-          ${aiProposal
+          ${back ? "" : aiProposal
             ? (prev ? '<button class="btn btn-ghost" id="mapDiscardAI" type="button">Discard AI proposal</button>' : "")
             : '<button class="btn btn-ghost" id="mapAI" type="button">Ask AI to detect</button>'}
           <span class="spacer"></span>
@@ -4321,7 +4323,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="btn btn-primary" id="mapApply" type="button">Continue</button>
         </div>
       </div>`);
-    document.getElementById("mapCancel").addEventListener("click", closeFlow);
+    document.getElementById("mapCancel").addEventListener("click", () => (back ? back() : closeFlow()));
     document.getElementById("mapDateFormat").value = goLayoutToHuman(d.date_format);
     const setDateSample = () => {
       const pv = document.getElementById("datePreview");
@@ -4332,7 +4334,7 @@ document.addEventListener("DOMContentLoaded", () => {
     wireMappingForm(sel, d, sampleHeader, sampleBody, target);
     document.getElementById("mapDate").addEventListener("change", () => { setDateSample(); refreshDatePreview(); });
     document.getElementById("mapDiscardAI")?.addEventListener("click", () => {
-      renderBatch(Object.assign({}, b, { detection: prev, parse_error: null }));
+      renderBatch(Object.assign({}, b, { detection: prev, parse_error: null }), undefined, back);
       toast("AI proposal discarded");
     });
 
@@ -4424,7 +4426,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!r.ok) { fail(errMessage(nb, r.status)); return; }
         clearInterval(tick);
         panel.querySelector(".ai-progress-head").innerHTML = `<strong>Got a proposal · loading it for your review…</strong>`;
-        setTimeout(() => renderBatch(nb, d), 350);
+        setTimeout(() => renderBatch(nb, d, back), 350);
       }).catch(() => fail());
     });
     document.getElementById("mapApply").addEventListener("click", (e) => {
@@ -4569,11 +4571,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderReview(R) {
     const b = R.batch;
     const d = b.detection || null;
-    const kind = d && d.kind ? d.kind : "";
     const nRows = R.groups.reduce((s, g) => s + g.rows.length, 0);
     const accounts = window.__IMPORT_ACCOUNTS__ || [];
     const defaultAcc = b.account_id || lastImportAccount();
-    const remembersSchema = kind === "csv" || kind === "xlsx";
     const dupRows = R.dups.map((row) => `<tr data-row-id="${esc(row.id)}">
         <td class="cell-sub cell-date">${dateHTML(row.date)}</td><td>${esc(row.description)}</td>
         <td class="num tx-amount ${row.amount_minor >= 0 ? "pos" : "neg"}">${fmtMoneySigned(row.amount_minor, row.currency || "GBP")}</td>
@@ -4589,7 +4589,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 <span class="account-pick-dot" style="background:${esc(a.color || "var(--muted)")}"></span>${esc(a.name)}</button>`).join("")}
             </div>
           </div>
-          <p class="muted review-file">${esc(b.filename || "")}${b.schema_name ? ` · ${esc(b.schema_name)}` : ""}</p>
+          <p class="muted review-file">${esc(b.filename || "")}${b.schema_name ? ` · read as ${esc(b.schema_name)}` : ""}
+            ${d ? ' · <button class="link" type="button" id="reviewColumns">Change columns</button>' : ""}</p>
         </div>
         <ol class="cat-pipeline">
           <li data-step="local"><span class="step-num">1</span><div><strong>Quick match</strong><span class="step-note"></span></div></li>
@@ -4616,10 +4617,6 @@ document.addEventListener("DOMContentLoaded", () => {
           </section>
         </div>
         <div class="review-footer">
-          ${remembersSchema ? `<div class="field-row review-schema-name">
-            <label for="reviewSchemaName">Remember this format as</label>
-            <input class="field" id="reviewSchemaName" maxlength="80" />
-          </div>` : ""}
           <span class="spacer"></span>
           <button class="btn btn-ghost" id="reviewCancel" type="button">Cancel</button>
           <button class="btn btn-primary" id="reviewConfirm" type="button">Import</button>
@@ -4641,19 +4638,13 @@ document.addEventListener("DOMContentLoaded", () => {
     doneList.appendChild(frag.done);
     updateCounts(R);
 
-    const nameInput = document.getElementById("reviewSchemaName");
     const accSel = document.getElementById("reviewAccount");
-    const defaultName = () => {
-      if (b.schema_name) return b.schema_name;
-      if (d && d.proposed_name) return d.proposed_name;
-      const acc = accounts.find((a) => a.id === accSel.value);
-      return acc ? `${acc.name} ${kind.toUpperCase()}` : (b.filename || "");
-    };
-    if (nameInput) {
-      nameInput.value = defaultName();
-      nameInput.addEventListener("input", () => { nameInput.dataset.touched = "1"; });
-      accSel.addEventListener("change", () => { if (!nameInput.dataset.touched) nameInput.value = defaultName(); });
-    }
+    // Back to the Columns step. Continuing there reads the file again, so
+    // categories picked in this review start over; Cancel returns here.
+    document.getElementById("reviewColumns")?.addEventListener("click", () => {
+      if (R.running) return;
+      renderBatch(b, undefined, () => openReview(b.id, false));
+    });
     // Picking the account checks the rows for duplicates in it; the review
     // is redrawn only when that changes which rows are duplicates.
     R.el.root.querySelector(".account-pick").addEventListener("click", (e) => {
@@ -4913,13 +4904,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const accountID = document.getElementById("reviewAccount").value;
     if (!accountID) { toast("Choose the account to import into"); return; }
     try { localStorage.setItem("glowworm-import-account", accountID); } catch (e) {}
-    const nameInput = document.getElementById("reviewSchemaName");
     btn.disabled = true;
     btn.textContent = "Importing…";
     fetch(`/api/v1/imports/${R.batchID}/confirm`, {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ account_id: accountID, schema_name: nameInput ? nameInput.value.trim() : "" }),
+      body: JSON.stringify({ account_id: accountID }),
     }).then(async (r) => {
       const b = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -4927,8 +4917,7 @@ document.addEventListener("DOMContentLoaded", () => {
         updateCounts(R);
         return;
       }
-      // Back to the import page, ready for the next file; reloading shows a
-      // newly saved format in its list.
+      // Back to the import page, ready for the next file.
       const acc = (window.__IMPORT_ACCOUNTS__ || []).find((a) => a.id === accountID);
       const imported = R.groups.reduce((s, g) => s + g.rows.length, 0);
       reloadWithToast(`Imported ${plural(imported, "transaction")}${acc ? ` into ${acc.name}` : ""}`);
