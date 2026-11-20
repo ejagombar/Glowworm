@@ -386,11 +386,7 @@ func (s *Service) CategoriseAI(ctx context.Context, batchID string, emit func(Pr
 			// One bad chunk leaves only its groups for the user; several in a
 			// row mean the provider is failing, so the rest aren't sent.
 			if failedChunks >= aiFailedChunkCap && runCtx.Err() == nil {
-				msg := "The AI requests kept failing"
-				if err != nil {
-					msg += " (" + err.Error() + ")"
-				}
-				emit(Progress{Phase: "warning", Message: msg + ", so the remaining groups are left for you"})
+				emit(Progress{Phase: "warning", Message: aiStoppedMessage(err)})
 				stop()
 			}
 			progress()
@@ -712,4 +708,25 @@ func (s *Service) pastChoices() map[string][]pastChoice {
 		}
 	}
 	return out
+}
+
+// aiStoppedMessage says why the AI pass gave up, in the words ai.Explain
+// uses on the AI settings page rather than the provider's raw reply.
+func aiStoppedMessage(err error) string {
+	why := "the AI requests kept failing"
+	if err != nil {
+		e := ai.Explain(err)
+		why = e.Summary
+		// A summary that doesn't say what happened needs the detail.
+		switch e.Summary {
+		case "Something went wrong", "Couldn't reach the provider", "The provider refused the request":
+			if e.Detail != "" {
+				why = e.String()
+			}
+		}
+		if strings.Contains(e.Summary, "API key") || e.Summary == "Out of credit" {
+			why += " (check Settings → AI)"
+		}
+	}
+	return "AI categorising stopped: " + why + ". The remaining groups are left for you."
 }

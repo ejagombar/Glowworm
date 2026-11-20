@@ -4861,13 +4861,13 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
         case "warning":
           R.aiFailed = true;
-          toast(p.message || "AI problem");
+          toast(p.message || "AI problem", "error");
           break;
         case "done":
           finishPipeline(R);
           break;
         case "error":
-          toast(p.message || "Categorisation failed");
+          toast(p.message || "Categorisation failed", "error");
           setStep(R.phase === "ai" ? "ai" : "local", "failed", esc(p.message || "Failed"));
           finishPipeline(R);
           break;
