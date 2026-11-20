@@ -831,7 +831,7 @@ func TestAIStoppedMessageIsPlain(t *testing.T) {
 	err := &ai.ErrUnavailable{Reason: "401 Unauthorized: {...}", Status: 401,
 		Body: `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_1"}`}
 	got := aiStoppedMessage(err)
-	want := "AI categorising stopped: API key not accepted (check Settings → AI). The remaining groups are left for you."
+	want := "AI categorising stopped: API key not accepted (check Settings → AI)"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

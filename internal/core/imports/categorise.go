@@ -728,5 +728,5 @@ func aiStoppedMessage(err error) string {
 			why += " (check Settings → AI)"
 		}
 	}
-	return "AI categorising stopped: " + why + ". The remaining groups are left for you."
+	return "AI categorising stopped: " + why
 }
