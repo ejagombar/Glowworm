@@ -66,6 +66,9 @@ func New() (*Renderer, error) {
 		"dayMonth":     func(iso string) string { return fmtDate(iso, "2 Jan") },
 		"dayMonthYear": func(iso string) string { return fmtDate(iso, "2 Jan 2006") },
 		"dateCell":     dateCell,
+		// today is the server's date; pages put the device's own in place
+		// as they open, but the page is right before that too.
+		"today": func() string { return time.Now().Format("2006-01-02") },
 		"monthName": func(mm string) string {
 			months := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 			i := 0

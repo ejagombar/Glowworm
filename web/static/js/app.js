@@ -389,7 +389,22 @@ document.addEventListener("submit", (e) => {
   const snapshot = () => {
     const c = content();
     if (!c) return;
-    const html = c.innerHTML;
+    // Fields as they show now (a date or a choice the page filled in), not
+    // as the page arrived; text typed in is left out.
+    const copy = c.cloneNode(true);
+    const from = c.querySelectorAll("input, select"), to = copy.querySelectorAll("input, select");
+    from.forEach((el, i) => {
+      const d = to[i];
+      if (!d) return;
+      if (el.tagName === "SELECT") {
+        [...el.options].forEach((o, j) => { if (d.options[j]) d.options[j].toggleAttribute("selected", o.selected); });
+      } else if (el.type === "checkbox" || el.type === "radio") {
+        d.toggleAttribute("checked", el.checked);
+      } else if (/^(date|month|time|datetime-local|range|color)$/.test(el.type)) {
+        d.setAttribute("value", el.value);
+      }
+    });
+    const html = copy.innerHTML;
     if (html.length > SNAP_MAX) return;
     const key = pageKey(location.href);
     try {

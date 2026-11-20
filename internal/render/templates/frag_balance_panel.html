@@ -19,7 +19,7 @@ newest first) with "Loaded" true; without them the panel fetches them. */}}
         placeholder="{{if eq $a.Type "credit"}}Amount owed{{else}}New balance{{end}}"
         aria-label="{{if eq $a.Type "credit"}}Amount owed{{else}}New balance{{end}} for {{$a.Name}}" />
     </div>
-    <input class="field" data-bp-date type="date" aria-label="Balance date for {{$a.Name}}" />
+    <input class="field" data-bp-date type="date" value="{{today}}" max="{{today}}" aria-label="Balance date for {{$a.Name}}" />
     <button class="btn btn-primary" type="button" data-bp-record>{{if eq $a.Type "savings"}}Update{{else}}Record{{end}}</button>
   </div>
   <details class="valuation-history" data-bp-history{{if not $vals}} hidden{{end}}>
