@@ -81,6 +81,8 @@ func TestStaticCachingAndRevalidation(t *testing.T) {
 		{"/static/js/app.js?v=stale", "no-cache"},
 		{"/static/js/app.js", "no-cache"},
 		{"/static/fonts/inter.woff2", "public, max-age=2592000"},
+		// Asked for by a fixed name (manifest, iOS), so a redrawn logo must get through.
+		{"/static/icons/favicon.png", "no-cache"},
 	}
 	for _, c := range cases {
 		if got := getStatic(t, h, c.target, nil).Header().Get("Cache-Control"); got != c.want {

@@ -34,13 +34,19 @@ var SplashScreens = []SplashScreen{
 	{320, 568, 2}, // 5, SE (1st)
 }
 
-// File is the image's name under /static/splash/.
+// File is the image's name under /static/splash/. It carries a hash of the
+// worm it's drawn from, so a redrawn worm gets a new name that no cache
+// (Safari's, or iOS's when the app is added) has a copy of.
 func (s SplashScreen) File(dark bool) string {
 	theme := "light"
 	if dark {
 		theme = "dark"
 	}
-	return fmt.Sprintf("%dx%d-%s.png", s.Width*s.Ratio, s.Height*s.Ratio, theme)
+	return fmt.Sprintf("%dx%d-%s-%s.png", s.Width*s.Ratio, s.Height*s.Ratio, theme, Version(s.worm()))
+}
+
+func (s SplashScreen) worm() string {
+	return fmt.Sprintf("icons/splash-worm@%dx.png", s.Ratio)
 }
 
 // Media is the query that picks this image for a screen and colour scheme.
@@ -86,7 +92,7 @@ func Splash(name string) (data []byte, ok bool) {
 
 func drawSplash(s SplashScreen, dark bool) ([]byte, error) {
 	// The worm is drawn 128pt wide at either density.
-	src, err := FS.ReadFile(fmt.Sprintf("icons/splash-worm@%dx.png", s.Ratio))
+	src, err := FS.ReadFile(s.worm())
 	if err != nil {
 		return nil, err
 	}

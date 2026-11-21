@@ -161,11 +161,12 @@ func (s *staticSet) handler(strip string) http.Handler {
 			// A versioned URL (the asset template func) names these exact bytes;
 			// a new build links a new URL, so it can be kept for good.
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		case strings.HasPrefix(path, "fonts/") || strings.HasPrefix(path, "icons/"):
-			// Linked from CSS and the manifest without a version; they don't change.
+		case strings.HasPrefix(path, "fonts/"):
+			// Linked from CSS without a version; they don't change.
 			w.Header().Set("Cache-Control", "public, max-age=2592000")
 		default:
-			// Unversioned: the binary is updated in place and must never serve
+			// Unversioned, icons included (the manifest and iOS ask for them by a
+			// fixed name, and a redrawn logo must reach them): the binary is updated in place and must never serve
 			// a stale app.js, so check every time.
 			w.Header().Set("Cache-Control", "no-cache")
 		}
