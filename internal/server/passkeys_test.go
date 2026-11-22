@@ -18,7 +18,6 @@ import (
 
 	"github.com/ejagombar/Glowworm/internal/config"
 	"github.com/ejagombar/Glowworm/internal/crypto"
-	"github.com/ejagombar/Glowworm/internal/store/repos"
 )
 
 func newLockTestApp(t *testing.T) (*App, *testClient) {
@@ -47,46 +46,8 @@ func requestWith(c *testClient) *http.Request {
 	return req
 }
 
-// A device that turned on the old app lock (v1.0.0) carries on unlocked,
-// and loses the lock's cookies.
-func TestOldAppLockNoLongerLocks(t *testing.T) {
-	a, c := newLockTestApp(t)
-	u, err := a.Repos.Users.ByUsername("owner")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Repos.Passkeys.Add(&repos.Passkey{UserID: u.ID, CredentialID: "abc", Credential: "{}", Name: "iPhone"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Repos.Settings.Set(nil, "lock_after_minutes", 0); err != nil {
-		t.Fatal(err)
-	}
-	sess, _ := readSession(requestWith(c), a.Secret)
-	c.cookies[deviceLockCookie] = &http.Cookie{Name: deviceLockCookie, Value: encodeToken(a.Secret, "lock|"+u.ID)}
-	c.cookies[unlockCookie] = &http.Cookie{Name: unlockCookie, Value: encodeToken(a.Secret, fmt.Sprintf("unlock|%s|%d", sess.Nonce, time.Now().Add(-time.Hour).Unix()))}
-
-	if code := c.do("GET", "/api/v1/accounts", "", "").Code; code != 200 {
-		t.Fatalf("API with the old lock's cookies: %d", code)
-	}
-	if c.cookies[deviceLockCookie].MaxAge >= 0 || c.cookies[unlockCookie].MaxAge >= 0 {
-		t.Fatal("the old lock's cookies weren't cleared")
-	}
-	if code := c.do("GET", "/transactions", "", "").Code; code != 200 {
-		t.Fatalf("page: %d", code)
-	}
-	// Bookmarks and old pages that went to /unlock carry straight on.
-	rec := c.do("GET", "/unlock?next=%2Ftransactions%3Fq%3Dx", "", "")
-	if loc := rec.Header().Get("Location"); rec.Code != http.StatusFound || loc != "/transactions?q=x" {
-		t.Fatalf("/unlock: %d %q", rec.Code, loc)
-	}
-	if code := c.do("GET", "/settings", "", "").Code; code != 200 {
-		t.Fatalf("settings: %d", code)
-	}
-}
-
 // A session in use never runs out: once a day a request starts its time
-// over, keeping who it is and its CSRF token. Sessions from v1.0.0 (30 days)
-// are lengthened the same way.
+// over, keeping who it is and its CSRF token.
 func TestSessionRenews(t *testing.T) {
 	a, c := newLockTestApp(t)
 	sess, ok := readSession(requestWith(c), a.Secret)
@@ -199,7 +160,7 @@ func TestTwoLetterUsername(t *testing.T) {
 func TestSafeNext(t *testing.T) {
 	for in, want := range map[string]string{
 		"/transactions?q=1": "/transactions?q=1", "": "/", "https://evil.example": "/",
-		"//evil.example": "/", "/\\evil.example": "/", "/unlock?next=/": "/",
+		"//evil.example": "/", "/\\evil.example": "/",
 	} {
 		if got := safeNext(in); got != want {
 			t.Errorf("safeNext(%q) = %q, want %q", in, got, want)

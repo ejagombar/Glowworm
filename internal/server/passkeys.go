@@ -22,16 +22,9 @@ import (
 // manager, a security key) and is opened there with Face ID, a fingerprint
 // or the device's PIN; Glowworm only stores the public half. Signing in with
 // one gives the same long-lived session as the password does.
-//
-// Earlier versions used passkeys to lock the app after a time away. That
-// lock is gone: its cookies are cleared when a browser still sends them, its
-// lock_after_minutes setting is left unread, and /unlock goes straight on.
 const (
 	ceremonyCookie = "glowworm_webauthn"
 	ceremonyTTL    = 5 * time.Minute
-	// The old app lock's cookies, cleared wherever they turn up.
-	deviceLockCookie = "glowworm_lock"
-	unlockCookie     = "glowworm_unlock"
 )
 
 func setCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAge int) {
@@ -41,28 +34,12 @@ func setCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAg
 	})
 }
 
-// clearLockCookies drops the old app lock's cookies from a browser that
-// still has them.
-func clearLockCookies(w http.ResponseWriter, r *http.Request) {
-	for _, name := range []string{deviceLockCookie, unlockCookie} {
-		if _, err := r.Cookie(name); err == nil {
-			setCookie(w, r, name, "", -1)
-		}
-	}
-}
-
 // safeNext is a local path to go on to.
 func safeNext(next string) string {
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") ||
-		strings.HasPrefix(next, "/unlock") {
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") {
 		return "/"
 	}
 	return next
-}
-
-// handleUnlockPage keeps old /unlock links (from the app lock) working.
-func (a *App) handleUnlockPage(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusFound)
 }
 
 // ---- WebAuthn

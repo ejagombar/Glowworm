@@ -128,26 +128,18 @@ func (r *Settings) Set(tx *sql.Tx, key string, value any) error {
 
 type AIConfig struct{ DB *store.DB }
 
-type AIConfigRow struct {
-	Provider  string
-	Models    map[string]string
-	BaseURL   string
-	KeyCipher string
-}
-
-func (r *AIConfig) Get() (*AIConfigRow, error) {
-	var row AIConfigRow
+// Models is the model chosen for each role, and each one's provider under
+// "<role>_provider".
+func (r *AIConfig) Models() (map[string]string, error) {
 	var models string
-	err := r.DB.QueryRow(`SELECT provider, models, base_url, key_cipher FROM ai_provider_config WHERE id = 1`).
-		Scan(&row.Provider, &models, &row.BaseURL, &row.KeyCipher)
-	if err != nil {
+	if err := r.DB.QueryRow(`SELECT models FROM ai_provider_config WHERE id = 1`).Scan(&models); err != nil {
 		return nil, err
 	}
-	row.Models = map[string]string{}
+	out := map[string]string{}
 	if models != "" {
-		_ = json.Unmarshal([]byte(models), &row.Models)
+		_ = json.Unmarshal([]byte(models), &out)
 	}
-	return &row, nil
+	return out, nil
 }
 
 // SetModels saves the model chosen for each role, and each one's provider

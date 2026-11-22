@@ -5,7 +5,7 @@ import (
 	"github.com/ejagombar/Glowworm/internal/util"
 )
 
-// Passkey is a passkey that unlocks Glowworm. Credential is the go-webauthn
+// Passkey is a passkey that signs in to Glowworm. Credential is the go-webauthn
 // Credential as JSON; this package doesn't look inside it.
 type Passkey struct {
 	ID           string

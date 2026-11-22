@@ -13,8 +13,8 @@ CREATE TABLE users (
   updated_at    TEXT NOT NULL
 );
 
--- Passkeys (Face ID, Touch ID and the like) that unlock Glowworm on a
--- device that has its lock turned on. credential is the go-webauthn
+-- Passkeys (Face ID, Touch ID and the like) that sign in instead of the
+-- password. credential is the go-webauthn
 -- Credential as JSON: the public key, sign count and flags.
 CREATE TABLE passkeys (
   id             TEXT PRIMARY KEY,
@@ -102,7 +102,10 @@ CREATE TABLE transactions (
   updated_at          TEXT NOT NULL,
   deleted_at          TEXT
 );
-CREATE INDEX idx_tx_account_date ON transactions(account_id, date DESC);
+-- Balances, per-account counts and the per-day sums behind the charts read
+-- (account, date, deleted, amount, type) and nothing else, so SQLite answers
+-- them from the index alone instead of visiting every transaction row.
+CREATE INDEX idx_tx_account_date ON transactions(account_id, date DESC, deleted_at, amount_minor, type);
 CREATE INDEX idx_tx_category ON transactions(category_id);
 CREATE INDEX idx_tx_recurring ON transactions(recurring_key) WHERE recurring_key IS NOT NULL;
 CREATE INDEX idx_tx_transfer ON transactions(transfer_id) WHERE transfer_id IS NOT NULL;
@@ -308,13 +311,21 @@ CREATE TABLE ai_calls (
   created_at        TEXT NOT NULL
 );
 
+-- The model chosen for each role, and under "<role>_provider" which
+-- provider it's from.
 CREATE TABLE ai_provider_config (
   id             INTEGER PRIMARY KEY CHECK (id = 1),
-  provider       TEXT NOT NULL DEFAULT '',
   models         TEXT NOT NULL DEFAULT '{}',
-  base_url       TEXT NOT NULL DEFAULT '',
-  key_cipher     TEXT NOT NULL DEFAULT '',
   updated_at     TEXT NOT NULL
+);
+
+-- Several AI providers can be connected at once, each with its own key and
+-- endpoint.
+CREATE TABLE ai_provider_keys (
+  provider    TEXT PRIMARY KEY,
+  key_cipher  TEXT NOT NULL DEFAULT '',
+  base_url    TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL
 );
 
 CREATE TABLE import_files (
@@ -340,6 +351,51 @@ CREATE TABLE account_archives (
 );
 CREATE INDEX idx_account_archives_deleted ON account_archives(deleted_at DESC);
 
+-- One row per device that allowed notifications. The endpoint is the push
+-- service's URL for that device; p256dh and auth are its keys.
+CREATE TABLE push_subscriptions (
+  id            TEXT PRIMARY KEY,
+  endpoint      TEXT NOT NULL UNIQUE,
+  p256dh        TEXT NOT NULL,
+  auth          TEXT NOT NULL,
+  label         TEXT NOT NULL DEFAULT '',
+  origin        TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  last_sent_at  TEXT,
+  last_error    TEXT NOT NULL DEFAULT ''
+);
+
+-- When each account was last reminded about, so a reminder isn't repeated
+-- every day.
+CREATE TABLE reminder_state (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  last_sent_at  TEXT NOT NULL
+);
+
+-- ledger_version counts changes to everything balances over time are
+-- worked out from, so the app can keep what it worked out until the count
+-- moves. Triggers bump it, so every writer counts: requests, imports,
+-- background jobs and undo alike.
+CREATE TABLE ledger_version (
+  id  INTEGER PRIMARY KEY CHECK (id = 1),
+  n   INTEGER NOT NULL
+);
+INSERT INTO ledger_version (id, n) VALUES (1, 0);
+
+CREATE TRIGGER ledger_tx_ins AFTER INSERT ON transactions BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_tx_upd AFTER UPDATE ON transactions BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_tx_del AFTER DELETE ON transactions BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_val_ins AFTER INSERT ON valuations BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_val_upd AFTER UPDATE ON valuations BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_val_del AFTER DELETE ON valuations BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_acc_ins AFTER INSERT ON accounts BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_acc_upd AFTER UPDATE ON accounts BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_acc_del AFTER DELETE ON accounts BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_set_ins AFTER INSERT ON settings WHEN NEW.key = 'reminder_default_days'
+  BEGIN UPDATE ledger_version SET n = n + 1; END;
+CREATE TRIGGER ledger_set_upd AFTER UPDATE ON settings WHEN NEW.key = 'reminder_default_days'
+  BEGIN UPDATE ledger_version SET n = n + 1; END;
+
 INSERT INTO categories (id, name, color, type, is_system, sort_order, created_at, updated_at) VALUES
   ('c-system-income',    'Income',            '#0e7a4d', 'income',   1, 0, '1970-01-01T00:00:00Z', '1970-01-01T00:00:00Z'),
   ('c-system-internal',  'Internal transfer', '#2e9d8f', 'internal', 1, 0, '1970-01-01T00:00:00Z', '1970-01-01T00:00:00Z');
@@ -359,5 +415,5 @@ INSERT INTO settings (key, value, updated_at) VALUES
 INSERT INTO audit_paths (id, parent_path_id, fork_entry_id, label, is_active, created_at) VALUES
   ('main', NULL, NULL, 'Main', 1, '1970-01-01T00:00:00Z');
 
-INSERT INTO ai_provider_config (id, provider, models, base_url, key_cipher, updated_at) VALUES
-  (1, '', '{}', '', '', '1970-01-01T00:00:00Z');
+INSERT INTO ai_provider_config (id, models, updated_at) VALUES
+  (1, '{}', '1970-01-01T00:00:00Z');

@@ -274,7 +274,6 @@ func (a *App) Router() http.Handler {
 	mux.HandleFunc("POST /login/passkey/begin", a.handlePasskeyLoginBegin)
 	mux.HandleFunc("POST /login/passkey/finish", a.handlePasskeyLoginFinish)
 	mux.HandleFunc("POST /logout", a.handleLogout)
-	mux.HandleFunc("GET /unlock", a.handleUnlockPage)
 	mux.HandleFunc("GET /setup", a.handleSetupPage)
 	mux.HandleFunc("POST /setup", a.handleSetupSubmit)
 
@@ -414,7 +413,6 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 				return
 			}
 		}
-		clearLockCookies(w, r)
 		renewSession(w, r, a.Secret, sess)
 		next.ServeHTTP(w, r)
 	})

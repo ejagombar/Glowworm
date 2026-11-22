@@ -98,7 +98,7 @@ func renewSession(w http.ResponseWriter, r *http.Request, secret *crypto.Secret,
 
 func clearSession(w http.ResponseWriter, r *http.Request) {
 	secure := isTLS(r)
-	for _, name := range []string{sessionCookie, csrfCookie, unlockCookie, deviceLockCookie} {
+	for _, name := range []string{sessionCookie, csrfCookie} {
 		http.SetCookie(w, &http.Cookie{
 			Name: name, Value: "", Path: "/", HttpOnly: name == sessionCookie,
 			Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: -1,

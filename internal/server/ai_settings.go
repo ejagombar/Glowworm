@@ -34,7 +34,7 @@ type aiSetup struct {
 }
 
 func loadAISetup(r *repos.AIConfig) (*aiSetup, error) {
-	row, err := r.Get()
+	models, err := r.Models()
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func loadAISetup(r *repos.AIConfig) (*aiSetup, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &aiSetup{keys: keys, models: row.Models}, nil
+	return &aiSetup{keys: keys, models: models}, nil
 }
 
 // connected lists the connected providers in menu order.
