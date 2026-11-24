@@ -90,10 +90,17 @@ jobs:
           # releases/latest/download/install.sh is the one-line install.
           cp deploy/install.sh dist/
 
+      # A re-run (say, after a failed deploy) finds the release already
+      # there: replace its files instead of failing before the deploy.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" dist/* --title "$TAG" --generate-notes --verify-tag
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes --verify-tag
+          fi
 
       - name: Set up SSH
         run: |
